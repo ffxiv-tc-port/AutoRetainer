@@ -56,13 +56,14 @@ internal static unsafe class GCContinuation
 
     internal static bool SetVenturesExchangeAmount(int amount)
     {
-        if(TryGetAddonByName<AtkUnitBase>("ShopExchangeCurrencyDialog", out var addon) && IsAddonReady(addon) && TryGetAddonByName<AtkUnitBase>("GrandCompanyExchange", out var gca) && IsAddonReady(gca))
+        if(TryGetAddonByName<AtkUnitBase>("ShopExchangeCurrencyDialog", out var addon) && IsAddonReady(addon))
         {
-            var num = GenericHelpers.ReadSeString(&gca->UldManager.NodeList[52]->GetAsAtkTextNode()->NodeText).GetText().Replace(" ", "").Replace(",", "").Replace(".", "").ParseInt();
-            if(num != null && EzThrottler.Throttle("GC SetMaxVenturesExchange"))
+            if(EzThrottler.Throttle("GC SetMaxVenturesExchange"))
             {
                 var numeric = (AtkComponentNumericInput*)addon->UldManager.NodeList[8]->GetComponent();
-                var set = Math.Min(amount, (int)(num.Value / 200));
+                var sealsPer = Utils.GetCurrentlyAvailableSharedExchangeListings().SafeSelect(VentureItem)?.Seals ?? 200u;
+                var maxBySeals = sealsPer > 0 ? (int)(GetAdjustedSeals() / sealsPer) : amount;
+                var set = Math.Min(amount, maxBySeals);
                 if(set < 1) throw new Exception($"Venture amount is too low, is {set}, expected 1 or more");
                 PluginLog.Debug($"Setting {set} ventures");
                 numeric->SetValue((int)set);
@@ -456,7 +457,13 @@ internal static unsafe class GCContinuation
         }
         tasks.Add(new(ConfirmExchange, conf));
         tasks.Add(new(() => AutoGCHandin.GetSeals() < sealsCount, conf));
-        tasks.Add(new(() => exchangeItem.QuantitySingleTime = (int)Math.Max(0, exchangeItem.QuantitySingleTime - itemCount)));
+        tasks.Add(new(() =>
+        {
+            var newSeals = AutoGCHandin.GetSeals();
+            var spent = sealsCount > newSeals ? sealsCount - newSeals : 0u;
+            var purchased = listing.Seals > 0 ? spent / listing.Seals : 0u;
+            exchangeItem.QuantitySingleTime = (int)Math.Max(0, exchangeItem.QuantitySingleTime - purchased);
+        }, conf));
         tasks.Add(new FrameDelayTask(4));
         tasks.Add(new(BeginNewPurchase));
         P.TaskManager.InsertMulti([.. tasks]);
