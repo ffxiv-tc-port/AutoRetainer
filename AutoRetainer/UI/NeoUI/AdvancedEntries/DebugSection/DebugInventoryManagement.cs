@@ -70,7 +70,7 @@ public unsafe class DebugInventoryManagement : DebugSectionBase
                     if(ImGuiEx.Shift) Whitelist.Remove(x);
                 }
             }
-            if(ImGui.Button("Copy")) Copy(Whitelist.Print());
+            if(ImGui.Button(Loc.T("Copy"))) Copy(Whitelist.Print());
         }
     }
 

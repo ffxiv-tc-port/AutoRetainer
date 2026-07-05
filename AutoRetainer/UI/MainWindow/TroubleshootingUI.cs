@@ -95,14 +95,14 @@ public static unsafe class TroubleshootingUI
 
         if(C.NoTeleportHetWhenNextToBell)
         {
-            Warning("Teleporting or entering house/apartment is disabled when character is next to retainer bell. Pay attention to house demolition timer.");
+            Warning(Loc.T("Teleporting or entering house/apartment is disabled when character is next to retainer bell. Pay attention to house demolition timer."));
         }
 
 
 
         if(C.AllowSimpleTeleport)
         {
-            Warning("Simple Teleport option is enabled. It's less reliable than registering your houses with Lifestream. If you are experiencing issues with teleportation, consider disabling this option and registering your property with Lifestream.");
+            Warning(Loc.T("Simple Teleport option is enabled. It's less reliable than registering your houses with Lifestream. If you are experiencing issues with teleportation, consider disabling this option and registering your property with Lifestream."));
         }
 
         if(!C.EnableEntrustManager && C.AdditionalData.Any(x => x.Value.EntrustPlan != Guid.Empty))
@@ -112,27 +112,27 @@ public static unsafe class TroubleshootingUI
 
         if(C.ExtraDebug)
         {
-            Info("Extra logging option active. It will spam your log. Only use it when collecting debug information.");
+            Info(Loc.T("Extra logging option active. It will spam your log. Only use it when collecting debug information."));
         }
 
         if(C.UnsyncCompensation > -5)
         {
-            Warning("Time Desynchronization Compensation is set too high (>-5). This may cause issues.");
+            Warning(Loc.T("Time Desynchronization Compensation is set too high (>-5). This may cause issues."));
         }
 
         if(UIUtils.GetFPSFromMSPT(C.TargetMSPTIdle) < 10)
         {
-            Warning("Your target frame rate when idling is set too low (<10). This may cause issues.");
+            Warning(Loc.T("Your target frame rate when idling is set too low (<10). This may cause issues."));
         }
 
         if(UIUtils.GetFPSFromMSPT(C.TargetMSPTRunning) < 20)
         {
-            Warning("Your target frame rate when operating is set too low (<20). This may cause issues.");
+            Warning(Loc.T("Your target frame rate when operating is set too low (<20). This may cause issues."));
         }
 
         if(Data?.GetIMSettings().AllowSellFromArmory == true)
         {
-            Info("Allow selling items from Armory Chest is enabled. Make sure to add your savage gear and ultimate weapons to protection list.");
+            Info(Loc.T("Allow selling items from Armory Chest is enabled. Make sure to add your savage gear and ultimate weapons to protection list."));
         }
 
         {
@@ -172,39 +172,39 @@ public static unsafe class TroubleshootingUI
 
         if(C.OfflineData.Any(x => x.MultiWaitForAllDeployables))
         {
-            Info("Some characters have \"Wait For All Pending Deployables\" option enabled. This means that for these characters AutoRetainer will wait for all deployables to return before processing them. Hover to see complete list of characters with enabled option.", C.OfflineData.Where(x => x.MultiWaitForAllDeployables).Select(x => $"{x.Name}@{x.World}").Print("\n"));
+            Info(Loc.T("Some characters have \"Wait For All Pending Deployables\" option enabled. This means that for these characters AutoRetainer will wait for all deployables to return before processing them. Hover to see complete list of characters with enabled option."), C.OfflineData.Where(x => x.MultiWaitForAllDeployables).Select(x => $"{x.Name}@{x.World}").Print("\n"));
         }
 
         if(C.MultiModeWorkshopConfiguration.MultiWaitForAll)
         {
-            Info("Global option \"Wait For Venture Completion\" is enabled. This means that for all characters AutoRetainer will wait for all deployables to return before processing them, even for these whose per-character option is disabled.");
+            Info(Loc.T("Global option \"Wait For Venture Completion\" is enabled. This means that for all characters AutoRetainer will wait for all deployables to return before processing them, even for these whose per-character option is disabled."));
         }
 
         if(C.MultiModeWorkshopConfiguration.WaitForAllLoggedIn)
         {
-            Info("Option \"Wait even when already logged in\" is enabled for deployables. This means that AutoRetainer will wait for all deployables on a character to be completed before processing them even when you are logged in.");
+            Info(Loc.T("Option \"Wait even when already logged in\" is enabled for deployables. This means that AutoRetainer will wait for all deployables on a character to be completed before processing them even when you are logged in."));
         }
 
         if(C.DisableRetainerVesselReturn > 0)
         {
             if(C.DisableRetainerVesselReturn > 10)
             {
-                Warning("Option \"Retainer venture processing cutoff\" is set to abnormally high value. You may experience significant delays with resending retainers when deployables are soon to be available.");
+                Warning(Loc.T("Option \"Retainer venture processing cutoff\" is set to abnormally high value. You may experience significant delays with resending retainers when deployables are soon to be available."));
             }
             else
             {
-                Info("Option \"Retainer venture processing cutoff\" is enabled. You may experience delays with resending retainers when deployables are soon to be available.");
+                Info(Loc.T("Option \"Retainer venture processing cutoff\" is enabled. You may experience delays with resending retainers when deployables are soon to be available."));
             }
         }
 
         if(C.MultiModeRetainerConfiguration.MultiWaitForAll)
         {
-            Info("Option \"Wait For Venture Completion\" is enabled. This means that AutoRetainer will wait for all ventures from all retainers on a character to be completed before logging in to process them.");
+            Info(Loc.T("Option \"Wait For Venture Completion\" is enabled. This means that AutoRetainer will wait for all ventures from all retainers on a character to be completed before logging in to process them."));
         }
 
         if(C.MultiModeRetainerConfiguration.WaitForAllLoggedIn)
         {
-            Info("Option \"Wait even when already logged in\" is enabled for retainers. This means that AutoRetainer will wait for all ventures from all retainers on a character to be completed before processing them even when you are logged in.");
+            Info(Loc.T("Option \"Wait even when already logged in\" is enabled for retainers. This means that AutoRetainer will wait for all ventures from all retainers on a character to be completed before processing them even when you are logged in."));
         }
 
         {
@@ -222,37 +222,37 @@ public static unsafe class TroubleshootingUI
             }
             if(manualList.Count > 0)
             {
-                Info("Some of your retainers have manual entrust plans set. These plans won't be processed automatically after resending retainer for venture, but only manually upon clicking button in overlay. Hover to see the list.", manualList.Print("\n"));
+                Info(Loc.T("Some of your retainers have manual entrust plans set. These plans won't be processed automatically after resending retainer for venture, but only manually upon clicking button in overlay. Hover to see the list."), manualList.Print("\n"));
             }
             if(deletedList.Count > 0)
             {
-                Warning("Some of your retainers' entrust plans were deleted before. Retainers with deleted entrust plans will not entrust anything. Hover to see list.", deletedList.Print("\n"));
+                Warning(Loc.T("Some of your retainers' entrust plans were deleted before. Retainers with deleted entrust plans will not entrust anything. Hover to see list."), deletedList.Print("\n"));
             }
         }
 
         if(C.No2ndInstanceNotify)
         {
-            Info("You have \"Do not warn about second game instance running from same directory\" option enabled, which will skip AutoRetainer's loading on 2nd instance of the game running with the same Dalamud directory automatically.");
+            Info(Loc.T("You have \"Do not warn about second game instance running from same directory\" option enabled, which will skip AutoRetainer's loading on 2nd instance of the game running with the same Dalamud directory automatically."));
         }
 
         if(Svc.PluginInterface.InstalledPlugins.Any(x => x.InternalName == "SimpleTweaksPlugin" && x.IsLoaded))
         {
-            Info("Simple Tweaks plugin detected. Any tweaks related to retainers or submarines may affect AutoRetainer functions negatively. Please ensure that tweaks are configured in a way to not interfere with AutoRetainer functions.");
+            Info(Loc.T("Simple Tweaks plugin detected. Any tweaks related to retainers or submarines may affect AutoRetainer functions negatively. Please ensure that tweaks are configured in a way to not interfere with AutoRetainer functions."));
         }
 
         if(Svc.PluginInterface.InstalledPlugins.Any(x => x.InternalName == "PandorasBox" && x.IsLoaded))
         {
-            Info("Pandora's Box plugin detected. Automatic use of actions while AutoRetainer is enabled may affect AutoRetainer functions negatively. Please ensure that Pandora's Box is configured in a way to not automatically use actions while AutoRetainer is active.");
+            Info(Loc.T("Pandora's Box plugin detected. Automatic use of actions while AutoRetainer is enabled may affect AutoRetainer functions negatively. Please ensure that Pandora's Box is configured in a way to not automatically use actions while AutoRetainer is active."));
         }
 
         if(Svc.PluginInterface.InstalledPlugins.Any(x => x.InternalName == "Automaton" && x.IsLoaded))
         {
-            Info("Automaton plugin detected. Automatic use of actions and automatic numeric inputs while AutoRetainer is enabled may affect AutoRetainer functions negatively. Please ensure that Automaton is configured in a way to not use automatically actions while AutoRetainer is active.");
+            Info(Loc.T("Automaton plugin detected. Automatic use of actions and automatic numeric inputs while AutoRetainer is enabled may affect AutoRetainer functions negatively. Please ensure that Automaton is configured in a way to not use automatically actions while AutoRetainer is active."));
         }
 
         if(Svc.PluginInterface.InstalledPlugins.Any(x => x.InternalName == "RotationSolver" && x.IsLoaded))
         {
-            Info("RotationSolver plugin detected. Automatic use of actions while AutoRetainer is enabled may affect AutoRetainer functions negatively. Please ensure that RotationSolver is configured in a way to not automatically use actions while AutoRetainer is active.");
+            Info(Loc.T("RotationSolver plugin detected. Automatic use of actions while AutoRetainer is enabled may affect AutoRetainer functions negatively. Please ensure that RotationSolver is configured in a way to not automatically use actions while AutoRetainer is active."));
         }
 
         if(Svc.PluginInterface.InstalledPlugins.Any(x => x.InternalName.StartsWith("BossMod") && x.IsLoaded))

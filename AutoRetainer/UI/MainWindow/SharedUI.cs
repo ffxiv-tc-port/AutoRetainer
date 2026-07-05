@@ -46,7 +46,7 @@ internal static class SharedUI
 
     internal static void DrawPreferredCharacterUI(OfflineCharacterData data)
     {
-        if(ImGui.Checkbox("Preferred Character", ref data.Preferred))
+        if(ImGui.Checkbox(Loc.T("Preferred Character"), ref data.Preferred))
         {
             foreach(var z in C.OfflineData)
             {
@@ -56,20 +56,20 @@ internal static class SharedUI
                 }
             }
         }
-        ImGuiComponents.HelpMarker("When operating in multi mode, if there are no other characters with imminent ventures to collect, it will relog back to your preferred character.");
+        ImGuiComponents.HelpMarker(Loc.T("When operating in multi mode, if there are no other characters with imminent ventures to collect, it will relog back to your preferred character."));
     }
 
     internal static void DrawExcludeReset(OfflineCharacterData data)
     {
-        new NuiBuilder().Section("Character Data Expunge/Reset", collapsible: true)
+        new NuiBuilder().Section(Loc.T("Character Data Expunge/Reset"), collapsible: true)
         .Widget(() =>
         {
-            if(ImGuiEx.ButtonCtrl("Exclude Character"))
+            if(ImGuiEx.ButtonCtrl(Loc.T("Exclude Character")))
             {
                 C.Blacklist.Add((data.CID, data.Name));
             }
-            ImGuiComponents.HelpMarker("Excluding this character will immediately reset it's settings, remove it from this list and exclude all retainers from being processed. You can still run manual tasks on it's retainers. You can cancel this action in settings.");
-            if(ImGuiEx.ButtonCtrl("Reset character data"))
+            ImGuiComponents.HelpMarker(Loc.T("Excluding this character will immediately reset it's settings, remove it from this list and exclude all retainers from being processed. You can still run manual tasks on it's retainers. You can cancel this action in settings."));
+            if(ImGuiEx.ButtonCtrl(Loc.T("Reset character data")))
             {
                 new TickScheduler(() => C.OfflineData.RemoveAll(x => x.CID == data.CID));
             }

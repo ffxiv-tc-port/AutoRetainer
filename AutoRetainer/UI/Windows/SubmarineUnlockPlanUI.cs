@@ -81,7 +81,7 @@ internal unsafe class SubmarineUnlockPlanUI : Window
     public override void Draw()
     {
         C.SubmarineUnlockPlans.RemoveAll(x => x.Delete);
-        ImGuiEx.InputWithRightButtonsArea("SUPSelector", () =>
+        ImGuiEx.InputWithRightButtonsArea(Loc.T("SUPSelector"), () =>
         {
             if(ImGui.BeginCombo("##supsel", SelectedPlanName, ImGuiComboFlags.HeightLarge))
             {
@@ -214,9 +214,9 @@ internal unsafe class SubmarineUnlockPlanUI : Window
                 ImGuiEx.HelpMarker("Any point selected for unlock in this map will be executed by every single eligible submarine until everything is actually unlocked");
                 if(ImGui.BeginTable("##planTable", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
                 {
-                    ImGui.TableSetupColumn("Zone", ImGuiTableColumnFlags.WidthStretch);
-                    ImGui.TableSetupColumn("Map");
-                    ImGui.TableSetupColumn("Unlocked by");
+                    ImGui.TableSetupColumn(Loc.T("Zone"), ImGuiTableColumnFlags.WidthStretch);
+                    ImGui.TableSetupColumn(Loc.T("Map"));
+                    ImGui.TableSetupColumn(Loc.T("Unlocked by"));
                     ImGui.TableHeadersRow();
                     foreach(var x in Unlocks.PointToUnlockPoint)
                     {

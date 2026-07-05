@@ -7,19 +7,19 @@ using System.Threading.Tasks;
 namespace AutoRetainer.UI.NeoUI;
 public sealed unsafe class UserInterface : NeoUIEntry
 {
-    public override string Path => "User Interface";
+    public override string Path => Loc.T("User Interface");
 
     public override NuiBuilder Builder => new NuiBuilder()
 
-        .Section("User Interface")
-        .Checkbox("Anonymise Retainers", () => ref C.NoNames, "Retainer names will be redacted from general UI elements. They will not be hidden in debug menus and plugin logs however. While this option is on, character and retainer numbers are not guaranteed to be equal in different sections of a plugin (for example, retainer 1 in retainers view is not guaranteed to be the same retainer as in statistics view).")
-        .Checkbox("Display Quick Menu in Retainer UI", () => ref C.UIBar)
-        .Checkbox("Display Extended Retainer Info", () => ref C.ShowAdditionalInfo, "Displays retainer item level/gathering/perception and the name of their current venture in the main UI.")
-        .Widget("Do not close AutoRetainer windows on ESC key press", (x) =>
+        .Section(Loc.T("User Interface"))
+        .Checkbox(Loc.T("Anonymise Retainers"), () => ref C.NoNames, Loc.T("Retainer names will be redacted from general UI elements. They will not be hidden in debug menus and plugin logs however. While this option is on, character and retainer numbers are not guaranteed to be equal in different sections of a plugin (for example, retainer 1 in retainers view is not guaranteed to be the same retainer as in statistics view)."))
+        .Checkbox(Loc.T("Display Quick Menu in Retainer UI"), () => ref C.UIBar)
+        .Checkbox(Loc.T("Display Extended Retainer Info"), () => ref C.ShowAdditionalInfo, Loc.T("Displays retainer item level/gathering/perception and the name of their current venture in the main UI."))
+        .Widget(Loc.T("Do not close AutoRetainer windows on ESC key press"), (x) =>
         {
             if(ImGui.Checkbox(x, ref C.IgnoreEsc)) Utils.ResetEscIgnoreByWindows();
         })
-        .Checkbox("Display only most significant icon in status bar", () => ref C.StatusBarMSI)
+        .Checkbox(Loc.T("Display only most significant icon in status bar"), () => ref C.StatusBarMSI)
         .SliderInt(120f, "Status bar icon size", () => ref C.StatusBarIconWidth, 32, 128)
         .Checkbox("Open AutoRetainer window on game start", () => ref C.DisplayOnStart)
         .Checkbox("Skip item sell/trade confirmation while plugin is active", () => ref C.SkipItemConfirmations)
@@ -33,9 +33,9 @@ public sealed unsafe class UserInterface : NeoUIEntry
         .TextWrapped("This is purely visual order and does not affects character processing in any way.")
         .Widget(() => UIUtils.DrawSortableEnumList("rorder", C.RetainersVisualOrders))
 
-        .Section("Character sorting in Deployables tab")
-        .Checkbox("Enable", () => ref C.EnableDeployablesSort)
-        .TextWrapped("This is purely visual order and does not affects character processing in any way.")
+        .Section(Loc.T("Character sorting in Deployables tab"))
+        .Checkbox(Loc.T("Enable"), () => ref C.EnableDeployablesSort)
+        .TextWrapped(Loc.T("This is purely visual order and does not affects character processing in any way."))
         .Widget(() => UIUtils.DrawSortableEnumList("dorder", C.DeployablesVisualOrders));
 
 

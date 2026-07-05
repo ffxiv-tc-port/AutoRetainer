@@ -157,36 +157,36 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
             if(ReferenceEquals(plan, C.DefaultGCExchangePlan))
             {
                 ImGui.BeginDisabled();
-                var s = "Default exchange plan can not be renamed";
+                var s = Loc.T("Default exchange plan can not be renamed");
                 ImGui.InputText("##name", ref s, 1);
                 ImGui.EndDisabled();
             }
             else
             {
-                ImGui.InputTextWithHint($"##name", "Name", ref plan.Name, 100);
-                ImGuiEx.Tooltip("Exchange plan name");
+                ImGui.InputTextWithHint($"##name", Loc.T("Name"), ref plan.Name, 100);
+                ImGuiEx.Tooltip(Loc.T("Exchange plan name"));
             }
         }, () =>
         {
             ImGui.SetNextItemWidth(100f);
-            ImGui.InputInt("Seals to keep", ref plan.RemainingSeals.ValidateRange(0, 70000), 0, 0);
+            ImGui.InputInt(Loc.T("Seals to keep"), ref plan.RemainingSeals.ValidateRange(0, 70000), 0, 0);
             ImGuiEx.HelpMarker($"This amount of seals will be kept after purchase list is executed. However, this value will be capped to be no more than 20000 seals less than maximum possible, according to character's rank. ");
             ImGui.SameLine();
-            ImGui.Checkbox("Finish by purchasing items", ref plan.FinalizeByPurchasing);
-            ImGuiEx.HelpMarker("If selected, after final exchange items will be purchased, otherwise - purchase will not be made until seals are capped again.");
+            ImGui.Checkbox(Loc.T("Finish by purchasing items"), ref plan.FinalizeByPurchasing);
+            ImGuiEx.HelpMarker(Loc.T("If selected, after final exchange items will be purchased, otherwise - purchase will not be made until seals are capped again."));
         });
 
         ImGuiEx.SetNextItemFullWidth();
-        if(ImGui.BeginCombo("##Add Items", "Add Items", ImGuiComboFlags.HeightLarge))
+        if(ImGui.BeginCombo("##Add Items", Loc.T("Add Items"), ImGuiComboFlags.HeightLarge))
         {
             ImGuiEx.InputWithRightButtonsArea(() =>
             {
-                ImGui.InputTextWithHint("##filter2", "Search...", ref getFilter2(), 100);
+                ImGui.InputTextWithHint("##filter2", Loc.T("Search..."), ref getFilter2(), 100);
             }, () =>
             {
                 ImGui.SetNextItemWidth(100f);
-                ImGuiEx.EnumCombo("##cat2", ref SelectedCategory2, nullName: "All Categories");
-                ImGuiEx.Tooltip("Category");
+                ImGuiEx.EnumCombo("##cat2", ref SelectedCategory2, nullName: Loc.T("All Categories"));
+                ImGuiEx.Tooltip(Loc.T("Category"));
             });
             foreach(var x in Utils.SharedGCExchangeListings)
             {
@@ -211,7 +211,7 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
         }
         if(ImGui.BeginPopup("Ex"))
         {
-            if(ImGui.Selectable("Fill weapons and armor purchases optimally for extra FC points"))
+            if(ImGui.Selectable(Loc.T("Fill weapons and armor purchases optimally for extra FC points")))
             {
                 List<GCExchangeItem> items = [];
                 var qualifyingItems = Utils.SharedGCExchangeListings.Where(x => (x.Value.Category == GCExchangeCategoryTab.Weapons || x.Value.Category == GCExchangeCategoryTab.Armor) && x.Value.Data.GetRarity() == ItemRarity.Green).ToDictionary();
@@ -227,8 +227,8 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
                     x.Quantity = Utils.SharedGCExchangeListings[x.ItemID].Data.IsUnique ? 1 : 999;
                 }
             }
-            ImGuiEx.Tooltip("Select this option to fill in your plan with all purchaseable weapons and gear items. By doing so, weapons and items will be purchased and handed right back to the Grand Company, maximizing amount of generated Free Company points. All these items will be placed at the end of the list and only purchased if nothing else is available.");
-            if(ImGui.Selectable("Add all missing items"))
+            ImGuiEx.Tooltip(Loc.T("Select this option to fill in your plan with all purchaseable weapons and gear items. By doing so, weapons and items will be purchased and handed right back to the Grand Company, maximizing amount of generated Free Company points. All these items will be placed at the end of the list and only purchased if nothing else is available."));
+            if(ImGui.Selectable(Loc.T("Add all missing items")))
             {
                 foreach(var x in Utils.SharedGCExchangeListings)
                 {
@@ -238,16 +238,16 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
                     }
                 }
             }
-            if(ImGui.Selectable("Reset quantities to 0"))
+            if(ImGui.Selectable(Loc.T("Reset quantities to 0")))
             {
                 plan.Items.Each(x => x.Quantity = 0);
                 plan.Items.Each(x => x.QuantitySingleTime = 0);
             }
-            if(ImGui.Selectable("Remove 0-quantity items"))
+            if(ImGui.Selectable(Loc.T("Remove 0-quantity items")))
             {
                 plan.Items.RemoveAll(x => x.Quantity == 0 && x.QuantitySingleTime == 0);
             }
-            if(ImGuiEx.Selectable("Clear the list (Hold CTRL and click)", enabled: ImGuiEx.Ctrl))
+            if(ImGuiEx.Selectable(Loc.T("Clear the list (Hold CTRL and click)"), enabled: ImGuiEx.Ctrl))
             {
                 plan.Items.Clear();
             }
@@ -260,20 +260,20 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
         ImGui.SameLine();
         ImGuiEx.InputWithRightButtonsArea("Fltr2", () =>
         {
-            ImGui.InputTextWithHint("##filter", "Search...", ref getFilter(), 100);
+            ImGui.InputTextWithHint("##filter", Loc.T("Search..."), ref getFilter(), 100);
         }, () =>
         {
-            ImGui.Checkbox("Only Selected", ref onlySelected());
+            ImGui.Checkbox(Loc.T("Only Selected"), ref onlySelected());
             ImGui.SameLine();
             ImGui.SetNextItemWidth(100f);
-            ImGuiEx.EnumCombo("##cat", ref SelectedCategory, nullName: "All Categories");
-            ImGuiEx.Tooltip("Category");
+            ImGuiEx.EnumCombo("##cat", ref SelectedCategory, nullName: Loc.T("All Categories"));
+            ImGuiEx.Tooltip(Loc.T("Category"));
         });
 
 
 
         DragDrop.Begin();
-        if(ImGuiEx.BeginDefaultTable("GCDeliveryList", ["##dragDrop", "~Item", "GC", "Lv", "Price", "Category", "Keep", "One-Time", "##controls"]))
+        if(ImGuiEx.BeginDefaultTable("GCDeliveryList", ["##dragDrop", "~Item", "GC", "Lv", "Price", Loc.T("Category"), "Keep", "One-Time", "##controls"]))
         {
             for(var i = 0; i < plan.Items.Count; i++)
             {
@@ -300,7 +300,7 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
                     });
                 }
                 ImGui.SameLine(0, 1);
-                ImGuiEx.Tooltip("Move to the top");
+                ImGuiEx.Tooltip(Loc.T("Move to the top"));
                 DragDrop.DrawButtonDummy(currentItem, plan.Items, i);
                 ImGui.TableNextColumn();
                 if(ThreadLoadImageHandler.TryGetIconTextureWrap(meta.Data.Icon, false, out var t))
@@ -347,7 +347,7 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
                     ImGui.SetNextItemWidth(100f.Scale());
                     ImGui.InputInt("##qty", ref currentItem.Quantity.ValidateRange(0, int.MaxValue), 0, 0);
                 }
-                ImGuiEx.Tooltip("Select amount of items to keep in your inventory");
+                ImGuiEx.Tooltip(Loc.T("Select amount of items to keep in your inventory"));
                 ImGui.TableNextColumn();
                 ImGui.SetNextItemWidth(100f.Scale());
                 ImGui.InputInt("##qtyonetime", ref currentItem.QuantitySingleTime.ValidateRange(0, currentItem.Data.Value.IsUnique ? 1 : int.MaxValue), 0, 0);

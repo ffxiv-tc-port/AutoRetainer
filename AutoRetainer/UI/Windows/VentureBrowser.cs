@@ -77,7 +77,7 @@ internal class VentureBrowser : Window
             }
             ImGuiEx.InputWithRightButtonsArea("VBrowser", delegate
             {
-                ImGui.InputTextWithHint("##search", "Filter...", ref search, 100);
+                ImGui.InputTextWithHint("##search", Loc.T("Filter..."), ref search, 100);
             }, delegate
             {
                 ImGuiEx.TextV($"{Lang.CharLevel}:");

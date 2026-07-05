@@ -70,7 +70,7 @@ internal static class UIUtils
         if(!C.NoCharaSearch)
         {
             ImGuiEx.SetNextItemFullWidth();
-            ImGui.InputTextWithHint("##search", "Search characters...", ref Ref<string>.Get("SearchChara"), 50);
+            ImGui.InputTextWithHint("##search", Loc.T("Search characters..."), ref Ref<string>.Get(Loc.T("SearchChara")), 50);
         }
     }
 
@@ -81,7 +81,7 @@ internal static class UIUtils
             ImGui.PushFont(UiBuilder.IconFont);
             ImGuiEx.Text("\uf0ac");
             ImGui.PopFont();
-            if(ImGuiEx.HoveredAndClicked("Visiting another data center. Right click to clear this status.", ImGuiMouseButton.Right))
+            if(ImGuiEx.HoveredAndClicked(Loc.T("Visiting another data center. Right click to clear this status."), ImGuiMouseButton.Right))
             {
                 data.WorldOverride = null;
             }
@@ -99,11 +99,11 @@ internal static class UIUtils
             string error = null;
             if(data.FC == null)
             {
-                error = "Free company house is not registered in Lifestream";
+                error = Loc.T("Free company house is not registered in Lifestream");
             }
             else if(data.FC.PathToEntrance.Count == 0)
             {
-                error = "Free company house is registered in Lifestream but path to entrance is not set";
+                error = Loc.T("Free company house is registered in Lifestream but path to entrance is not set");
             }
             ImGui.PushFont(UiBuilder.IconFont);
             ImGuiEx.Text(error == null ? null : ImGuiColors.DalamudGrey3, "\uf1ad");
@@ -192,7 +192,7 @@ internal static class UIUtils
             P.quickSellItems.Toggle();
         }
         ImGui.SameLine();
-        ImGuiEx.Text("+ right click");
+        ImGuiEx.Text(Loc.T("+ right click"));
     }
 
     private static string KeyInputActive = null;
@@ -222,7 +222,7 @@ internal static class UIUtils
             }
             else
             {
-                if(ImGui.Selectable("Auto-detect new key", false, ImGuiSelectableFlags.DontClosePopups))
+                if(ImGui.Selectable(Loc.T("Auto-detect new key"), false, ImGuiSelectableFlags.DontClosePopups))
                 {
                     KeyInputActive = text;
                 }

@@ -123,6 +123,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
 
     public void Load()
     {
+        Loc.Load(Svc.ClientState.ClientLanguage);
         EzConfig.Migrate<Config>();
         config = EzConfig.Init<Config>();
 

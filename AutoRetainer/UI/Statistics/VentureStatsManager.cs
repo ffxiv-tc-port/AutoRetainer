@@ -21,12 +21,12 @@ public sealed class VentureStatsManager
         {
             Load();
         }
-        if(ImGui.Button("Reload"))
+        if(ImGui.Button(Loc.T("Reload")))
         {
             Load();
         }
         ImGui.SameLine();
-        ImGui.Checkbox("Show HQ and non-HQ together", ref C.StatsUnifyHQ);
+        ImGui.Checkbox(Loc.T("Show HQ and non-HQ together"), ref C.StatsUnifyHQ);
         ImGui.SameLine();
         ImGuiEx.SetNextItemFullWidth();
         ImGui.InputTextWithHint("##search", "Filter items...", ref Filter, 100);

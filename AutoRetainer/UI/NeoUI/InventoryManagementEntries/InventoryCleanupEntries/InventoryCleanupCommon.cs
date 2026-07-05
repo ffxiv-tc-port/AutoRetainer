@@ -36,7 +36,7 @@ public static unsafe class InventoryCleanupCommon
 
     public static NuiBuilder CreateCleanupHeaderBuilder()
     {
-        return new NuiBuilder().Section("Inventory Cleanup Plan Selection").Widget(DrawPlanSelector);
+        return new NuiBuilder().Section(Loc.T("Inventory Cleanup Plan Selection")).Widget(DrawPlanSelector);
     }
 
     public static void DrawPlanSelector()
@@ -127,7 +127,7 @@ public static unsafe class InventoryCleanupCommon
                     ImGui.SameLine();
                     ImGuiEx.Text(ImGuiColors.ParsedGreen, $"Used by current character");
                     ImGui.SameLine();
-                    if(ImGui.SmallButton("Unassign"))
+                    if(ImGui.SmallButton(Loc.T("Unassign")))
                     {
                         Data.InventoryCleanupPlan = Guid.Empty;
                     }
@@ -138,20 +138,20 @@ public static unsafe class InventoryCleanupCommon
                     ImGui.SameLine();
                     ImGuiEx.Text(ImGuiColors.DalamudOrange, $"Not used by current character");
                     ImGui.SameLine();
-                    if(ImGui.SmallButton("Assign"))
+                    if(ImGui.SmallButton(Loc.T("Assign")))
                     {
                         Data.InventoryCleanupPlan = selectedPlan.GUID;
                     }
                 }
             }
-            ImGuiEx.Text("Combine this plan's lists with default plan:");
+            ImGuiEx.Text(Loc.T("Combine this plan's lists with default plan:"));
             ImGui.Indent();
-            ImGui.Checkbox("Combine Quick Venture sell list", ref selectedPlan.AdditionModeSoftSellList);
-            ImGuiEx.HelpMarker("Items retrieved from quick ventures included into both this plan and default plan will be sold.");
-            ImGui.Checkbox("Combine Unconditional sell list", ref selectedPlan.AdditionModeHardSellList);
-            ImGuiEx.HelpMarker("Items included into both this plan and default plan will be sold. If included into both default and current plan, stack size bypass option from current plan will be honored. \"Maximum stack size to be sold\" option from current plan will override default plan's option. ");
-            ImGui.Checkbox("Combine Protection list", ref selectedPlan.AdditionModeProtectList);
-            ImGuiEx.HelpMarker("Items included into both this plan and default plan will not be sold automatically or exchanged to Grand Company, even if included into any lists.");
+            ImGui.Checkbox(Loc.T("Combine Quick Venture sell list"), ref selectedPlan.AdditionModeSoftSellList);
+            ImGuiEx.HelpMarker(Loc.T("Items retrieved from quick ventures included into both this plan and default plan will be sold."));
+            ImGui.Checkbox(Loc.T("Combine Unconditional sell list"), ref selectedPlan.AdditionModeHardSellList);
+            ImGuiEx.HelpMarker(Loc.T("Items included into both this plan and default plan will be sold. If included into both default and current plan, stack size bypass option from current plan will be honored. \"Maximum stack size to be sold\" option from current plan will override default plan's option. "));
+            ImGui.Checkbox(Loc.T("Combine Protection list"), ref selectedPlan.AdditionModeProtectList);
+            ImGuiEx.HelpMarker(Loc.T("Items included into both this plan and default plan will not be sold automatically or exchanged to Grand Company, even if included into any lists."));
             ImGui.Unindent();
         }
     }

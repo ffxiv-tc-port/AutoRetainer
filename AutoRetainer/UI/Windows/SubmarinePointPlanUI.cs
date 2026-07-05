@@ -28,7 +28,7 @@ internal unsafe class SubmarinePointPlanUI : Window
     public override void Draw()
     {
         C.SubmarinePointPlans.RemoveAll(x => x.Delete);
-        ImGuiEx.InputWithRightButtonsArea("SUPSelector", () =>
+        ImGuiEx.InputWithRightButtonsArea(Loc.T("SUPSelector"), () =>
         {
             if(ImGui.BeginCombo("##supsel", SelectedPlanName, ImGuiComboFlags.HeightLarge))
             {

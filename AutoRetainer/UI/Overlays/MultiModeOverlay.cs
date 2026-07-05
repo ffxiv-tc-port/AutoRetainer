@@ -98,7 +98,7 @@ internal class MultiModeOverlay : Window
                     {
                         SchedulerMain.CharacterPostProcessLocked = false;
                     }
-                    ImGui.SetTooltip("AutoRetainer is in postprocessing. \nLeft click - open AutoRetainer. \nRight click - abort.");
+                    ImGui.SetTooltip(Loc.T("AutoRetainer is in postprocessing. \nLeft click - open AutoRetainer. \nRight click - abort."));
                 }
             }
             else
@@ -124,7 +124,7 @@ internal class MultiModeOverlay : Window
                     {
                         P.TaskManager.Abort();
                     }
-                    ImGui.SetTooltip("AutoRetainer is processing tasks. \nLeft click - open AutoRetainer. \nRight click - abort.");
+                    ImGui.SetTooltip(Loc.T("AutoRetainer is processing tasks. \nLeft click - open AutoRetainer. \nRight click - abort."));
                 }
             }
             else
@@ -146,7 +146,7 @@ internal class MultiModeOverlay : Window
                     {
                         Svc.Commands.ProcessCommand("/ays");
                     }
-                    ImGui.SetTooltip("RetainerSense is active. \nLeft click - open AutoRetainer.");
+                    ImGui.SetTooltip(Loc.T("RetainerSense is active. \nLeft click - open AutoRetainer."));
                 }
                 var f = (float)(Environment.TickCount64 - P.LastMovementAt) / (float)C.RetainerSenseThreshold;
                 ImGui.ProgressBar(f, new(128, 10), "");
@@ -174,7 +174,7 @@ internal class MultiModeOverlay : Window
                     {
                         MultiMode.Enabled = false;
                     }
-                    ImGui.SetTooltip("MultiMode enabled. \nLeft click - open AutoRetainer. \nRight click - disable Multi Mode.");
+                    ImGui.SetTooltip(Loc.T("MultiMode enabled. \nLeft click - open AutoRetainer. \nRight click - disable Multi Mode."));
                 }
             }
             else
@@ -227,7 +227,7 @@ internal class MultiModeOverlay : Window
                     {
                         VoyageScheduler.Enabled = false;
                     }
-                    ImGui.SetTooltip("Submarine module enabled. \nLeft click - open AutoRetainer. \nRight click - disable submarine module.");
+                    ImGui.SetTooltip(Loc.T("Submarine module enabled. \nLeft click - open AutoRetainer. \nRight click - disable submarine module."));
                 }
             }
             else
@@ -253,7 +253,7 @@ internal class MultiModeOverlay : Window
                     {
                         SchedulerMain.DisablePlugin();
                     }
-                    ImGui.SetTooltip("AutoRetainer enabled. \nLeft click - open AutoRetainer. \nRight click - disable AutoRetainer.");
+                    ImGui.SetTooltip(Loc.T("AutoRetainer enabled. \nLeft click - open AutoRetainer. \nRight click - disable AutoRetainer."));
                 }
             }
             else
@@ -280,7 +280,7 @@ internal class MultiModeOverlay : Window
                     {
                         NotificationHandler.IsHidden = true;
                     }
-                    ImGui.SetTooltip("Some retainers completed their ventures. \nLeft click - open AutoRetainer;\nRight click - dismiss.");
+                    ImGui.SetTooltip(Loc.T("Some retainers completed their ventures. \nLeft click - open AutoRetainer;\nRight click - dismiss."));
                 }
             }
             else
@@ -292,14 +292,14 @@ internal class MultiModeOverlay : Window
         ImGui.Dummy(Vector2.One);
         if(Data != null && !C.OldStatusIcons)
         {
-            ImGuiEx.LineCentered("Status", delegate
+            ImGuiEx.LineCentered(Loc.T("Status"), delegate
             {
                 if(C.MultiModeWorkshopConfiguration.MultiWaitForAll)
                 {
                     if(ThreadLoadImageHandler.TryGetTextureWrap(Path.Combine(Svc.PluginInterface.AssemblyLocation.DirectoryName, "res", "wait.png"), out var t))
                     {
                         ImGui.Image(t.ImGuiHandle, StatusPanelSize / 2);
-                        ImGuiEx.Tooltip("Wait for all deployables is globally enabled.");
+                        ImGuiEx.Tooltip(Loc.T("Wait for all deployables is globally enabled."));
                     }
                     else
                     {
@@ -312,7 +312,7 @@ internal class MultiModeOverlay : Window
                     if(ThreadLoadImageHandler.TryGetTextureWrap(Path.Combine(Svc.PluginInterface.AssemblyLocation.DirectoryName, "res", "wait.png"), out var t))
                     {
                         ImGui.Image(t.ImGuiHandle, StatusPanelSize / 2);
-                        ImGuiEx.Tooltip("Wait for all deployables is enabled for this character.");
+                        ImGuiEx.Tooltip(Loc.T("Wait for all deployables is enabled for this character."));
                     }
                     else
                     {

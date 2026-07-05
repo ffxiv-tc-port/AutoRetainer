@@ -136,7 +136,7 @@ public sealed class VenturePlanner : Window
                 ImGui.NextColumn();
 
 
-                if(ImGui.Checkbox("Enable planner", ref adata.EnablePlanner))
+                if(ImGui.Checkbox(Loc.T("Enable planner"), ref adata.EnablePlanner))
                 {
                     if(adata.EnablePlanner)
                     {
@@ -147,7 +147,7 @@ public sealed class VenturePlanner : Window
                 if(C.SavedPlans.Count > 0)
                 {
                     ImGuiEx.SetNextItemFullWidth();
-                    if(ImGui.BeginCombo("##load", "Load saved plan...", ImGuiComboFlags.HeightLarge))
+                    if(ImGui.BeginCombo("##load", Loc.T("Load saved plan..."), ImGuiComboFlags.HeightLarge))
                     {
                         int? toRem = null;
                         for(var i = 0; i < C.SavedPlans.Count; i++)
@@ -165,7 +165,7 @@ public sealed class VenturePlanner : Window
                             }
                             if(ImGui.BeginPopup($"Context"))
                             {
-                                if(ImGui.Selectable("Delete plan"))
+                                if(ImGui.Selectable(Loc.T("Delete plan")))
                                 {
                                     toRem = i;
                                 }
@@ -186,13 +186,13 @@ public sealed class VenturePlanner : Window
                 if(adata.VenturePlan.List.Count > 0)
                 {
                     //ImGui.Separator();
-                    ImGuiEx.TextV("On plan completion:");
+                    ImGuiEx.TextV(Loc.T("On plan completion:"));
                     ImGui.SameLine();
                     ImGuiEx.SetNextItemFullWidth();
                     ImGuiEx.EnumCombo("##cBeh", ref adata.VenturePlan.PlanCompleteBehavior);
                     //ImGui.Separator();
                     var overwrite = C.SavedPlans.Any(x => x.Name == adata.VenturePlan.Name);
-                    ImGuiEx.InputWithRightButtonsArea("SavePlan", delegate
+                    ImGuiEx.InputWithRightButtonsArea(Loc.T("SavePlan"), delegate
                     {
                         if(overwrite) ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.DalamudYellow);
                         ImGui.InputTextWithHint("##name", "Enter plan name...", ref adata.VenturePlan.Name, 50);
@@ -213,10 +213,10 @@ public sealed class VenturePlanner : Window
                 }
 
                 ImGuiEx.SetNextItemFullWidth();
-                if(ImGui.BeginCombo("##addVenture", "Add venture...", ImGuiComboFlags.HeightLarge))
+                if(ImGui.BeginCombo("##addVenture", Loc.T("Add venture..."), ImGuiComboFlags.HeightLarge))
                 {
                     ImGuiEx.SetNextItemFullWidth();
-                    ImGui.InputTextWithHint("##search", "Filter...", ref search, 100);
+                    ImGui.InputTextWithHint("##search", Loc.T("Filter..."), ref search, 100);
                     ImGuiEx.TextV($"Level range:");
                     ImGui.SameLine();
                     ImGuiEx.SetNextItemWidthScaled(50f);

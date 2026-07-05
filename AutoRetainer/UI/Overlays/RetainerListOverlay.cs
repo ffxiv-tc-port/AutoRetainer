@@ -87,7 +87,7 @@ internal unsafe class RetainerListOverlay : Window
         {
             Svc.Commands.ProcessCommand("/ays");
         }
-        ImGuiEx.Tooltip("Open Plugin Settings");
+        ImGuiEx.Tooltip(Loc.T("Open Plugin Settings"));
         if(!P.TaskManager.IsBusy)
         {
             ImGui.SameLine();
@@ -149,10 +149,10 @@ internal unsafe class RetainerListOverlay : Window
                 }
                 if(ImGui.IsItemClicked(ImGuiMouseButton.Right))
                 {
-                    ImGui.OpenPopup("QuickVendorPopup");
+                    ImGui.OpenPopup(Loc.T("QuickVendorPopup"));
                 }
-                ImGuiEx.Tooltip("Quick Vendor Items");
-                if(ImGui.BeginPopup("QuickVendorPopup"))
+                ImGuiEx.Tooltip(Loc.T("Quick Vendor Items"));
+                if(ImGui.BeginPopup(Loc.T("QuickVendorPopup")))
                 {
                     if(ImGui.Selectable("Sell items from Quick Venture List"))
                     {

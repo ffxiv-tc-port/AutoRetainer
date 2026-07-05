@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace AutoRetainer.UI.NeoUI.InventoryManagementEntries.InventoryCleanupEntries;
 public sealed unsafe class CleanupCharacterConfiguration : InventoryManagemenrBase
 {
-    public override string Name { get; } = "Inventory Cleanup/Character Configuration";
+    public override string Name { get; } = Loc.T("Inventory Cleanup/Character Configuration");
 
     public override int DisplayPriority => -20;
 
@@ -15,8 +15,8 @@ public sealed unsafe class CleanupCharacterConfiguration : InventoryManagemenrBa
     {
         ImGuiEx.TextWrapped($"Here you can assign preconfigured inventory cleanup lists to your registered characters.");
         ImGuiEx.SetNextItemFullWidth();
-        ImGuiEx.FilteringInputTextWithHint("##search", "Search...", out var filter);
-        if(ImGuiEx.BeginDefaultTable(["~Character", "Plan"]))
+        ImGuiEx.FilteringInputTextWithHint("##search", Loc.T("Search..."), out var filter);
+        if(ImGuiEx.BeginDefaultTable(["~Character", Loc.T("Plan")]))
         {
             foreach(var characterData in C.OfflineData)
             {
@@ -28,9 +28,9 @@ public sealed unsafe class CleanupCharacterConfiguration : InventoryManagemenrBa
                 ImGui.TableNextColumn();
                 var plan = characterData.InventoryCleanupPlan == Guid.Empty ? null : C.AdditionalIMSettings.FirstOrDefault(p => p.GUID == characterData.InventoryCleanupPlan);
                 ImGui.SetNextItemWidth(200f);
-                if(ImGui.BeginCombo("##chPlan", plan?.DisplayName ?? "Default Plan", ImGuiComboFlags.HeightLarge))
+                if(ImGui.BeginCombo("##chPlan", plan?.DisplayName ?? Loc.T("Default Plan"), ImGuiComboFlags.HeightLarge))
                 {
-                    if(ImGui.Selectable("Default Plan", plan == null)) characterData.InventoryCleanupPlan = Guid.Empty;
+                    if(ImGui.Selectable(Loc.T("Default Plan"), plan == null)) characterData.InventoryCleanupPlan = Guid.Empty;
                     ImGui.Separator();
                     foreach(var cleanupPlan in C.AdditionalIMSettings)
                     {

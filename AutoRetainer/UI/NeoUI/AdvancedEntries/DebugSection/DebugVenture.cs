@@ -50,7 +50,7 @@ internal unsafe class DebugVenture : DebugSectionBase
         {
             RetainerHandlers.SelectSpecificVenture((uint)VentureID);
         }
-        if(ImGui.CollapsingHeader("Ventures"))
+        if(ImGui.CollapsingHeader(Loc.T("Ventures")))
         {
             var data = CSFramework.Instance()->UIModule->GetRaptureAtkModule()->AtkModule.GetStringArrayData(95);
             if(data != null)

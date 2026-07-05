@@ -66,9 +66,9 @@ public class DeployablesTab : NeoUIEntry
                 });
             }
         })
-        .Section("Mass configuration change")
+        .Section(Loc.T("Mass configuration change"))
         .Widget(MassConfigurationChangeWidget)
-        .Section("Registration, component and plan automation")
+        .Section(Loc.T("Registration, component and plan automation"))
         .Widget(AutomatedSubPlannerWidget);
     }
 
@@ -87,7 +87,7 @@ public class DeployablesTab : NeoUIEntry
         if(ImGui.BeginCombo($"##sel", $"Selected {SelectedVessels.Count}", ImGuiComboFlags.HeightLarge))
         {
             ref var search = ref Ref<string>.Get("Search");
-            ImGui.InputTextWithHint("##searchSubs", "Character search", ref search, 100);
+            ImGui.InputTextWithHint("##searchSubs", Loc.T("Character search"), ref search, 100);
             foreach(var x in C.OfflineData)
             {
                 if(x.ExcludeWorkshop) continue;
@@ -107,25 +107,25 @@ public class DeployablesTab : NeoUIEntry
             }
             ImGui.EndCombo();
         }
-        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf057', "Deselect All"))
+        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf057', Loc.T("Deselect All")))
         {
             SelectedVessels.Clear();
         }
         ImGui.SameLine();
-        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf055', "Select All"))
+        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf055', Loc.T("Select All")))
         {
             SelectedVessels.Clear();
             foreach(var x in C.OfflineData) foreach(var v in x.OfflineSubmarineData) SelectedVessels.Add((x.CID, v.Name));
         }
         ImGui.Separator();
-        ImGuiEx.TextV("By level:");
+        ImGuiEx.TextV(Loc.T("By level:"));
         ImGui.SameLine();
         ImGui.SetNextItemWidth(100f);
         ImGui.DragInt("##minlevel", ref MassMinLevel, 0.1f);
         ImGui.SameLine();
         ImGui.SetNextItemWidth(100f);
         ImGui.DragInt("##maxlevel", ref MassMaxLevel, 0.1f);
-        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Plus, "Add vessels by level to selection"))
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Plus, Loc.T("Add vessels by level to selection")))
         {
             foreach(var x in C.OfflineData)
             {
@@ -140,13 +140,13 @@ public class DeployablesTab : NeoUIEntry
             }
         }
         ImGui.Separator();
-        ImGuiEx.Text("Actions:");
+        ImGuiEx.Text(Loc.T("Actions:"));
 
         ImGui.Separator();
         ImGui.SetNextItemWidth(150f);
         ImGuiEx.EnumCombo("##behavior", ref MassBehavior);
         ImGui.SameLine();
-        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf018', "Set behavior"))
+        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf018', Loc.T("Set behavior")))
         {
             var num = 0;
             foreach(var x in SelectedVessels)
@@ -167,7 +167,7 @@ public class DeployablesTab : NeoUIEntry
         ImGui.SetNextItemWidth(150f);
         ImGuiEx.EnumCombo("##unlockmode", ref MassUnlockMode, Lang.UnlockModeNames);
         ImGui.SameLine();
-        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf09c', "Set unlock mode"))
+        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf09c', Loc.T("Set unlock mode")))
         {
             var num = 0;
             foreach(var x in SelectedVessels)
@@ -187,7 +187,7 @@ public class DeployablesTab : NeoUIEntry
         ImGui.Separator();
 
         ImGui.SetNextItemWidth(150f);
-        if(ImGui.BeginCombo("##uplan", "Unlock plan: " + (SelectedUnlockPlan?.Name ?? "not selected", ImGuiComboFlags.HeightLarge)))
+        if(ImGui.BeginCombo("##uplan", Loc.T("Unlock plan: ") + (SelectedUnlockPlan?.Name ?? Loc.T("not selected"), ImGuiComboFlags.HeightLarge)))
         {
             foreach(var plan in C.SubmarineUnlockPlans)
             {
@@ -199,7 +199,7 @@ public class DeployablesTab : NeoUIEntry
             ImGui.EndCombo();
         }
         ImGui.SameLine();
-        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf3c1', "Set unlock plan", SelectedUnlockPlan != null))
+        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf3c1', Loc.T("Set unlock plan"), SelectedUnlockPlan != null))
         {
             var num = 0;
             foreach(var x in SelectedVessels)
@@ -218,7 +218,7 @@ public class DeployablesTab : NeoUIEntry
         ImGui.Separator();
 
         ImGui.SetNextItemWidth(150f);
-        if(ImGui.BeginCombo("##uplan2", "Point plan: " + (VoyageUtils.GetPointPlanName(SelectedPointPlan) ?? "not selected"), ImGuiComboFlags.HeightLarge))
+        if(ImGui.BeginCombo("##uplan2", Loc.T("Point plan: ") + (VoyageUtils.GetPointPlanName(SelectedPointPlan) ?? Loc.T("not selected")), ImGuiComboFlags.HeightLarge))
         {
             foreach(var plan in C.SubmarinePointPlans)
             {
@@ -230,7 +230,7 @@ public class DeployablesTab : NeoUIEntry
             ImGui.EndCombo();
         }
         ImGui.SameLine();
-        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf55b', "Set point plan", SelectedPointPlan != null))
+        if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf55b', Loc.T("Set point plan"), SelectedPointPlan != null))
         {
             var num = 0;
             foreach(var x in SelectedVessels)
@@ -249,7 +249,7 @@ public class DeployablesTab : NeoUIEntry
 
         ImGui.Separator();
 
-        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Check, "Enable selected submersibles"))
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Check, Loc.T("Enable selected submersibles")))
         {
             var num = 0;
             foreach(var x in SelectedVessels)
@@ -268,7 +268,7 @@ public class DeployablesTab : NeoUIEntry
 
         ImGui.Separator();
 
-        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Times, "Disable selected submersibles"))
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Times, Loc.T("Disable selected submersibles")))
         {
             var num = 0;
             foreach(var x in SelectedVessels)
@@ -287,7 +287,7 @@ public class DeployablesTab : NeoUIEntry
 
         ImGui.Separator();
 
-        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.CheckCircle, "Enable deployables multi mode for owners of selected submersibles"))
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.CheckCircle, Loc.T("Enable deployables multi mode for owners of selected submersibles")))
         {
             var num = 0;
             foreach(var x in SelectedVessels)
@@ -304,7 +304,7 @@ public class DeployablesTab : NeoUIEntry
 
         ImGui.Separator();
 
-        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.TimesCircle, "Disable deployables multi mode for owners of selected submersibles"))
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.TimesCircle, Loc.T("Disable deployables multi mode for owners of selected submersibles")))
         {
             var num = 0;
             foreach(var x in SelectedVessels)
@@ -322,16 +322,16 @@ public class DeployablesTab : NeoUIEntry
 
     private void AutomatedSubPlannerWidget()
     {
-        ImGui.Checkbox("Enable automatic sub registration", ref C.EnableAutomaticSubRegistration);
-        ImGui.Checkbox("Enable automatic components and plan change", ref C.EnableAutomaticComponentsAndPlanChange);
-        ImGuiEx.Text("Ranges:");
+        ImGui.Checkbox(Loc.T("Enable automatic sub registration"), ref C.EnableAutomaticSubRegistration);
+        ImGui.Checkbox(Loc.T("Enable automatic components and plan change"), ref C.EnableAutomaticComponentsAndPlanChange);
+        ImGuiEx.Text(Loc.T("Ranges:"));
         for(var index = C.LevelAndPartsData.Count - 1; index >= 0; index--)
         {
             var entry = C.LevelAndPartsData[index];
             if(ImGui.CollapsingHeader($"{entry.GetPlanBuild()}: {entry.MinLevel} - {entry.MaxLevel} ###{entry.GUID}"))
             {
                 ImGui.Separator();
-                ImGui.Text("Level range:");
+                ImGui.Text(Loc.T("Level range:"));
                 ImGui.SameLine();
                 ImGuiEx.SetNextItemWidthScaled(60f);
                 ImGui.PushID("##minlvl");
@@ -345,31 +345,31 @@ public class DeployablesTab : NeoUIEntry
                 ImGui.DragInt($"##maxlvl{entry.GUID}", ref entry.MaxLevel, 0.1f);
                 ImGui.PopID();
 
-                ImGui.Text("Hull:");
+                ImGui.Text(Loc.T("Hull:"));
                 ImGui.SameLine(60f);
                 ImGui.SetNextItemWidth(100f);
                 ImGuiEx.EnumCombo($"##hull{entry.GUID}", ref entry.Part1);
 
-                ImGui.Text("Stern:");
+                ImGui.Text(Loc.T("Stern:"));
                 ImGui.SameLine(60f);
                 ImGui.SetNextItemWidth(100f);
                 ImGuiEx.EnumCombo($"##stern{entry.GUID}", ref entry.Part2);
 
-                ImGui.Text("Bow:");
+                ImGui.Text(Loc.T("Bow:"));
                 ImGui.SameLine(60f);
                 ImGui.SetNextItemWidth(100f);
                 ImGuiEx.EnumCombo($"##bow{entry.GUID}", ref entry.Part3);
 
-                ImGui.Text("Bridge:");
+                ImGui.Text(Loc.T("Bridge:"));
                 ImGui.SameLine(60f);
                 ImGui.SetNextItemWidth(100f);
                 ImGuiEx.EnumCombo($"##bridge{entry.GUID}", ref entry.Part4);
 
-                ImGui.Text("Behavior:");
+                ImGui.Text(Loc.T("Behavior:"));
                 ImGui.SameLine(60f);
                 ImGui.SetNextItemWidth(150f);
                 ImGuiEx.EnumCombo($"##behavior{entry.GUID}", ref entry.VesselBehavior);
-                ImGui.Text("Plan:");
+                ImGui.Text(Loc.T("Plan:"));
                 ImGui.SameLine(60f);
                 if(entry.VesselBehavior == VesselBehavior.Unlock)
                 {
@@ -377,7 +377,7 @@ public class DeployablesTab : NeoUIEntry
                     if(ImGui.BeginCombo($"##unlockplan{entry.GUID}", C.SubmarineUnlockPlans.Any(x => x.GUID == entry.SelectedUnlockPlan)
                                                                               ? C.SubmarineUnlockPlans.First(x => x.GUID == entry.SelectedUnlockPlan)
                                                                                  .Name
-                                                                              : "Non selected", ImGuiComboFlags.HeightLarge))
+                                                                              : Loc.T("Non selected"), ImGuiComboFlags.HeightLarge))
                     {
                         foreach(var plan in C.SubmarineUnlockPlans)
                         {
@@ -390,7 +390,7 @@ public class DeployablesTab : NeoUIEntry
                         ImGui.EndCombo();
                     }
 
-                    ImGui.Text("Mode:");
+                    ImGui.Text(Loc.T("Mode:"));
                     ImGui.SameLine(60f);
                     ImGui.SetNextItemWidth(150f);
                     ImGuiEx.EnumCombo($"##unlockmode{entry.GUID}", ref entry.UnlockMode);
@@ -400,7 +400,7 @@ public class DeployablesTab : NeoUIEntry
                     ImGui.SetNextItemWidth(150f);
                     if(ImGui.BeginCombo($"##pointplan{entry.GUID}", C.SubmarinePointPlans.Any(x => x.GUID == entry.SelectedPointPlan)
                                                                              ? C.SubmarinePointPlans.First(x => x.GUID == entry.SelectedPointPlan).GetPointPlanName()
-                                                                             : "Non selected", ImGuiComboFlags.HeightLarge))
+                                                                             : Loc.T("Non selected"), ImGuiComboFlags.HeightLarge))
                     {
                         foreach(var plan in C.SubmarinePointPlans)
                         {
@@ -418,11 +418,11 @@ public class DeployablesTab : NeoUIEntry
                 ImGui.Checkbox($"Different setup for first Submersible###firstSubDifferent{entry.GUID}", ref entry.FirstSubDifferent);
                 if(entry.FirstSubDifferent)
                 {
-                    ImGui.Text("First Sub Behavior:");
+                    ImGui.Text(Loc.T("First Sub Behavior:"));
                     ImGui.SameLine(150f);
                     ImGui.SetNextItemWidth(150f);
                     ImGuiEx.EnumCombo($"##firstSubBehavior{entry.GUID}", ref entry.FirstSubVesselBehavior);
-                    ImGui.Text("First Sub Plan:");
+                    ImGui.Text(Loc.T("First Sub Plan:"));
                     ImGui.SameLine(150f);
                     if(entry.FirstSubVesselBehavior == VesselBehavior.Unlock)
                     {
@@ -430,7 +430,7 @@ public class DeployablesTab : NeoUIEntry
                         if(ImGui.BeginCombo($"##firstSubUnlockplan{entry.GUID}", C.SubmarineUnlockPlans.Any(x => x.GUID == entry.FirstSubSelectedUnlockPlan)
                                                      ? C.SubmarineUnlockPlans.First(x => x.GUID == entry.FirstSubSelectedUnlockPlan)
                                                         .Name
-                                                     : "Non selected", ImGuiComboFlags.HeightLarge))
+                                                     : Loc.T("Non selected"), ImGuiComboFlags.HeightLarge))
                         {
                             foreach(var plan in C.SubmarineUnlockPlans)
                             {
@@ -443,7 +443,7 @@ public class DeployablesTab : NeoUIEntry
                             ImGui.EndCombo();
                         }
 
-                        ImGui.Text("First Sub Mode:");
+                        ImGui.Text(Loc.T("First Sub Mode:"));
                         ImGui.SameLine(150f);
                         ImGui.SetNextItemWidth(150f);
                         ImGuiEx.EnumCombo($"##firstSubUnlockmode{entry.GUID}", ref entry.FirstSubUnlockMode);
@@ -453,7 +453,7 @@ public class DeployablesTab : NeoUIEntry
                         ImGui.SetNextItemWidth(150f);
                         if(ImGui.BeginCombo($"##firstSubPointplan{entry.GUID}", C.SubmarinePointPlans.Any(x => x.GUID == entry.FirstSubSelectedPointPlan)
                                                      ? C.SubmarinePointPlans.First(x => x.GUID == entry.FirstSubSelectedPointPlan).GetPointPlanName()
-                                                     : "Non selected", ImGuiComboFlags.HeightLarge))
+                                                     : Loc.T("Non selected"), ImGuiComboFlags.HeightLarge))
                         {
                             foreach(var plan in C.SubmarinePointPlans)
                             {

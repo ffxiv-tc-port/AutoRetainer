@@ -1,20 +1,20 @@
 ﻿namespace AutoRetainer.UI.NeoUI.MultiModeEntries;
 public class MultiModeCommon : NeoUIEntry
 {
-    public override string Path => "Multi Mode/Common Settings";
+    public override string Path => Loc.T("Multi Mode/Common Settings");
 
     public override NuiBuilder Builder { get; init; } = new NuiBuilder()
-        .Section("Common Settings")
-        .Checkbox($"Wait on login screen", () => ref C.MultiWaitOnLoginScreen, "If no character is available for ventures, you will be logged off until any character is available again. Title screen movie will be disabled while this option and MultiMode are enabled.")
-        .Checkbox($"Disable Multi Mode on Manual Login", () => ref C.MultiDisableOnRelog, "Upon relogging via AutoRetainer's UI or command, disable Multi Mode.")
-        .Checkbox($"Do not reset Preferred Character on Manual Login", () => ref C.MultiNoPreferredReset, "Upon relogging via AutoRetainer's UI or command, do not reset preferred character.")
-        .Checkbox("Allow entering shared houses", () => ref C.SharedHET)
-        .Checkbox("Attempt to enter house on login even when Multi Mode is disabled", () => ref C.HETWhenDisabled)
-        .Checkbox("Do not teleport or enter house for retainers when already next to bell", () => ref C.NoTeleportHetWhenNextToBell)
+        .Section(Loc.T("Common Settings"))
+        .Checkbox($"Wait on login screen", () => ref C.MultiWaitOnLoginScreen, Loc.T("If no character is available for ventures, you will be logged off until any character is available again. Title screen movie will be disabled while this option and MultiMode are enabled."))
+        .Checkbox($"Disable Multi Mode on Manual Login", () => ref C.MultiDisableOnRelog, Loc.T("Upon relogging via AutoRetainer's UI or command, disable Multi Mode."))
+        .Checkbox($"Do not reset Preferred Character on Manual Login", () => ref C.MultiNoPreferredReset, Loc.T("Upon relogging via AutoRetainer's UI or command, do not reset preferred character."))
+        .Checkbox(Loc.T("Allow entering shared houses"), () => ref C.SharedHET)
+        .Checkbox(Loc.T("Attempt to enter house on login even when Multi Mode is disabled"), () => ref C.HETWhenDisabled)
+        .Checkbox(Loc.T("Do not teleport or enter house for retainers when already next to bell"), () => ref C.NoTeleportHetWhenNextToBell)
 
-        .Section("Game startup")
+        .Section(Loc.T("Game startup"))
         .Checkbox($"Enable Multi Mode on Game Boot", () => ref C.MultiAutoStart)
-        .Widget("Auto-login on Game Boot", (x) =>
+        .Widget(Loc.T("Auto-login on Game Boot"), (x) =>
         {
             ImGui.SetNextItemWidth(150f);
             var names = C.OfflineData.Where(s => !s.Name.IsNullOrEmpty()).Select(s => $"{s.Name}@{s.World}");
@@ -25,15 +25,15 @@ public class MultiModeCommon : NeoUIEntry
         })
         .SliderInt(150f, "Delay", () => ref C.AutoLoginDelay.ValidateRange(0, 60), 0, 20, "Set appropriate delay to let plugins fully load before logging in and to allow yourself some time to cancel login if needed")
 
-        .Section("Inventory warnings")
+        .Section(Loc.T("Inventory warnings"))
         .InputInt(100f, $"Retainer list: remaining inventory slots warning", () => ref C.UIWarningRetSlotNum.ValidateRange(2, 1000))
         .InputInt(100f, $"Retainer list: remaining ventures warning", () => ref C.UIWarningRetVentureNum.ValidateRange(2, 1000))
         .InputInt(100f, $"Deployables list: remaining inventory slots warning", () => ref C.UIWarningDepSlotNum.ValidateRange(2, 1000))
         .InputInt(100f, $"Deployables list: remaining fuel warning", () => ref C.UIWarningDepTanksNum.ValidateRange(20, 1000))
         .InputInt(100f, $"Deployables list: remaining repair kit warning", () => ref C.UIWarningDepRepairNum.ValidateRange(5, 1000))
 
-        .Section("Teleportation")
-        .Widget(() => ImGuiEx.Text("Lifestream plugin is required"))
+        .Section(Loc.T("Teleportation"))
+        .Widget(() => ImGuiEx.Text(Loc.T("Lifestream plugin is required")))
         .Widget(() => ImGuiEx.PluginAvailabilityIndicator([new("Lifestream", new Version("2.2.1.1"))]))
         .TextWrapped("You must register houses in Lifestream plugin for every character you want this option to work or enable Simple Teleport.")
         .TextWrapped("You can customize these settings per character in character configuration menu.")

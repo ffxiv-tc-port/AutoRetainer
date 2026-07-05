@@ -10,7 +10,7 @@ public sealed class FcDataManager
     {
         ImGui.Checkbox($"Update every 30 hours", ref C.UpdateStaleFCData);
         ImGui.SameLine();
-        if(ImGuiEx.Button("Update", Player.Interactable))
+        if(ImGuiEx.Button(Loc.T("Update"), Player.Interactable))
         {
             S.FCPointsUpdater.ScheduleUpdateIfNeeded(true);
         }
@@ -87,7 +87,7 @@ public sealed class FcDataManager
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.ButtonCheckbox($"\uf555##FC{x.Key}", ref x.Value.GilCountsTowardsChara, EColor.Green);
                 ImGui.PopFont();
-                ImGuiEx.Tooltip("Mark this free company as Wallet FC. Gil Display tab will include money of this FC.");
+                ImGuiEx.Tooltip(Loc.T("Mark this free company as Wallet FC. Gil Display tab will include money of this FC."));
                 ImGui.SameLine();
                 if(ImGuiEx.IconButton(FontAwesomeIcon.Trash, $"{x.Key}Dele", enabled: ImGuiEx.Ctrl))
                 {

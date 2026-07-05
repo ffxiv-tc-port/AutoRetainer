@@ -11,9 +11,9 @@ public static unsafe class RetainerTable
     {
         if(ImGui.BeginTable("##retainertable", 4, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders))
         {
-            ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn("Job");
-            ImGui.TableSetupColumn("Venture");
+            ImGui.TableSetupColumn(Loc.T("Name"), ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn(Loc.T("Job"));
+            ImGui.TableSetupColumn(Loc.T("Venture"));
             ImGui.TableSetupColumn("");
             ImGui.TableHeadersRow();
             var retainers = P.GetSelectedRetainers(data.CID);

@@ -24,8 +24,8 @@ public class CharaOrder : NeoUIEntry
             if(ImGui.BeginTable("CharaOrderTable", 3, ImGuiTableFlags.Borders | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingFixedFit))
             {
                 ImGui.TableSetupColumn("##ctrl");
-                ImGui.TableSetupColumn("Character", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Toggles");
+                ImGui.TableSetupColumn(Loc.T("Character"), ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn(Loc.T("Toggles"));
                 ImGui.TableHeadersRow();
 
                 for(var index = 0; index < C.OfflineData.Count; index++)

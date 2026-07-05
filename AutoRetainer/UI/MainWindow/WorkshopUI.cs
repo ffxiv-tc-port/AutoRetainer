@@ -56,7 +56,7 @@ internal static unsafe class WorkshopUI
             {
                 if(MultiMode.Relog(data, out var error, RelogReason.ConfigGUI))
                 {
-                    Notify.Success("Relogging...");
+                    Notify.Success(Loc.T("Relogging..."));
                 }
                 else
                 {
@@ -191,12 +191,12 @@ internal static unsafe class WorkshopUI
 
         ImGuiEx.LineCentered("WorkshopUI planner button", () =>
         {
-            if(ImGui.Button("Open Voyage Route Planner"))
+            if(ImGui.Button(Loc.T("Open Voyage Route Planner")))
             {
                 P.SubmarinePointPlanUI.IsOpen = true;
             }
             ImGui.SameLine();
-            if(ImGui.Button("Open Voyage Unlockable Planner"))
+            if(ImGui.Button(Loc.T("Open Voyage Unlockable Planner")))
             {
                 P.SubmarineUnlockPlanUI.IsOpen = true;
             }
@@ -307,9 +307,9 @@ internal static unsafe class WorkshopUI
         ImGui.SetCursorPos(storePos);
         if(ImGui.BeginTable("##retainertable", 4, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders))
         {
-            ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn("Structure");
-            ImGui.TableSetupColumn("Voyage");
+            ImGui.TableSetupColumn(Loc.T("Name"), ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn(Loc.T("Structure"));
+            ImGui.TableSetupColumn(Loc.T("Voyage"));
             ImGui.TableSetupColumn("");
             ImGui.TableHeadersRow();
             for(var i = 0; i < data.OfflineAirshipData.Count; i++)
@@ -451,7 +451,7 @@ internal static unsafe class WorkshopUI
             }
             else
             {
-                ImGuiEx.Text(vessel.GetRemainingSeconds() > 0 ? $"{VoyageUtils.Seconds2Time(vessel.GetRemainingSeconds())}" : "Voyage completed");
+                ImGuiEx.Text(vessel.GetRemainingSeconds() > 0 ? $"{VoyageUtils.Seconds2Time(vessel.GetRemainingSeconds())}" : Loc.T("Voyage completed"));
             }
 
         }
@@ -473,16 +473,16 @@ internal static unsafe class WorkshopUI
                 ImGuiEx.EnumCombo("##umode", ref adata.UnlockMode, Lang.UnlockModeNames);
                 var currentPlan = VoyageUtils.GetSubmarineUnlockPlanByGuid(adata.SelectedUnlockPlan) ?? VoyageUtils.GetDefaultSubmarineUnlockPlan(false);
                 var isDefault = VoyageUtils.GetSubmarineUnlockPlanByGuid(adata.SelectedUnlockPlan) == null;
-                var text = Environment.TickCount64 % 2000 > 1000 ? "Unlocking every point" : "No or unknown plan selected";
+                var text = Environment.TickCount64 % 2000 > 1000 ? Loc.T("Unlocking every point") : Loc.T("No or unknown plan selected");
                 if(ImGui.BeginCombo("##uplan", (currentPlan?.Name ?? text) + (isDefault ? " (default)" : ""), ImGuiComboFlags.HeightLarge))
                 {
-                    if(ImGui.Button("Open editor"))
+                    if(ImGui.Button(Loc.T("Open editor")))
                     {
                         P.SubmarineUnlockPlanUI.IsOpen = true;
                         P.SubmarineUnlockPlanUI.SelectedPlanGuid = adata.SelectedUnlockPlan;
                     }
                     ImGui.SameLine();
-                    if(ImGui.Button("Clear plan"))
+                    if(ImGui.Button(Loc.T("Clear plan")))
                     {
                         adata.SelectedUnlockPlan = Guid.Empty.ToString();
                     }
@@ -501,13 +501,13 @@ internal static unsafe class WorkshopUI
                 var currentPlan = VoyageUtils.GetSubmarinePointPlanByGuid(adata.SelectedPointPlan);
                 if(ImGui.BeginCombo("##uplan", currentPlan.GetPointPlanName(), ImGuiComboFlags.HeightLarge))
                 {
-                    if(ImGui.Button("Open editor"))
+                    if(ImGui.Button(Loc.T("Open editor")))
                     {
                         P.SubmarinePointPlanUI.IsOpen = true;
                         P.SubmarinePointPlanUI.SelectedPlanGuid = adata.SelectedPointPlan;
                     }
                     ImGui.SameLine();
-                    if(ImGui.Button("Clear plan"))
+                    if(ImGui.Button(Loc.T("Clear plan")))
                     {
                         adata.SelectedPointPlan = Guid.Empty.ToString();
                     }
@@ -523,9 +523,9 @@ internal static unsafe class WorkshopUI
             }
             ImGui.Separator();
             ImGuiEx.SetNextItemWidthScaled(150f);
-            ImGuiEx.SliderInt("Index override", ref adata.IndexOverride, 0, 4, adata.IndexOverride == 0 ? "Disabled" : $"{adata.IndexOverride}");
+            ImGuiEx.SliderInt(Loc.T("Index override"), ref adata.IndexOverride, 0, 4, adata.IndexOverride == 0 ? Loc.T("Disabled") : $"{adata.IndexOverride}");
             ImGuiComponents.HelpMarker($"If your vessel order in AutoRetainer is different than in voyage panel menu, you must use this feature to set correct index to incorrectly ordered vessels. Make sure that index is matching order in control panel.");
-            if(ImGui.CollapsingHeader("I have recently renamed this vessel"))
+            if(ImGui.CollapsingHeader(Loc.T("I have recently renamed this vessel")))
             {
                 if(ImGui.BeginCombo("##selprev", "Select previous vessel name", ImGuiComboFlags.HeightLarge))
                 {

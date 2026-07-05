@@ -27,7 +27,7 @@ internal unsafe class RetainersOld : DebugSectionBase
         ImGui.SameLine(0, 0);
         ImGuiEx.Text(ventures < 2 * GameRetainerManager.Count ? ImGuiColors.DalamudRed : ventures < 24 * GameRetainerManager.Count ? ImGuiColors.DalamudOrange : ImGuiColors.ParsedGreen,
                 $"{ventures}");
-        ImGuiComponents.HelpMarker("The plugin will automatically disable itself at < 2 Ventures or inventory slots available.");
+        ImGuiComponents.HelpMarker(Loc.T("The plugin will automatically disable itself at < 2 Ventures or inventory slots available."));
         var storePos = ImGui.GetCursorPos();
         for(var i = 0; i < GameRetainerManager.Count; i++)
         {
@@ -45,9 +45,9 @@ internal unsafe class RetainersOld : DebugSectionBase
         }
         ImGui.SetCursorPos(storePos);
         ImGui.BeginTable("##ertainertable", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders);
-        ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Venture");
-        ImGui.TableSetupColumn("Interaction");
+        ImGui.TableSetupColumn(Loc.T("Name"), ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn(Loc.T("Venture"));
+        ImGui.TableSetupColumn(Loc.T("Interaction"));
         ImGui.TableHeadersRow();
         var retainers = P.GetSelectedRetainers(Svc.ClientState.LocalContentId);
         for(var i = 0; i < GameRetainerManager.Count; i++)

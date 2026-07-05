@@ -39,7 +39,7 @@ internal unsafe class DebugMulti : DebugSectionBase
             }
         }
         ImGui.Checkbox("Don't logout", ref C.DontLogout);
-        ImGui.Checkbox("Enabled", ref MultiMode.Enabled);
+        ImGui.Checkbox(Loc.T("Enabled"), ref MultiMode.Enabled);
         ImGuiEx.Text($"Expected: {TaskChangeCharacter.Expected}");
         if(ImGui.Button("Force mismatch")) TaskChangeCharacter.Expected = ("AAAAAAAA", "BBBBBBB");
         if(ImGui.Button("Simulate nothing left"))

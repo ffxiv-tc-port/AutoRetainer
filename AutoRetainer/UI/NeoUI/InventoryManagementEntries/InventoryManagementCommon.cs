@@ -18,12 +18,12 @@ public static unsafe class InventoryManagementCommon
     private static bool Modified = false;
     public static void DrawListNew(List<uint> list, Action<uint> additionalButtons = null)
     {
-        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Copy, "Copy to Clipboard"))
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Copy, Loc.T("Copy to Clipboard")))
         {
             Copy(EzConfig.DefaultSerializationFactory.Serialize(list, false));
         }
         ImGui.SameLine();
-        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Paste, "Merge with Clipboard", ImGuiEx.Ctrl))
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Paste, Loc.T("Merge with Clipboard"), ImGuiEx.Ctrl))
         {
             try
             {
@@ -45,20 +45,20 @@ public static unsafe class InventoryManagementCommon
                 e.Log();
             }
         }
-        ImGuiEx.Tooltip("Hold CTRL and click");
-        ImGuiEx.TreeNodeCollapsingHeader("Mass addition/removal", () =>
+        ImGuiEx.Tooltip(Loc.T("Hold CTRL and click"));
+        ImGuiEx.TreeNodeCollapsingHeader(Loc.T("Mass addition/removal"), () =>
         {
             ImGui.SetNextItemWidth(200f);
-            if(ImGui.BeginCombo("Select Categories", SelectedCategories.Count != 0 ? $"{SelectedCategories.Count} selected" : "None selected", ImGuiComboFlags.HeightLarge))
+            if(ImGui.BeginCombo(Loc.T("Select Categories"), SelectedCategories.Count != 0 ? $"{SelectedCategories.Count} selected" : Loc.T("None selected"), ImGuiComboFlags.HeightLarge))
             {
-                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Plus, "All"))
+                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Plus, Loc.T("All")))
                 {
                     SelectedCategories.Clear();
                     SelectedCategories.UnionWith(Svc.Data.GetExcelSheet<ItemUICategory>().Where(x => x.Name != "").Select(x => x.RowId));
                     Modified = true;
                 }
                 ImGui.SameLine();
-                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Minus, "None"))
+                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Minus, Loc.T("None")))
                 {
                     SelectedCategories.Clear();
                     Modified = true;
@@ -134,7 +134,7 @@ public static unsafe class InventoryManagementCommon
                             {
                                 if(!list.Contains(x.RowId))
                                 {
-                                    if(ImGuiEx.HoveredAndClicked("Click to add this single item to list immediately"))
+                                    if(ImGuiEx.HoveredAndClicked(Loc.T("Click to add this single item to list immediately")))
                                     {
                                         list.Add(x.RowId);
                                     }
@@ -152,22 +152,22 @@ public static unsafe class InventoryManagementCommon
                     var draw = ImGuiEx.Pagination([.. actions], 100, 10);
                     ImGuiEx.EzTableColumns("cols", draw, Math.Max(1, (int)ImGui.GetContentRegionAvail().X / 150));
                 }
-                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.PlusSquare, "Add these items to list", ImGuiEx.Ctrl))
+                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.PlusSquare, Loc.T("Add these items to list"), ImGuiEx.Ctrl))
                 {
                     foreach(var x in SelectedItems)
                     {
                         if(!list.Contains(x.RowId)) list.Add(x.RowId);
                     }
                 }
-                ImGuiEx.Tooltip("Hold CTRL and click");
-                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.MinusSquare, "Remove these items to list", ImGuiEx.Ctrl))
+                ImGuiEx.Tooltip(Loc.T("Hold CTRL and click"));
+                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.MinusSquare, Loc.T("Remove these items to list"), ImGuiEx.Ctrl))
                 {
                     foreach(var x in SelectedItems)
                     {
                         list.Remove(x.RowId);
                     }
                 }
-                ImGuiEx.Tooltip("Hold CTRL and click");
+                ImGuiEx.Tooltip(Loc.T("Hold CTRL and click"));
             }
         });
 
@@ -246,7 +246,7 @@ public static unsafe class InventoryManagementCommon
 
     public static void ImportFromArDiscard(List<uint> target)
     {
-        if(ImGuiEx.Button("Import discard entries from Discard Helper", ImGuiEx.Ctrl))
+        if(ImGuiEx.Button(Loc.T("Import discard entries from Discard Helper"), ImGuiEx.Ctrl))
         {
             try
             {
@@ -263,13 +263,13 @@ public static unsafe class InventoryManagementCommon
                 ex.Log();
             }
         }
-        ImGuiEx.HelpMarker("If you're using Discard Helper plugin, you may import entries from it using this button. They will be merged with your existing entries. Hold CTRL and click.");
+        ImGuiEx.HelpMarker(Loc.T("If you're using Discard Helper plugin, you may import entries from it using this button. They will be merged with your existing entries. Hold CTRL and click."));
     }
 
     public static void ImportBlacklistFromArDiscard()
     {
         var s = InventoryCleanupCommon.SelectedPlan;
-        if(ImGuiEx.Button("Import blacklisted entries from Discard Helper", ImGuiEx.Ctrl))
+        if(ImGuiEx.Button(Loc.T("Import blacklisted entries from Discard Helper"), ImGuiEx.Ctrl))
         {
             try
             {
@@ -286,7 +286,7 @@ public static unsafe class InventoryManagementCommon
                 ex.Log();
             }
         }
-        ImGuiEx.HelpMarker("If you're using Discard Helper plugin, you may import entries from it using this button. They will be merged with your existing entries. Hold CTRL and click.");
+        ImGuiEx.HelpMarker(Loc.T("If you're using Discard Helper plugin, you may import entries from it using this button. They will be merged with your existing entries. Hold CTRL and click."));
     }
 
     private static void DrawListOfItems(List<uint> ItemList)

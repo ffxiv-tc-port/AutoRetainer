@@ -40,7 +40,7 @@ internal static unsafe class MultiModeUI
         {
             var data = sortedData[index];
             if(data.World.IsNullOrEmpty() || data.ExcludeRetainer) continue;
-            var search = Ref<string>.Get("SearchChara");
+            var search = Ref<string>.Get(Loc.T("SearchChara"));
             if(search != "" && !$"{data.Name}@{data.World}".Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
             ImGui.PushID(data.CID.ToString());
             var rCurPos = ImGui.GetCursorPos();

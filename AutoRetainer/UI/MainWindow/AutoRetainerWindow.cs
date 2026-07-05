@@ -21,7 +21,7 @@ internal unsafe class AutoRetainerWindow : Window
             Click = OnLockButtonClick,
             Icon = C.PinWindow ? FontAwesomeIcon.Lock : FontAwesomeIcon.LockOpen,
             IconOffset = new(3, 2),
-            ShowTooltip = () => ImGui.SetTooltip("Lock window position and size"),
+            ShowTooltip = () => ImGui.SetTooltip(Loc.T("Lock window position and size")),
         };
         SizeConstraints = new()
         {
@@ -35,7 +35,7 @@ internal unsafe class AutoRetainerWindow : Window
             Click = (m) => { if(m == ImGuiMouseButton.Left) S.NeoWindow.IsOpen = true; },
             Icon = FontAwesomeIcon.Cog,
             IconOffset = new(2, 2),
-            ShowTooltip = () => ImGui.SetTooltip("Open settings window"),
+            ShowTooltip = () => ImGui.SetTooltip(Loc.T("Open settings window")),
         });
         TitleBarButtons.Add(LockButton);
     }
@@ -204,11 +204,11 @@ internal unsafe class AutoRetainerWindow : Window
 
         PatreonBanner.DrawRight();
         ImGuiEx.EzTabBar("tabbar", PatreonBanner.Text,
-                        ("Retainers", MultiModeUI.Draw, null, true),
-                        ("Deployables", WorkshopUI.Draw, null, true),
-                        ("Troubleshooting", TroubleshootingUI.Draw, null, true),
-                        ("Statistics", DrawStats, null, true),
-                        ("About", CustomAboutTab.Draw, null, true)
+                        (Loc.T("Retainers"), MultiModeUI.Draw, null, true),
+                        (Loc.T("Deployables"), WorkshopUI.Draw, null, true),
+                        (Loc.T("Troubleshooting"), TroubleshootingUI.Draw, null, true),
+                        (Loc.T("Statistics"), DrawStats, null, true),
+                        (Loc.T("About"), CustomAboutTab.Draw, null, true)
                         );
         if(!C.PinWindow)
         {
@@ -219,7 +219,7 @@ internal unsafe class AutoRetainerWindow : Window
 
     private void DrawStats()
     {
-        NuiTools.ButtonTabs([[C.RecordStats ? new("Ventures", S.VentureStats.DrawVentures) : null, new("Gil", S.GilDisplay.Draw), new("FC Data", S.FCData.Draw)]]);
+        NuiTools.ButtonTabs([[C.RecordStats ? new(Loc.T("Ventures"), S.VentureStats.DrawVentures) : null, new("Gil", S.GilDisplay.Draw), new(Loc.T("FC Data"), S.FCData.Draw)]]);
     }
 
     public override void OnClose()

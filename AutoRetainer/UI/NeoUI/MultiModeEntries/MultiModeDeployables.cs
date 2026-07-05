@@ -12,10 +12,10 @@ public class MultiModeDeployables : NeoUIEntry
         .Unindent()
         .DragInt(60f, "Advance Relog Threshold, seconds", () => ref C.MultiModeWorkshopConfiguration.AdvanceTimer.ValidateRange(0, 300), 0.1f, 0, 300, "The number of seconds AutoRetainer should log in early before submarines on this character are ready to be resent.")
         .DragInt(120f, "Retainer venture processing cutoff, minutes", () => ref C.DisableRetainerVesselReturn.ValidateRange(0, 60), "If set to a value greater than 0, AutoRetainer will stop processing any retainers this number of minutes before any character is scheduled to redeploy submarines, taking all previous settings into account.")
-        .Checkbox("Periodically check FC chest for gil upon entering workshop", () => ref C.FCChestGilCheck, "Periodically checks the Free Company chest when entering the Workshop to keep the gil counter up to date.")
+        .Checkbox(Loc.T("Periodically check FC chest for gil upon entering workshop"), () => ref C.FCChestGilCheck, Loc.T("Periodically checks the Free Company chest when entering the Workshop to keep the gil counter up to date."))
         .Indent()
         .SliderInt(150f, "Check frequency, hours", () => ref C.FCChestGilCheckCd, 0, 24 * 5)
-        .Widget("Reset cooldowns", (x) =>
+        .Widget(Loc.T("Reset cooldowns"), (x) =>
         {
             if(ImGuiEx.Button(x, C.FCChestGilCheckTimes.Count > 0)) C.FCChestGilCheckTimes.Clear();
         })
