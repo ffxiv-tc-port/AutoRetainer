@@ -13,7 +13,7 @@ public sealed unsafe class GCCharacterConfiguration : InventoryManagemenrBase
 
     public override void Draw()
     {
-        ImGuiEx.TextWrapped($"Here you can assign preconfigured exchange lists to your registered characters, as well as select delivery mode.");
+        ImGuiEx.TextWrapped(Loc.T("Here you can assign preconfigured exchange lists to your registered characters, as well as select delivery mode."));
         ImGuiEx.SetNextItemFullWidth();
         ImGuiEx.FilteringInputTextWithHint("##search", Loc.T("Search..."), out var filter);
         if(ImGuiEx.BeginDefaultTable(["~Character", Loc.T("Plan"), Loc.T("Delivery mode")]))

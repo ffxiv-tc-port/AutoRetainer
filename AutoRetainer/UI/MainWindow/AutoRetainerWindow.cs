@@ -96,19 +96,19 @@ internal unsafe class AutoRetainerWindow : Window
         if(!C.AcceptedDisclamer)
         {
             new NuiBuilder()
-                .Section("Disclaimer")
-                .TextWrapped(ImGuiColors.DalamudYellow, "Please note that using AutoRetainer for RMT purposes is strictly prohibited. ")
-                .TextWrapped(ImGuiColors.DalamudRed, "To avoid unnecessary consequences please follow these rules when using AutoRetainer:")
-                .TextWrapped("1. Do not acknowledge your use of AutoRetainer in game chat;")
-                .TextWrapped("2. Do not leave AutoRetainer unattended for prolonged period of time;")
-                .TextWrapped("3. Ensure that your total playing+AutoRetainer usage time does not exceeds 16 hours per day; ensure that periods of inactivity exist between your retainer/submersible checking routine;")
-                .TextWrapped("4. Never reply back to players that are trying to do so-called bot checks by trading or chatting with you; instead, blacklist these players immediately;")
-                .TextWrapped("5. If questioned by game master, always claim that you are doing all actions manually and never admit plugin usage.")
-                .TextWrapped("Failure to follow these guidelines may put your account at risk.")
-                .TextWrapped(GradientColor.Get(ImGuiColors.DalamudYellow, ImGuiColors.DalamudRed), "You may not use AutoRetainer for Real Money Trading or other commercial purposes. No support will be provided if you are using it for these purposes.")
+                .Section(Loc.T("Disclaimer"))
+                .TextWrapped(ImGuiColors.DalamudYellow, Loc.T("Please note that using AutoRetainer for RMT purposes is strictly prohibited. "))
+                .TextWrapped(ImGuiColors.DalamudRed, Loc.T("To avoid unnecessary consequences please follow these rules when using AutoRetainer:"))
+                .TextWrapped(Loc.T("1. Do not acknowledge your use of AutoRetainer in game chat;"))
+                .TextWrapped(Loc.T("2. Do not leave AutoRetainer unattended for prolonged period of time;"))
+                .TextWrapped(Loc.T("3. Ensure that your total playing+AutoRetainer usage time does not exceeds 16 hours per day; ensure that periods of inactivity exist between your retainer/submersible checking routine;"))
+                .TextWrapped(Loc.T("4. Never reply back to players that are trying to do so-called bot checks by trading or chatting with you; instead, blacklist these players immediately;"))
+                .TextWrapped(Loc.T("5. If questioned by game master, always claim that you are doing all actions manually and never admit plugin usage."))
+                .TextWrapped(Loc.T("Failure to follow these guidelines may put your account at risk."))
+                .TextWrapped(GradientColor.Get(ImGuiColors.DalamudYellow, ImGuiColors.DalamudRed), Loc.T("You may not use AutoRetainer for Real Money Trading or other commercial purposes. No support will be provided if you are using it for these purposes."))
                 .Widget(() =>
                 {
-                    if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Check, "Accept and continue"))
+                    if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Check, Loc.T("Accept and continue")))
                     {
                         C.AcceptedDisclamer = true;
                         EzConfig.Save();
@@ -144,24 +144,24 @@ internal unsafe class AutoRetainerWindow : Window
         if(disabled)
         {
             ImGui.EndDisabled();
-            ImGuiComponents.HelpMarker($"MultiMode controls this option. Hold CTRL to override.");
+            ImGuiComponents.HelpMarker(Loc.T("MultiMode controls this option. Hold CTRL to override."));
         }
 
         if(P.WasEnabled)
         {
             ImGui.SameLine();
-            ImGuiEx.Text(GradientColor.Get(ImGuiColors.DalamudGrey, ImGuiColors.DalamudGrey3, 500), $"Paused");
+            ImGuiEx.Text(GradientColor.Get(ImGuiColors.DalamudGrey, ImGuiColors.DalamudGrey3, 500), Loc.T("Paused"));
         }
 
         ImGui.SameLine();
-        if(ImGui.Checkbox("Multi", ref MultiMode.Enabled))
+        if(ImGui.Checkbox(Loc.T("Multi"), ref MultiMode.Enabled))
         {
             MultiMode.OnMultiModeEnabled();
         }
         if(C.ShowNightMode)
         {
             ImGui.SameLine();
-            if(ImGui.Checkbox("Night", ref C.NightMode))
+            if(ImGui.Checkbox(Loc.T("Night"), ref C.NightMode))
             {
                 MultiMode.BailoutNightMode();
             }
@@ -175,7 +175,7 @@ internal unsafe class AutoRetainerWindow : Window
         if(C.CharEqualize && MultiMode.Enabled)
         {
             ImGui.SameLine();
-            if(ImGui.Button("Reset counters"))
+            if(ImGui.Button(Loc.T("Reset counters")))
             {
                 MultiMode.CharaCnt.Clear();
             }
@@ -185,9 +185,9 @@ internal unsafe class AutoRetainerWindow : Window
 
         if(IPC.Suppressed)
         {
-            ImGuiEx.Text(ImGuiColors.DalamudRed, $"Plugin operation is suppressed by other plugin.");
+            ImGuiEx.Text(ImGuiColors.DalamudRed, Loc.T("Plugin operation is suppressed by other plugin."));
             ImGui.SameLine();
-            if(ImGui.SmallButton("Cancel"))
+            if(ImGui.SmallButton(Loc.T("Cancel")))
             {
                 IPC.Suppressed = false;
             }

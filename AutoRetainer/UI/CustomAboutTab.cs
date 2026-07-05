@@ -18,13 +18,13 @@ namespace AutoRetainer.UI
 
             ImGuiEx.LineCentered("About0", () =>
             {
-                ImGuiEx.Text($"Published and developed with ");
+                ImGuiEx.Text(Loc.T("Published and developed with "));
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGui.SameLine(0, 0);
                 ImGuiEx.Text(ImGuiColors.DalamudRed, FontAwesomeIcon.Heart.ToIconString());
                 ImGui.PopFont();
                 ImGui.SameLine(0, 0);
-                ImGuiEx.Text($" by Puni.sh and NightmareXIV");
+                ImGuiEx.Text(Loc.T(" by Puni.sh and NightmareXIV"));
             });
 
             ImGuiHelpers.ScaledDummy(10f);
@@ -38,7 +38,7 @@ namespace AutoRetainer.UI
             ImGuiHelpers.ScaledDummy(10f);
             ImGuiEx.LineCentered("About3", delegate
             {
-                ImGui.TextWrapped("Join our Discord community for project announcements, updates, and support.");
+                ImGui.TextWrapped(Loc.T("Join our Discord community for project announcements, updates, and support."));
             });
             ImGuiEx.LineCentered("About4", delegate
             {
@@ -51,13 +51,13 @@ namespace AutoRetainer.UI
                     });
                 }
                 ImGui.SameLine();
-                if(ImGui.Button("Repository"))
+                if(ImGui.Button(Loc.T("Repository")))
                 {
                     ImGui.SetClipboardText("https://love.puni.sh/ment.json");
-                    Notify.Success("Link copied to clipboard");
+                    Notify.Success(Loc.T("Link copied to clipboard"));
                 }
                 ImGui.SameLine();
-                if(ImGui.Button("Source Code"))
+                if(ImGui.Button(Loc.T("Source Code")))
                 {
                     Process.Start(new ProcessStartInfo()
                     {
@@ -66,7 +66,7 @@ namespace AutoRetainer.UI
                     });
                 }
                 ImGui.SameLine();
-                if(ImGui.Button("Donate to Puni.sh platform"))
+                if(ImGui.Button(Loc.T("Donate to Puni.sh platform")))
                 {
                     Process.Start(new ProcessStartInfo()
                     {

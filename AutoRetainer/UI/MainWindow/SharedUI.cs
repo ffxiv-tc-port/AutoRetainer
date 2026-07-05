@@ -11,7 +11,7 @@ internal static class SharedUI
         if(data.IsLockedOut())
         {
             FontAwesome.PrintV(EColor.RedBright, FontAwesomeIcon.Lock);
-            ImGuiEx.Tooltip("This character is located on a data center which you have temporarily disabled. Navigate to configuration to remove it.");
+            ImGuiEx.Tooltip(Loc.T("This character is located on a data center which you have temporarily disabled. Navigate to configuration to remove it."));
             ImGui.SameLine();
         }
     }
@@ -19,7 +19,7 @@ internal static class SharedUI
     internal static void DrawMultiModeHeader(OfflineCharacterData data, string overrideTitle = null)
     {
         var b = true;
-        ImGui.CollapsingHeader($"{Censor.Character(data.Name)} {overrideTitle ?? "Configuration"}##conf", ref b, ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
+        ImGui.CollapsingHeader($"{Censor.Character(data.Name)} {overrideTitle ?? Loc.T("Configuration")}##conf", ref b, ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
         if(b == false)
         {
             ImGui.CloseCurrentPopup();
@@ -29,13 +29,13 @@ internal static class SharedUI
 
     internal static void DrawServiceAccSelector(OfflineCharacterData data)
     {
-        ImGuiEx.Text($"Service Account Selection");
+        ImGuiEx.Text(Loc.T("Service Account Selection"));
         ImGuiEx.SetNextItemWidthScaled(150);
-        if(ImGui.BeginCombo("##Service Account Selection", $"Service Account {data.ServiceAccount + 1}", ImGuiComboFlags.HeightLarge))
+        if(ImGui.BeginCombo("##Service Account Selection", $"{Loc.T("Service Account ")}{data.ServiceAccount + 1}", ImGuiComboFlags.HeightLarge))
         {
             for(var i = 1; i <= 10; i++)
             {
-                if(ImGui.Selectable($"Service Account {i}"))
+                if(ImGui.Selectable($"{Loc.T("Service Account ")}{i}"))
                 {
                     data.ServiceAccount = i - 1;
                 }
@@ -73,7 +73,7 @@ internal static class SharedUI
             {
                 new TickScheduler(() => C.OfflineData.RemoveAll(x => x.CID == data.CID));
             }
-            ImGuiComponents.HelpMarker("Character's saved data will be removed without excluding it. Character data will be regenerated once you log back into this character.");
+            ImGuiComponents.HelpMarker(Loc.T("Character's saved data will be removed without excluding it. Character data will be regenerated once you log back into this character."));
             ImGuiGroup.EndGroupBox();
         }).Draw();
     }

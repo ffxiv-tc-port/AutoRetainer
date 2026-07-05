@@ -217,7 +217,7 @@ public sealed class VenturePlanner : Window
                 {
                     ImGuiEx.SetNextItemFullWidth();
                     ImGui.InputTextWithHint("##search", Loc.T("Filter..."), ref search, 100);
-                    ImGuiEx.TextV($"Level range:");
+                    ImGuiEx.TextV(Loc.T("Level range:"));
                     ImGui.SameLine();
                     ImGuiEx.SetNextItemWidthScaled(50f);
                     ImGui.DragInt("##minL", ref minLevel, 1, 1, Player.MaxLevel);
@@ -226,7 +226,7 @@ public sealed class VenturePlanner : Window
                     ImGui.SameLine();
                     ImGuiEx.SetNextItemWidthScaled(50f);
                     ImGui.DragInt("##maxL", ref maxLevel, 1, 1, Player.MaxLevel);
-                    ImGuiEx.TextV($"Unavailable ventures:");
+                    ImGuiEx.TextV(Loc.T("Unavailable ventures:"));
                     ImGui.SameLine();
                     ImGuiEx.SetNextItemFullWidth();
                     ImGuiEx.EnumCombo("##unavail", ref C.UnavailableVentureDisplay);

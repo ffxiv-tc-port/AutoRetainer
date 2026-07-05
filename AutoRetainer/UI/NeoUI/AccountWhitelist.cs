@@ -10,7 +10,7 @@ public sealed unsafe class AccountWhitelist : NeoUIEntry
 {
     public override void Draw()
     {
-        ImGuiEx.TextWrapped($"You may setup account whitelist. In the event you will log in using non-whitelisted account, AutoRetainer will not record any characters, retainers, or submarines.");
+        ImGuiEx.TextWrapped(Loc.T("You may setup account whitelist. In the event you will log in using non-whitelisted account, AutoRetainer will not record any characters, retainers, or submarines."));
         if(C.WhitelistedAccounts.Count == 0)
         {
             ImGuiEx.TextWrapped(EColor.GreenBright, Loc.T("Current whitelist status: Disabled. To enable, add some account to it."));
@@ -20,7 +20,7 @@ public sealed unsafe class AccountWhitelist : NeoUIEntry
             ImGuiEx.TextWrapped(EColor.YellowBright, Loc.T("Current whitelist status: Enabled. To disable, remove all accounts from it."));
         }
 
-        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.UserPlus, "Add current account", enabled: Player.Available))
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.UserPlus, Loc.T("Add current account"), enabled: Player.Available))
         {
             C.WhitelistedAccounts.Add(*P.Memory.MyAccountId);
         }
@@ -33,7 +33,7 @@ public sealed unsafe class AccountWhitelist : NeoUIEntry
                 new TickScheduler(() => C.WhitelistedAccounts.Remove(x));
             }
             ImGui.SameLine();
-            ImGuiEx.TextV($"Account {x}");
+            ImGuiEx.TextV($"{Loc.T("Account ")}{x}");
             ImGui.PopID();
         }
     }

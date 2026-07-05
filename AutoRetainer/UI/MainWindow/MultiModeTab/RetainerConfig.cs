@@ -7,10 +7,10 @@ public static unsafe class RetainerConfig
     public static void Draw(OfflineRetainerData ret, OfflineCharacterData data, AdditionalRetainerData adata)
     {
         ImGui.CollapsingHeader($"{Censor.Retainer(ret.Name)} - {Censor.Character(data.Name)} Configuration  ##conf", ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
-        ImGuiEx.Text($"Additional Post-venture Tasks:");
+        ImGuiEx.Text(Loc.T("Additional Post-venture Tasks:"));
         //ImGui.Checkbox($"Entrust Duplicates", ref adata.EntrustDuplicates);
         var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan);
-        ImGuiEx.TextV($"Entrust Items:");
+        ImGuiEx.TextV(Loc.T("Entrust Items:"));
         if(!C.EnableEntrustManager) ImGuiEx.HelpMarker("Globally disabled in settings", EColor.RedBright, FontAwesomeIcon.ExclamationTriangle.ToIconString());
         ImGui.SameLine();
         ImGui.SetNextItemWidth(150f);
@@ -29,7 +29,7 @@ public static unsafe class RetainerConfig
             }
             ImGui.EndCombo();
         }
-        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Copy, "Copy entrust plan to..."))
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Copy, Loc.T("Copy entrust plan to...")))
         {
             ImGui.OpenPopup($"CopyEntrustPlanTo");
         }
@@ -90,13 +90,13 @@ public static unsafe class RetainerConfig
             }
             ImGui.EndPopup();
         }
-        ImGui.Checkbox($"Withdraw/Deposit Gil", ref adata.WithdrawGil);
+        ImGui.Checkbox(Loc.T("Withdraw/Deposit Gil"), ref adata.WithdrawGil);
         if(adata.WithdrawGil)
         {
-            if(ImGui.RadioButton("Withdraw", !adata.Deposit)) adata.Deposit = false;
-            if(ImGui.RadioButton("Deposit", adata.Deposit)) adata.Deposit = true;
+            if(ImGui.RadioButton(Loc.T("Withdraw"), !adata.Deposit)) adata.Deposit = false;
+            if(ImGui.RadioButton(Loc.T("Deposit"), adata.Deposit)) adata.Deposit = true;
             ImGuiEx.SetNextItemWidthScaled(200f);
-            ImGui.InputInt($"Amount, %", ref adata.WithdrawGilPercent.ValidateRange(1, 100), 1, 10);
+            ImGui.InputInt(Loc.T("Amount, %"), ref adata.WithdrawGilPercent.ValidateRange(1, 100), 1, 10);
         }
         ImGui.Separator();
         Svc.PluginInterface.GetIpcProvider<ulong, string, object>(ApiConsts.OnRetainerSettingsDraw).SendMessage(data.CID, ret.Name);

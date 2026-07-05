@@ -3,7 +3,7 @@
 namespace AutoRetainer.UI.NeoUI.MultiModeEntries;
 public class CharaOrder : NeoUIEntry
 {
-    public override string Path => "Multi Mode/Exclusions and Order";
+    public override string Path => Loc.T("Multi Mode/Exclusions and Order");
 
     private static string Search = "";
     private static ImGuiEx.RealtimeDragDrop<OfflineCharacterData> DragDrop = new("CharaOrder", x => x.Identity);
@@ -14,12 +14,12 @@ public class CharaOrder : NeoUIEntry
     {
         C.OfflineData.RemoveAll(x => C.Blacklist.Any(z => z.CID == x.CID));
         var b = new NuiBuilder()
-        .Section("Character Order")
-        .Widget("Here you can sort your characters. This will affect order in which they will be processed by Multi Mode as well as how they will appear in plugin interface and login overlay.", (x) =>
+        .Section(Loc.T("Character Order"))
+        .Widget(Loc.T("Here you can sort your characters. This will affect order in which they will be processed by Multi Mode as well as how they will appear in plugin interface and login overlay."), (x) =>
         {
-            ImGuiEx.TextWrapped($"Here you can sort your characters. This will affect order in which they will be processed by Multi Mode as well as how they will appear in plugin interface and login overlay.");
+            ImGuiEx.TextWrapped(Loc.T("Here you can sort your characters. This will affect order in which they will be processed by Multi Mode as well as how they will appear in plugin interface and login overlay."));
             ImGui.SetNextItemWidth(150f);
-            ImGui.InputText($"Search", ref Search, 50);
+            ImGui.InputText(Loc.T("Search"), ref Search, 50);
             DragDrop.Begin();
             if(ImGui.BeginTable("CharaOrderTable", 3, ImGuiTableFlags.Borders | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingFixedFit))
             {

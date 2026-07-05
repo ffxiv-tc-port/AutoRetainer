@@ -13,7 +13,7 @@ public sealed unsafe class CleanupCharacterConfiguration : InventoryManagemenrBa
 
     public override void Draw()
     {
-        ImGuiEx.TextWrapped($"Here you can assign preconfigured inventory cleanup lists to your registered characters.");
+        ImGuiEx.TextWrapped(Loc.T("Here you can assign preconfigured inventory cleanup lists to your registered characters."));
         ImGuiEx.SetNextItemFullWidth();
         ImGuiEx.FilteringInputTextWithHint("##search", Loc.T("Search..."), out var filter);
         if(ImGuiEx.BeginDefaultTable(["~Character", Loc.T("Plan")]))

@@ -50,7 +50,7 @@ internal static unsafe class WorkshopUI
             ImGui.PushFont(UiBuilder.IconFont);
             ImGuiEx.ButtonCheckbox($"\uf21a##{data.CID}", ref data.WorkshopEnabled, 0xFF097000);
             ImGui.PopFont();
-            ImGuiEx.Tooltip($"Enable submersibles in multi mode on this character");
+            ImGuiEx.Tooltip(Loc.T("Enable submersibles in multi mode on this character"));
             ImGui.SameLine(0, 3);
             if(ImGuiEx.IconButton(FontAwesomeIcon.DoorOpen))
             {
@@ -68,7 +68,7 @@ internal static unsafe class WorkshopUI
             {
                 ImGui.OpenPopup($"popup{data.CID}");
             }
-            ImGuiEx.Tooltip($"Configure Character");
+            ImGuiEx.Tooltip(Loc.T("Configure Character"));
             ImGui.SameLine(0, 3);
 
             if(ImGui.BeginPopup($"popup{data.CID}"))
@@ -82,7 +82,7 @@ internal static unsafe class WorkshopUI
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.TextV(ImGuiColors.DalamudYellow, "\uf6e3");
                 ImGui.PopFont();
-                ImGuiEx.Tooltip($"You can construct new submersible ({data.GetVesselData(VoyageType.Submersible).Count}/{data.NumSubSlots})");
+                ImGuiEx.Tooltip($"{Loc.T("You can construct new submersible (")}{data.GetVesselData(VoyageType.Submersible).Count}/{data.NumSubSlots})");
                 ImGui.SameLine(0, 3);
             }
 
@@ -91,7 +91,7 @@ internal static unsafe class WorkshopUI
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.TextV(ImGuiColors.DalamudOrange, "\ue4ac");
                 ImGui.PopFont();
-                ImGuiEx.Tooltip($"Some of your submersibles are not enabled");
+                ImGuiEx.Tooltip(Loc.T("Some of your submersibles are not enabled"));
                 ImGui.SameLine(0, 3);
             }
 
@@ -100,7 +100,7 @@ internal static unsafe class WorkshopUI
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.TextV(ImGuiColors.DalamudOrange, "\ue4ab");
                 ImGui.PopFont();
-                ImGuiEx.Tooltip($"Some of your submersibles are not undertaking voyage");
+                ImGuiEx.Tooltip(Loc.T("Some of your submersibles are not undertaking voyage"));
                 ImGui.SameLine(0, 3);
             }
 
@@ -109,7 +109,7 @@ internal static unsafe class WorkshopUI
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.TextV(ImGuiColors.DalamudOrange, "\uf0ad");
                 ImGui.PopFont();
-                ImGuiEx.Tooltip($"Unoptimal configurations are found");
+                ImGuiEx.Tooltip(Loc.T("Unoptimal configurations are found"));
                 ImGui.SameLine(0, 3);
             }
 
@@ -118,7 +118,7 @@ internal static unsafe class WorkshopUI
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.TextV(ImGuiColors.DalamudRed, FontAwesomeIcon.ArrowsSpin.ToIconString());
                 ImGui.PopFont();
-                ImGuiEx.Tooltip($"Redeploy is active while some unlock plans are set as enforced.");
+                ImGuiEx.Tooltip(Loc.T("Redeploy is active while some unlock plans are set as enforced."));
                 ImGui.SameLine(0, 3);
             }
 
@@ -129,7 +129,7 @@ internal static unsafe class WorkshopUI
                     ImGui.PushFont(UiBuilder.IconFont);
                     ImGuiEx.TextV("\uf252");
                     ImGui.PopFont();
-                    ImGuiEx.Tooltip($"Wait for all deployables is globally enabled.");
+                    ImGuiEx.Tooltip(Loc.T("Wait for all deployables is globally enabled."));
                     ImGui.SameLine(0, 3);
                 }
                 else if(data.MultiWaitForAllDeployables)
@@ -137,7 +137,7 @@ internal static unsafe class WorkshopUI
                     ImGui.PushFont(UiBuilder.IconFont);
                     ImGuiEx.TextV("\uf252");
                     ImGui.PopFont();
-                    ImGuiEx.Tooltip($"Wait for all deployables is enabled for this character.");
+                    ImGuiEx.Tooltip(Loc.T("Wait for all deployables is enabled for this character."));
                     ImGui.SameLine(0, 3);
                 }
             }
@@ -427,7 +427,7 @@ internal static unsafe class WorkshopUI
 
         if(vessel.ReturnTime == 0)
         {
-            ImGuiEx.Text($"No voyage");
+            ImGuiEx.Text(Loc.T("No voyage"));
         }
         else
         {
@@ -465,11 +465,11 @@ internal static unsafe class WorkshopUI
         if(ImGuiEx.BeginPopupNextToElement(n))
         {
             ImGui.CollapsingHeader($"{vessel.Name} - {Censor.Character(data.Name)} Configuration  ##conf", ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
-            ImGuiEx.Text($"Vessel behavior:");
+            ImGuiEx.Text(Loc.T("Vessel behavior:"));
             ImGuiEx.EnumCombo("##vbeh", ref adata.VesselBehavior);
             if(adata.VesselBehavior == VesselBehavior.Unlock)
             {
-                ImGuiEx.Text($"Unlock mode:");
+                ImGuiEx.Text(Loc.T("Unlock mode:"));
                 ImGuiEx.EnumCombo("##umode", ref adata.UnlockMode, Lang.UnlockModeNames);
                 var currentPlan = VoyageUtils.GetSubmarineUnlockPlanByGuid(adata.SelectedUnlockPlan) ?? VoyageUtils.GetDefaultSubmarineUnlockPlan(false);
                 var isDefault = VoyageUtils.GetSubmarineUnlockPlanByGuid(adata.SelectedUnlockPlan) == null;
@@ -524,10 +524,10 @@ internal static unsafe class WorkshopUI
             ImGui.Separator();
             ImGuiEx.SetNextItemWidthScaled(150f);
             ImGuiEx.SliderInt(Loc.T("Index override"), ref adata.IndexOverride, 0, 4, adata.IndexOverride == 0 ? Loc.T("Disabled") : $"{adata.IndexOverride}");
-            ImGuiComponents.HelpMarker($"If your vessel order in AutoRetainer is different than in voyage panel menu, you must use this feature to set correct index to incorrectly ordered vessels. Make sure that index is matching order in control panel.");
+            ImGuiComponents.HelpMarker(Loc.T("If your vessel order in AutoRetainer is different than in voyage panel menu, you must use this feature to set correct index to incorrectly ordered vessels. Make sure that index is matching order in control panel."));
             if(ImGui.CollapsingHeader(Loc.T("I have recently renamed this vessel")))
             {
-                if(ImGui.BeginCombo("##selprev", "Select previous vessel name", ImGuiComboFlags.HeightLarge))
+                if(ImGui.BeginCombo("##selprev", Loc.T("Select previous vessel name"), ImGuiComboFlags.HeightLarge))
                 {
                     var datas = ((Func<Dictionary<string, AdditionalVesselData>>)delegate
                     {

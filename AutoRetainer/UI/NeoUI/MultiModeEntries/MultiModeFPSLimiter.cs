@@ -11,12 +11,12 @@ public class MultiModeFPSLimiter : NeoUIEntry
             ImGui.SetNextItemWidth(100f);
             UIUtils.SliderIntFrameTimeAsFPS(x, ref C.TargetMSPTIdle, C.ExtraFPSLockRange ? 1 : 10);
         })
-        .Widget(Loc.T("Target frame rate when idling"), (x) =>
+        .Widget(Loc.T("Target frame rate when operating"), (x) =>
         {
             ImGui.SetNextItemWidth(100f);
-            UIUtils.SliderIntFrameTimeAsFPS("Target frame rate when operating", ref C.TargetMSPTRunning, C.ExtraFPSLockRange ? 1 : 20);
+            UIUtils.SliderIntFrameTimeAsFPS(x, ref C.TargetMSPTRunning, C.ExtraFPSLockRange ? 1 : 20);
         })
         .Checkbox(Loc.T("Release FPS lock when game is active"), () => ref C.NoFPSLockWhenActive)
-        .Checkbox($"Allow extra low FPS limiter values", () => ref C.ExtraFPSLockRange, Loc.T("No support is provided if you enable this and run into ANY errors in Multi Mode"))
-        .Checkbox($"Limiter active only when shutdown timer is set", () => ref C.FpsLockOnlyShutdownTimer);
+        .Checkbox(Loc.T("Allow extra low FPS limiter values"), () => ref C.ExtraFPSLockRange, Loc.T("No support is provided if you enable this and run into ANY errors in Multi Mode"))
+        .Checkbox(Loc.T("Limiter active only when shutdown timer is set"), () => ref C.FpsLockOnlyShutdownTimer);
 }

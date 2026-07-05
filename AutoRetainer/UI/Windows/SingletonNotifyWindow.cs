@@ -18,8 +18,8 @@ public class SingletonNotifyWindow : NotifyWindow
 
     public override void DrawContent()
     {
-        ImGuiEx.Text($"AutoRetainer has detected that another instance of the plugin is running \nwith the same data path configuration.");
-        ImGuiEx.Text($"Plugin load has been halted in order to prevent data loss.");
+        ImGuiEx.Text(Loc.T("AutoRetainer has detected that another instance of the plugin is running \nwith the same data path configuration."));
+        ImGuiEx.Text(Loc.T("Plugin load has been halted in order to prevent data loss."));
         if(ImGui.Button(Loc.T("Close this window without loading AutoRetainer")))
         {
             IsOpen = false;
@@ -29,7 +29,7 @@ public class SingletonNotifyWindow : NotifyWindow
             ShellStart("https://github.com/PunishXIV/AutoRetainer/issues/62");
         }
         ImGui.Separator();
-        ImGui.Checkbox($"I agree that I may lose all AutoRetainer data", ref IAmIdiot);
+        ImGui.Checkbox(Loc.T("I agree that I may lose all AutoRetainer data"), ref IAmIdiot);
         if(!IAmIdiot) ImGui.BeginDisabled();
         if(ImGui.Button(Loc.T("Load AutoRetainer")))
         {

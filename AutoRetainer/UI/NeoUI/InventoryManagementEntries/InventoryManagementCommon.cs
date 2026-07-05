@@ -87,9 +87,9 @@ public static unsafe class InventoryManagementCommon
             if(SelectedCategories.Count > 0)
             {
                 ImGui.SetNextItemWidth(200f);
-                Modified |= ImGui.InputText($"Filter by name", ref ItemSearch, 100);
+                Modified |= ImGui.InputText(Loc.T("Filter by name"), ref ItemSearch, 100);
                 ImGui.SetNextItemWidth(200f);
-                if(ImGui.BeginCombo("Select rarity", Rarities.Any() ? $"{Rarities.Print()}" : "Any rarity", ImGuiComboFlags.HeightLarge))
+                if(ImGui.BeginCombo(Loc.T("Select rarity"), Rarities.Any() ? $"{Rarities.Print()}" : Loc.T("Any rarity"), ImGuiComboFlags.HeightLarge))
                 {
                     foreach(var r in Enum.GetValues<ItemRarity>())
                     {
@@ -98,10 +98,10 @@ public static unsafe class InventoryManagementCommon
                     ImGui.EndCombo();
                 }
                 ImGui.SetNextItemWidth(200f);
-                Modified |= ImGui.InputInt("Minimum item level", ref ItemLevelMin);
+                Modified |= ImGui.InputInt(Loc.T("Minimum item level"), ref ItemLevelMin);
                 ImGui.SetNextItemWidth(200f);
-                Modified |= ImGui.InputInt("Maximum item level", ref ItemLevelMax);
-                Modified |= ImGuiEx.Checkbox("Tradeable", ref Tradeable);
+                Modified |= ImGui.InputInt(Loc.T("Maximum item level"), ref ItemLevelMax);
+                Modified |= ImGuiEx.Checkbox(Loc.T("Tradeable"), ref Tradeable);
 
                 if(Modified)
                 {
@@ -141,7 +141,7 @@ public static unsafe class InventoryManagementCommon
                                 }
                                 else
                                 {
-                                    if(ImGuiEx.HoveredAndClicked("Right click to add this single item to list immediately", ImGuiMouseButton.Right))
+                                    if(ImGuiEx.HoveredAndClicked(Loc.T("Right click to add this single item to list immediately"), ImGuiMouseButton.Right))
                                     {
                                         list.Remove(x.RowId);
                                     }

@@ -7,15 +7,15 @@ using Lumina.Excel.Sheets;
 namespace AutoRetainer.UI.NeoUI.InventoryManagementEntries;
 public class EntrustManager : InventoryManagemenrBase
 {
-    public override string Name { get; } = "Entrust Manager";
+    public override string Name { get; } = Loc.T("Entrust Manager");
     private Guid SelectedGuid = Guid.Empty;
     private string Filter = "";
 
     public override void Draw()
     {
-        ImGuiEx.TextWrapped("Use advanced entrust manager to entrust specific items to specific retainers. In this window you can configure specific plans; then, you can assign entrust plans to your retainers in retainer configuration window.");
-        ImGui.Checkbox("Enable", ref C.EnableEntrustManager);
-        ImGui.Checkbox("Output entrusted items into chat", ref C.EnableEntrustChat);
+        ImGuiEx.TextWrapped(Loc.T("Use advanced entrust manager to entrust specific items to specific retainers. In this window you can configure specific plans; then, you can assign entrust plans to your retainers in retainer configuration window."));
+        ImGui.Checkbox(Loc.T("Enable"), ref C.EnableEntrustManager);
+        ImGui.Checkbox(Loc.T("Output entrusted items into chat"), ref C.EnableEntrustChat);
         var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == SelectedGuid);
 
         ImGuiEx.InputWithRightButtonsArea(() =>
@@ -77,18 +77,18 @@ public class EntrustManager : InventoryManagemenrBase
         {
             ImGuiEx.SetNextItemFullWidth();
             ImGui.InputTextWithHint($"##name", "Plan name", ref selectedPlan.Name, 100);
-            ImGui.Checkbox("Entrust Duplicates", ref selectedPlan.Duplicates);
-            ImGuiEx.HelpMarker("Mimics vanilla entrust duplicates option: entrusts any items that already present in retainer's inventory up until your retainer fills up it's stack of items. Does not affects crystals. Items and categories that are explicitly added into the list below will be excluded from being processed by this option.");
+            ImGui.Checkbox(Loc.T("Entrust Duplicates"), ref selectedPlan.Duplicates);
+            ImGuiEx.HelpMarker(Loc.T("Mimics vanilla entrust duplicates option: entrusts any items that already present in retainer's inventory up until your retainer fills up it's stack of items. Does not affects crystals. Items and categories that are explicitly added into the list below will be excluded from being processed by this option."));
             ImGui.Indent();
-            ImGui.Checkbox("Allow going over stack", ref selectedPlan.DuplicatesMultiStack);
-            ImGuiEx.HelpMarker("Allows entrust duplicates to create new stacks of items that already exist in the selected retainer.");
+            ImGui.Checkbox(Loc.T("Allow going over stack"), ref selectedPlan.DuplicatesMultiStack);
+            ImGuiEx.HelpMarker(Loc.T("Allows entrust duplicates to create new stacks of items that already exist in the selected retainer."));
             ImGui.Unindent();
-            ImGui.Checkbox("Allow entrusting from Armory Chest", ref selectedPlan.AllowEntrustFromArmory);
-            ImGui.Checkbox("Manual execution only", ref selectedPlan.ManualPlan);
-            ImGuiEx.HelpMarker("Mark this plan for manual execution only. This plan will only be processed upon manual \"Entrust Items\" button click and never automatically.");
-            ImGui.Checkbox("Exclude items present in protection list", ref selectedPlan.ExcludeProtected);
+            ImGui.Checkbox(Loc.T("Allow entrusting from Armory Chest"), ref selectedPlan.AllowEntrustFromArmory);
+            ImGui.Checkbox(Loc.T("Manual execution only"), ref selectedPlan.ManualPlan);
+            ImGuiEx.HelpMarker(Loc.T("Mark this plan for manual execution only. This plan will only be processed upon manual \"Entrust Items\" button click and never automatically."));
+            ImGui.Checkbox(Loc.T("Exclude items present in protection list"), ref selectedPlan.ExcludeProtected);
             ImGui.Separator();
-            ImGuiEx.TreeNodeCollapsingHeader($"Entrust categories ({selectedPlan.EntrustCategories.Count} selected)###ecats", () =>
+            ImGuiEx.TreeNodeCollapsingHeader($"{Loc.T("Entrust categories (")}{selectedPlan.EntrustCategories.Count}{Loc.T(" selected)")}###ecats", () =>
             {
                 ImGuiEx.TextWrapped($"Here you can select item categories that will be entrusted as a whole. Individual items that are selected below will be excluded from these rules.");
                 if(ImGui.BeginTable("EntrustTable", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.BordersInner))
@@ -129,7 +129,7 @@ public class EntrustManager : InventoryManagemenrBase
                     ImGui.EndTable();
                 }
             });
-            ImGuiEx.TreeNodeCollapsingHeader($"Entrust individual items ({selectedPlan.EntrustItems.Count} selected)###eitems", () =>
+            ImGuiEx.TreeNodeCollapsingHeader($"{Loc.T("Entrust individual items (")}{selectedPlan.EntrustItems.Count}{Loc.T(" selected)")}###eitems", () =>
             {
                 InventoryManagementCommon.DrawListNew(selectedPlan.EntrustItems, (x) =>
                 {
@@ -143,7 +143,7 @@ public class EntrustManager : InventoryManagemenrBase
                     ImGuiEx.Tooltip("Amount to keep in your inventory");
                 });
             });
-            ImGuiEx.TreeNodeCollapsingHeader($"Fast addition/removal", () =>
+            ImGuiEx.TreeNodeCollapsingHeader(Loc.T("Fast addition/removal"), () =>
             {
                 ImGuiEx.TextWrapped(GradientColor.Get(EColor.RedBright, EColor.YellowBright), $"While this text is visible, hover over items while holding:");
                 ImGuiEx.Text(!ImGui.GetIO().KeyShift ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, $"Shift - add to entrust plan");

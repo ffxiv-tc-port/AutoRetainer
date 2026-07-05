@@ -7,7 +7,7 @@ using VesselDescriptor = (ulong CID, string VesselName);
 namespace AutoRetainer.UI.NeoUI;
 public class DeployablesTab : NeoUIEntry
 {
-    public override string Path => "Deployables";
+    public override string Path => Loc.T("Deployables");
 
     private static int MinLevel = 0;
     private static int MaxLevel = 0;
@@ -19,14 +19,14 @@ public class DeployablesTab : NeoUIEntry
     public DeployablesTab()
     {
         Builder = new NuiBuilder()
-        .Section("General")
-        .Checkbox($"Resend vessels when accessing the Voyage Control Panel", () => ref C.SubsAutoResend2)
-        .Checkbox($"Finalize all vessels before resending them", () => ref C.FinalizeBeforeResend)
-        .Checkbox($"Hide Airships from Deployables UI", () => ref C.HideAirships)
+        .Section(Loc.T("General"))
+        .Checkbox(Loc.T("Resend vessels when accessing the Voyage Control Panel"), () => ref C.SubsAutoResend2)
+        .Checkbox(Loc.T("Finalize all vessels before resending them"), () => ref C.FinalizeBeforeResend)
+        .Checkbox(Loc.T("Hide Airships from Deployables UI"), () => ref C.HideAirships)
 
-        .Section("Alert Settings")
-        .Checkbox($"Less than possible vessels enabled", () => ref C.AlertNotAllEnabled)
-        .Checkbox($"Enabled vessel isn't deployed", () => ref C.AlertNotDeployed)
+        .Section(Loc.T("Alert Settings"))
+        .Checkbox(Loc.T("Less than possible vessels enabled"), () => ref C.AlertNotAllEnabled)
+        .Checkbox(Loc.T("Enabled vessel isn't deployed"), () => ref C.AlertNotDeployed)
         .Widget("Unoptimal submersible configuration alerts:", (z) =>
         {
             foreach(var x in C.UnoptimalVesselConfigurations)
@@ -82,9 +82,9 @@ public class DeployablesTab : NeoUIEntry
 
     private void MassConfigurationChangeWidget()
     {
-        ImGuiEx.Text($"Select submersibles:");
+        ImGuiEx.Text(Loc.T("Select submersibles:"));
         ImGuiEx.SetNextItemFullWidth();
-        if(ImGui.BeginCombo($"##sel", $"Selected {SelectedVessels.Count}", ImGuiComboFlags.HeightLarge))
+        if(ImGui.BeginCombo($"##sel", $"{Loc.T("Selected")} {SelectedVessels.Count}", ImGuiComboFlags.HeightLarge))
         {
             ref var search = ref Ref<string>.Get("Search");
             ImGui.InputTextWithHint("##searchSubs", Loc.T("Character search"), ref search, 100);

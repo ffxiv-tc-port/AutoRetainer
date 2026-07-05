@@ -12,7 +12,7 @@ public sealed class GilDisplayManager
     {
         ImGuiEx.SetNextItemWidthScaled(200f);
         ImGui.InputInt(Loc.T("Ignore characters/retainers with gil less than"), ref C.MinGilDisplay.ValidateRange(0, int.MaxValue));
-        ImGuiComponents.HelpMarker($"Ignored retainer gil still contributes to character/DC total. Character is ignored if their gil AND all retainers' gil is less than this value. Ignored characters do not contribute to DC total.");
+        ImGuiComponents.HelpMarker(Loc.T("Ignored retainer gil still contributes to character/DC total. Character is ignored if their gil AND all retainers' gil is less than this value. Ignored characters do not contribute to DC total."));
         ref var filter = ref Ref<string>.Get();
         ImGui.Checkbox(Loc.T("Only display character total"), ref C.GilOnlyChars);
         ImGui.SameLine();
@@ -64,7 +64,7 @@ public sealed class GilDisplayManager
                         }
                         if(fcdata != null && fcdata.Gil > 0)
                         {
-                            ImGuiEx.Text(ImGuiColors.DalamudYellow, $"        Free Company {fcdata.Name}: {fcdata.Gil:N0}");
+                            ImGuiEx.Text(ImGuiColors.DalamudYellow, $"        {Loc.T("Free Company ")}{fcdata.Name}: {fcdata.Gil:N0}");
                         }
                     }
                     ImGuiEx.Text(ImGuiColors.DalamudViolet, $"    {Censor.Character(c.Name, c.World)}{(fcdata != null && fcdata.Gil > 0 ? "+FC" : "")} total: {charTotal:N0}");
@@ -79,11 +79,11 @@ public sealed class GilDisplayManager
                     ImGui.Separator();
                 }
             }
-            ImGuiEx.Text(ImGuiColors.DalamudOrange, $"Data center total ({x.Key}): {dcTotal:N0}");
+            ImGuiEx.Text(ImGuiColors.DalamudOrange, $"{Loc.T("Data center total (")}{x.Key}): {dcTotal:N0}");
             globalTotal += dcTotal;
             ImGui.Separator();
             ImGui.Separator();
         }
-        ImGuiEx.Text(ImGuiColors.DalamudOrange, $"Overall total: {globalTotal:N0}");
+        ImGuiEx.Text(ImGuiColors.DalamudOrange, $"{Loc.T("Overall total: ")}{globalTotal:N0}");
     }
 }
