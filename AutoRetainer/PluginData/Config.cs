@@ -246,6 +246,11 @@ internal unsafe class Config
     public bool FCChestGilCheck = false;
     public int FCChestGilCheckCd = 24;
     public Dictionary<ulong, long> FCChestGilCheckTimes = [];
+
+    public bool AutoBuyFuelEnabled = false;
+    public int AutoBuyFuelThreshold = 500;
+    public int AutoBuyFuelTarget = 999;
+    public Dictionary<ulong, long> AutoBuyFuelCheckTimes = [];
     public Dictionary<ExcelWorldHelper.Region, long> LockoutTime = [];
     public GCExchangePlan DefaultGCExchangePlan = new();
     public List<GCExchangePlan> AdditionalGCExchangePlans = [];

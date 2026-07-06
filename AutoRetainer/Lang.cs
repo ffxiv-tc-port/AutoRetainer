@@ -201,6 +201,15 @@ internal static class Lang
     internal static readonly string[] ChangeSubmersibleComponents = ["Change submersible components", "パーツの変更", "Bauteile austauschen", "Changer les éléments", "부품 변경", "更换配件", "更換配件"];
     internal static readonly string[] RegisterSub = ["Outfit and register a submersible.", "潜水艦の新規登録", "Registrierung eines neuen Tauchboots", "Enregistrement d'un sous-marin", "새 잠수함 등록"]; // Missing Chinese
 
+    // Company Workshop's "adventurer doll" NPC name carries a per-instance
+    // numeric suffix (e.g. "冒險人偶014號"), so this is matched with Contains
+    // rather than Equals. TC/CN confirmed via screenshot; other locales unverified.
+    internal static readonly string[] AdventurerDollNamePart = ["冒險人偶", "冒险人偶"]; // English/JP/etc not yet confirmed
+    // SelectString entry to open the Free Company Credit Shop from the doll's menu.
+    internal static readonly string[] FreeCompanyCreditShopMenu = ["Free Company Credit Shop", "公會戰績交易", "公会战绩交易"]; // JP/DE/FR/KR not yet confirmed
+    // Yes/No confirm when exchanging seals/points for an item at that shop; "青磷水" (Ceruleum) is stable across TC/CN.
+    internal static readonly string[] WorkshopBuyFuelConfirm = ["ceruleum", "青磷水"];
+
     internal static readonly string[] PanelAirship = ["Select an airship.", "飛空艇を選択してください。", "请选择飞空艇。", "請選擇飛空艇。", "Wähle ein Luftschiff.", "Choisissez un aéronef.", "비공정을 선택하십시오."];
     internal static readonly string[] PanelSubmersible = ["Select a submersible.", "潜水艦を選択してください。", "请选择潜水艇。", "請選擇潛水艇。", "Wähle ein Tauchboot.", "Choisissez un sous-marin.", "잠수함을 선택하십시오."];
 

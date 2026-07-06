@@ -957,6 +957,46 @@ public static unsafe class Utils
         return null;
     }
 
+    // Finds the Company Workshop's "adventurer doll" NPC, used to reach the
+    // Free Company Credit Shop. Matched by name substring since it carries a
+    // per-instance numeric suffix (e.g. "冒險人偶014號") that rules out an
+    // exact-name match like the bell/panel use.
+    internal static IGameObject GetNearestAdventurerDoll(out float Distance)
+    {
+        var currentDistance = float.MaxValue;
+        IGameObject currentObject = null;
+        foreach(var x in Svc.Objects)
+        {
+            if(x.IsTargetable && x.Name.ToString().ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.AdventurerDollNamePart))
+            {
+                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                if(distance < currentDistance)
+                {
+                    currentDistance = distance;
+                    currentObject = x;
+                }
+            }
+        }
+        Distance = currentDistance;
+        return currentObject;
+    }
+
+    internal static IGameObject GetReachableAdventurerDoll()
+    {
+        if(Player.Object is null) return null;
+        foreach(var x in Svc.Objects)
+        {
+            if(x.Name.ToString().ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.AdventurerDollNamePart))
+            {
+                if(Vector3.Distance(x.Position, Svc.ClientState.LocalPlayer.Position) < GetValidInteractionDistance(x) && x.IsTargetable)
+                {
+                    return x;
+                }
+            }
+        }
+        return null;
+    }
+
 
 
     internal static bool AnyRetainersAvailableCurrentChara()

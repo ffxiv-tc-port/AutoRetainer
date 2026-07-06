@@ -537,6 +537,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         MultiMode.Tick();
         NotificationHandler.Tick();
         NewYesAlreadyManager.Tick();
+        AutoBuyFuelManager.Tick();
         Artisan.ArtisanTick();
         FPSManager.Tick();
         PriorityManager.Tick();
