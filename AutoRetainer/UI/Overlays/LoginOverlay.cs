@@ -6,6 +6,8 @@ internal unsafe class LoginOverlay : Window
 {
     internal float bWidth = 0f;
     private string Search = "";
+    internal long LastDrawTick = 0;
+    internal int LastDrawnCharaCount = 0;
 
     public LoginOverlay() : base("AutoRetainer login overlay", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoFocusOnAppearing, true)
     {
@@ -19,11 +21,32 @@ internal unsafe class LoginOverlay : Window
         return C.LoginOverlay && Utils.CanAutoLogin();
     }
 
+    // ImGui persists this window's last position by name across sessions. If the window was
+    // last closed/moved while off-screen (e.g. after a resolution or monitor layout change),
+    // that stale position is restored forever and the overlay silently renders outside the
+    // visible viewport. Reset to a safe default whenever it has no overlap with the viewport.
+    private void EnsureOnScreen()
+    {
+        var pos = ImGui.GetWindowPos();
+        var size = ImGui.GetWindowSize();
+        var viewport = ImGui.GetMainViewport();
+        var vpMin = viewport.Pos;
+        var vpMax = viewport.Pos + viewport.Size;
+        var noOverlap = pos.X + size.X < vpMin.X || pos.Y + size.Y < vpMin.Y || pos.X > vpMax.X || pos.Y > vpMax.Y;
+        if(noOverlap)
+        {
+            ImGui.SetWindowPos(viewport.Pos + new Vector2(100, 100));
+        }
+    }
+
     public override void Draw()
     {
+        LastDrawTick = Environment.TickCount64;
+        EnsureOnScreen();
         var num = 1;
         ref var sacc = ref Ref<int>.Get("ServAcc", -1);
         int[] userServiceAccounts = [-1, .. C.OfflineData.Select(x => x.ServiceAccount).Distinct().Order()];
+        LastDrawnCharaCount = C.OfflineData.Count(x => !x.Name.IsNullOrEmpty() && (!x.ExcludeOverlay || (C.LoginOverlayAllSearch && Search != "")));
         if(!C.NoCharaSearch)
         {
             ImGuiEx.LineCentered(() =>

@@ -14,6 +14,37 @@ internal unsafe class DebugMisc : DebugSectionBase
 {
     public override void Draw()
     {
+        if(ImGui.CollapsingHeader("Title screen / login overlay readiness"))
+        {
+            ImGuiEx.Text($"CanAutoLogin(): {Utils.CanAutoLogin()}");
+            ImGuiEx.Text($"CanAutoLoginFromTaskManager(): {Utils.CanAutoLoginFromTaskManager()}");
+            ImGuiEx.Text($"TaskManager.IsBusy: {P.TaskManager.IsBusy}");
+            ImGuiEx.Text($"IsLoggedIn: {Svc.ClientState.IsLoggedIn}");
+            ImGuiEx.Text($"Condition.Any(): {Svc.Condition.Any()}");
+            ImGuiEx.Text($"IsTitleScreenReady(): {Utils.IsTitleScreenReady()}");
+            var found = TryGetAddonByName<AtkUnitBase>("_TitleMenu", out var title);
+            ImGuiEx.Text($"_TitleMenu found: {found}");
+            if(found)
+            {
+                ImGuiEx.Text($"IsAddonReady: {IsAddonReady(title)}");
+                ImGuiEx.Text($"NodeListCount: {title->UldManager.NodeListCount}");
+                if(title->UldManager.NodeListCount > 3)
+                {
+                    ImGuiEx.Text($"NodeList[3].Color.A: {title->UldManager.NodeList[3]->Color.A:X2}");
+                }
+                if(title->UldManager.NodeListCount > 7)
+                {
+                    ImGuiEx.Text($"NodeList[7].IsVisible(): {title->UldManager.NodeList[7]->IsVisible()}");
+                }
+            }
+            ImGuiEx.Text($"TitleDCWorldMap found: {TryGetAddonByName<AtkUnitBase>("TitleDCWorldMap", out _)}");
+            ImGuiEx.Text($"TitleConnect found: {TryGetAddonByName<AtkUnitBase>("TitleConnect", out _)}");
+            ImGuiEx.Text($"LoginOverlay.IsOpen: {P.LoginOverlay.IsOpen}");
+            ImGuiEx.Text($"LoginOverlay ms since last Draw(): {(P.LoginOverlay.LastDrawTick == 0 ? "never drawn" : (Environment.TickCount64 - P.LoginOverlay.LastDrawTick).ToString())}");
+            ImGuiEx.Text($"LoginOverlay last drawn character count: {P.LoginOverlay.LastDrawnCharaCount}");
+            ImGuiEx.Text($"C.OfflineData.Count: {C.OfflineData.Count}");
+            ImGuiEx.Text($"C.LoginOverlay: {C.LoginOverlay}");
+        }
         if(ImGui.CollapsingHeader("Retainer item stats"))
         {
             var im = InventoryManager.Instance();
