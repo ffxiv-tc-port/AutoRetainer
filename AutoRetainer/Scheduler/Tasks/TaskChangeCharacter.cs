@@ -53,6 +53,11 @@ public static unsafe class TaskChangeCharacter
         }
         P.TaskManager.Enqueue(() => SelectCharacter(charaName, charaWorld), $"Select chara {charaName}@{charaWorld}", new(timeLimitMS: 1000000));
         P.TaskManager.Enqueue(ConfirmLogin);
+        if(C.PostLoginSceneSettleDelay > 0)
+        {
+            PluginLog.Information($"Waiting {C.PostLoginSceneSettleDelay}s for scene to settle after login before continuing");
+            P.TaskManager.EnqueueDelay(C.PostLoginSceneSettleDelay * 1000);
+        }
     }
 
     public static bool? SelectYesLogout()

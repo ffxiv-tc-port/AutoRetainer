@@ -11,6 +11,7 @@ public class MultiModeCommon : NeoUIEntry
         .Checkbox(Loc.T("Allow entering shared houses"), () => ref C.SharedHET)
         .Checkbox(Loc.T("Attempt to enter house on login even when Multi Mode is disabled"), () => ref C.HETWhenDisabled)
         .Checkbox(Loc.T("Do not teleport or enter house for retainers when already next to bell"), () => ref C.NoTeleportHetWhenNextToBell)
+        .SliderInt(150f, Loc.T("Post-login scene settle delay, seconds"), () => ref C.PostLoginSceneSettleDelay.ValidateRange(0, 30), 0, 15, Loc.T("After logging into a character during Multi Mode character switching, wait this many extra seconds before AutoRetainer starts interacting with the game. This gives the scene, graphics resources and game settings time to finish loading after the login/zone transition, which is when crashes are most likely to occur. Increase this if you experience crashes during character switching."))
 
         .Section(Loc.T("Game startup"))
         .Checkbox(Loc.T("Enable Multi Mode on Game Boot"), () => ref C.MultiAutoStart)
