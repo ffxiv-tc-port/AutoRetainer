@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -46,5 +47,25 @@ internal static class Loc
     }
 
     public static string T(string fallback)
-        => _strings != null && _strings.TryGetValue(fallback, out var translated) ? translated : fallback;
+    {
+        // C# raw string literals ("""...""") preserve the source file's literal line
+        // endings verbatim (unlike regular "..." strings, where \n is always LF). Files
+        // saved with CRLF therefore produce \r\n in the runtime string, which would never
+        // match an LF-only key in the JSON dictionary. Normalize before lookup so
+        // translation matching doesn't depend on a source file's line-ending style.
+        var key = fallback.Contains('\r') ? fallback.Replace("\r\n", "\n") : fallback;
+        return _strings != null && _strings.TryGetValue(key, out var translated) ? translated : fallback;
+    }
+
+    // Builds a display-name dictionary for an underscore-separated enum (e.g. Enable_AutoRetainer),
+    // translating the space-converted fallback text via Loc.T for use with EnumComboFullWidth's names: parameter.
+    public static IDictionary<TEnum, string> EnumNames<TEnum>() where TEnum : struct, Enum
+    {
+        var dict = new Dictionary<TEnum, string>();
+        foreach(var v in Enum.GetValues<TEnum>())
+        {
+            dict[v] = T(v.ToString().Replace('_', ' '));
+        }
+        return dict;
+    }
 }
