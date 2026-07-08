@@ -1,4 +1,5 @@
-﻿using ECommons.Configuration;
+﻿using AutoRetainerAPI.Configuration;
+using ECommons.Configuration;
 using ECommons.Reflection;
 
 namespace AutoRetainer.UI.NeoUI.AdvancedEntries;
@@ -8,11 +9,11 @@ public class ExpertTab : NeoUIEntry
 
     public override NuiBuilder Builder { get; init; } = new NuiBuilder()
         .Section(Loc.T("Behavior"))
-        .EnumComboFullWidth(null, Loc.T("Action on accessing retainer bell if no ventures available:"), () => ref C.OpenBellBehaviorNoVentures)
-        .EnumComboFullWidth(null, Loc.T("Action on accessing retainer bell if any ventures available:"), () => ref C.OpenBellBehaviorWithVentures)
-        .EnumComboFullWidth(null, Loc.T("Task completion behavior after accessing bell:"), () => ref C.TaskCompletedBehaviorAccess)
-        .EnumComboFullWidth(null, Loc.T("Task completion behavior after manual enabling:"), () => ref C.TaskCompletedBehaviorManual)
-        .EnumComboFullWidth(null, Loc.T("Task completion behavior during plugin operation:"), () => ref C.TaskCompletedBehaviorAuto)
+        .EnumComboFullWidth(null, Loc.T("Action on accessing retainer bell if no ventures available:"), () => ref C.OpenBellBehaviorNoVentures, names: Loc.EnumNames<OpenBellBehavior>())
+        .EnumComboFullWidth(null, Loc.T("Action on accessing retainer bell if any ventures available:"), () => ref C.OpenBellBehaviorWithVentures, names: Loc.EnumNames<OpenBellBehavior>())
+        .EnumComboFullWidth(null, Loc.T("Task completion behavior after accessing bell:"), () => ref C.TaskCompletedBehaviorAccess, names: Loc.EnumNames<TaskCompletedBehavior>())
+        .EnumComboFullWidth(null, Loc.T("Task completion behavior after manual enabling:"), () => ref C.TaskCompletedBehaviorManual, names: Loc.EnumNames<TaskCompletedBehavior>())
+        .EnumComboFullWidth(null, Loc.T("Task completion behavior during plugin operation:"), () => ref C.TaskCompletedBehaviorAuto, names: Loc.EnumNames<TaskCompletedBehavior>())
         .TextWrapped(ImGuiColors.DalamudGrey, Loc.T("\"Close retainer list and disable plugin\" option for 3 previous settings is enforced during MultiMode operation."))
         .Checkbox(Loc.T("Stay in retainer menu if there are retainers to finish ventures within 5 minutes or less"), () => ref C.Stay5, Loc.T("This option is enforced during MultiMode operation."))
         .Checkbox(Loc.T("Auto-disable plugin when closing retainer list"), () => ref C.AutoDisable, Loc.T("Only applies when you exit menu by yourself. Otherwise, settings above apply."))
@@ -25,7 +26,7 @@ public class ExpertTab : NeoUIEntry
         .Section(Loc.T("Settings"))
         .Checkbox(Loc.T("Disable sorting and collapsing/expanding"), () => ref C.NoCurrentCharaOnTop)
         .Checkbox(Loc.T("Show MultiMode checkbox on plugin UI bar"), () => ref C.MultiModeUIBar)
-        .SliderIntAsFloat(100f, "Retainer menu delay, seconds", () => ref C.RetainerMenuDelay.ValidateRange(0, 2000), 0, 2000)
+        .SliderIntAsFloat(100f, Loc.T("Retainer menu delay, seconds"), () => ref C.RetainerMenuDelay.ValidateRange(0, 2000), 0, 2000)
         .Checkbox(Loc.T("Allow venture timer to display negative values"), () => ref C.TimerAllowNegative)
         .Checkbox(Loc.T("Do not error check venture planner"), () => ref C.NoErrorCheckPlanner2)
         .Checkbox(Loc.T("Enable Manual relogs character postprocess"), () => ref C.AllowManualPostprocess, Loc.T("Allow manual command invocation while AutoRetainer locked in postprocess. "))

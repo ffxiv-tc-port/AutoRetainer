@@ -13,7 +13,7 @@ public sealed unsafe class GeneralSettings : InventoryManagemenrBase
     {
         ImGui.Checkbox(Loc.T("Enable Expert Delivery continuation"), ref C.AutoGCContinuation);
         ImGui.Indent();
-        ImGuiEx.TextWrapped($"""
+        ImGuiEx.TextWrapped(Loc.T("""
             When Expert Delivery Continuation is enabled:
             - The plugin will automatically spend available Grand Company Seals to purchase items from the configured Exchange List.
             - If the Exchange List is empty, only Ventures will be purchased.
@@ -21,7 +21,7 @@ public sealed unsafe class GeneralSettings : InventoryManagemenrBase
             After seals have been spent:
             - Expert Delivery will resume automatically.
             - The process will repeat until there are no eligible items left to deliver or no seals remaining.
-            """);
+            """));
         ImGui.Unindent();
     }
 }

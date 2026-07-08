@@ -153,7 +153,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         };
         Svc.ClientState.Logout += Logout;
         Svc.Condition.ConditionChange += ConditionChange;
-        EzCmd.Add("/autoretainer", CommandHandler, """
+        EzCmd.Add("/autoretainer", CommandHandler, Loc.T("""
             Open plugin interface
             /ays - alias for /autoretainer
             /autoretainer e|enable → Enable plugin
@@ -169,7 +169,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
             /autoretainer het - enter nearby own house or apartment if possible
             /autoretainer reset - reset all pending tasks
             /autoretainer deliver - deliver expert delivery items
-            """);
+            """));
         EzCmd.Add("/ays", CommandHandler);
         Svc.Toasts.ErrorToast += Toasts_ErrorToast;
         Svc.Toasts.Toast += Toasts_Toast;

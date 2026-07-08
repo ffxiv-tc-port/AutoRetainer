@@ -21,7 +21,7 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
     public override void Draw()
     {
         C.AdditionalGCExchangePlans.Where(x => x.GUID == Guid.Empty).Each(x => x.GUID = Guid.NewGuid());
-        ImGuiEx.TextWrapped($"""
+        ImGuiEx.TextWrapped(Loc.T("""
             Select the items to be purchased automatically during Grand Company Expert Delivery operations.
             Purchase Logic:
             - The system will attempt to purchase the first available item from the list.
@@ -31,7 +31,7 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
             - Venture purchases will continue until your Venture count reaches 65,000.
             Once the Venture cap is reached and no other purchases are possible:
             - Any excess Grand Company Seals will be discarded.
-            """);
+            """));
 
         var selectedPlan = C.AdditionalGCExchangePlans.FirstOrDefault(x => x.GUID == SelectedPlanGuid);
         ImGuiEx.InputWithRightButtonsArea(() =>

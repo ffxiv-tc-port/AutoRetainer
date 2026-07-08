@@ -14,10 +14,10 @@ public class FastAddition : InventoryManagemenrBase
             var selectedSettings = InventoryCleanupCommon.SelectedPlan;
             ImGuiEx.TextWrapped(GradientColor.Get(EColor.RedBright, EColor.YellowBright), Loc.T("While this text is visible, hover over items while holding:"));
             ImGuiEx.Text(!ImGui.GetIO().KeyShift ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, Loc.T("Shift - add to Quick Venture Sell List"));
-            ImGuiEx.Text($"* Items that already in Unconditional Sell List WILL NOT BE ADDED to Quick Venture Sell List");
+            ImGuiEx.Text(Loc.T("* Items that already in Unconditional Sell List WILL NOT BE ADDED to Quick Venture Sell List"));
             ImGuiEx.Text(!ImGui.GetIO().KeyCtrl ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, Loc.T("Ctrl - add to Unconditional Sell List"));
-            ImGuiEx.Text($"* Items that already in Quick Venture Sell List WILL BE MOVED to Unconditional Sell List");
-            ImGuiEx.Text(!ImGui.GetIO().KeyAlt ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, $"Alt - delete from either list");
+            ImGuiEx.Text(Loc.T("* Items that already in Quick Venture Sell List WILL BE MOVED to Unconditional Sell List"));
+            ImGuiEx.Text(!ImGui.GetIO().KeyAlt ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, Loc.T("Alt - delete from either list"));
             ImGuiEx.Text(Loc.T("\nItems that are protected are unaffected by these actions"));
             if(Svc.GameGui.HoveredItem > 0)
             {

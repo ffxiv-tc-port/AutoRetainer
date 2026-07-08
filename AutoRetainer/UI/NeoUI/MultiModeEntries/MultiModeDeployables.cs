@@ -10,11 +10,11 @@ public class MultiModeDeployables : NeoUIEntry
         .Checkbox(Loc.T("Wait even when already logged in"), () => ref C.MultiModeWorkshopConfiguration.WaitForAllLoggedIn, """Changes the behavior of "Wait for Voyage Completion" (both global and per-character) so that AutoRetainer no longer resends individual submarines while already logged in. Instead, it will wait until all submarines have returned before taking action.""")
         .InputInt(120f, Loc.T("Maximum Wait, minutes"), () => ref C.MultiModeWorkshopConfiguration.MaxMinutesOfWaiting.ValidateRange(0, 9999), 10, 60, """If waiting for other deployables to return would exceed this number of minutes, AutoRetainer will ignore both the "Wait for Voyage Completion" and "Wait even when already logged in" settings.""")
         .Unindent()
-        .DragInt(60f, "Advance Relog Threshold, seconds", () => ref C.MultiModeWorkshopConfiguration.AdvanceTimer.ValidateRange(0, 300), 0.1f, 0, 300, "The number of seconds AutoRetainer should log in early before submarines on this character are ready to be resent.")
-        .DragInt(120f, "Retainer venture processing cutoff, minutes", () => ref C.DisableRetainerVesselReturn.ValidateRange(0, 60), "If set to a value greater than 0, AutoRetainer will stop processing any retainers this number of minutes before any character is scheduled to redeploy submarines, taking all previous settings into account.")
+        .DragInt(60f, Loc.T("Advance Relog Threshold, seconds"), () => ref C.MultiModeWorkshopConfiguration.AdvanceTimer.ValidateRange(0, 300), 0.1f, 0, 300, Loc.T("The number of seconds AutoRetainer should log in early before submarines on this character are ready to be resent."))
+        .DragInt(120f, Loc.T("Retainer venture processing cutoff, minutes"), () => ref C.DisableRetainerVesselReturn.ValidateRange(0, 60), Loc.T("If set to a value greater than 0, AutoRetainer will stop processing any retainers this number of minutes before any character is scheduled to redeploy submarines, taking all previous settings into account."))
         .Checkbox(Loc.T("Periodically check FC chest for gil upon entering workshop"), () => ref C.FCChestGilCheck, Loc.T("Periodically checks the Free Company chest when entering the Workshop to keep the gil counter up to date."))
         .Indent()
-        .SliderInt(150f, "Check frequency, hours", () => ref C.FCChestGilCheckCd, 0, 24 * 5)
+        .SliderInt(150f, Loc.T("Check frequency, hours"), () => ref C.FCChestGilCheckCd, 0, 24 * 5)
         .Widget(Loc.T("Reset cooldowns"), (x) =>
         {
             if(ImGuiEx.Button(x, C.FCChestGilCheckTimes.Count > 0)) C.FCChestGilCheckTimes.Clear();

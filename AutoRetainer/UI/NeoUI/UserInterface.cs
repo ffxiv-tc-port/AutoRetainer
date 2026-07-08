@@ -20,9 +20,9 @@ public sealed unsafe class UserInterface : NeoUIEntry
             if(ImGui.Checkbox(x, ref C.IgnoreEsc)) Utils.ResetEscIgnoreByWindows();
         })
         .Checkbox(Loc.T("Display only most significant icon in status bar"), () => ref C.StatusBarMSI)
-        .SliderInt(120f, "Status bar icon size", () => ref C.StatusBarIconWidth, 32, 128)
+        .SliderInt(120f, Loc.T("Status bar icon size"), () => ref C.StatusBarIconWidth, 32, 128)
         .Checkbox(Loc.T("Open AutoRetainer window on game start"), () => ref C.DisplayOnStart)
-        .Checkbox("Skip item sell/trade confirmation while plugin is active", () => ref C.SkipItemConfirmations)
+        .Checkbox(Loc.T("Skip item sell/trade confirmation while plugin is active"), () => ref C.SkipItemConfirmations)
         .Checkbox(Loc.T("Enable title screen button (requires plugin restart)"), () => ref C.UseTitleScreenButton)
         .Checkbox(Loc.T("Hide character search"), () => ref C.NoCharaSearch)
         .Checkbox(Loc.T("Don't flash background of characters that are complete"), () => ref C.NoGradient)

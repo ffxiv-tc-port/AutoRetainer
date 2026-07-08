@@ -12,7 +12,7 @@ internal static class UIUtils
     {
         ref var dragDrop = ref Ref<ImGuiEx.RealtimeDragDrop<T>>.Get($"dsel{id}", () => new($"dsel{id}", x => x.ToString()));
         ImGui.PushID(id);
-        if(ImGui.BeginCombo("##addNew", "Add Entries...", ImGuiComboFlags.HeightLarge))
+        if(ImGui.BeginCombo("##addNew", Loc.T("Add Entries..."), ImGuiComboFlags.HeightLarge))
         {
             foreach(var x in Enum.GetValues<T>())
             {
