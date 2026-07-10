@@ -123,7 +123,7 @@ internal unsafe class AutoRetainerWindow : Window
         {
             ImGui.BeginDisabled();
         }
-        if(ImGui.Checkbox($"Enable {P.Name}", ref e))
+        if(ImGui.Checkbox(Loc.T($"Enable {P.Name}"), ref e))
         {
             P.WasEnabled = false;
             if(e)
@@ -198,6 +198,13 @@ internal unsafe class AutoRetainerWindow : Window
             if(ImGui.Button($"Abort {P.TaskManager.NumQueuedTasks} tasks"))
             {
                 P.TaskManager.Abort();
+            }
+            if(ImGui.IsItemHovered())
+            {
+                var lines = new List<string>();
+                if(P.TaskManager.CurrentTask != null) lines.Add(P.TaskManager.CurrentTask.Name);
+                lines.AddRange(P.TaskManager.Tasks.Select(x => x.Name));
+                ImGuiEx.Tooltip(string.Join("\n", lines));
             }
         }
 
