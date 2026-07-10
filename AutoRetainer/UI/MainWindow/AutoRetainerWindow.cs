@@ -15,7 +15,6 @@ internal unsafe class AutoRetainerWindow : Window
 
     public AutoRetainerWindow() : base($"")
     {
-        PatreonBanner.IsOfficialPlugin = () => true;
         LockButton = new()
         {
             Click = OnLockButtonClick,
@@ -71,23 +70,23 @@ internal unsafe class AutoRetainerWindow : Window
         {
             if(time.Days > 0)
             {
-                return $"Session expires in {time.Days} day{(time.Days == 1 ? "" : "s")}" + (time.Hours > 0 ? $" {time.Hours} hours" : "");
+                return $"連線過期於 {time.Days} 天" + (time.Hours > 0 ? $" {time.Hours} 小時" : "") + "後";
             }
             else
             {
                 if(time.Hours > 0)
                 {
-                    return $"Session expires in {time.Hours} hours";
+                    return $"連線過期於 {time.Hours} 小時後";
                 }
                 else
                 {
-                    return $"Session expires in less than an hour";
+                    return $"連線過期於不到一小時後";
                 }
             }
         }
         else
         {
-            return "Session expired";
+            return "連線已過期";
         }
     }
     public override void Draw()
@@ -202,13 +201,11 @@ internal unsafe class AutoRetainerWindow : Window
             }
         }
 
-        PatreonBanner.DrawRight();
-        ImGuiEx.EzTabBar("tabbar", PatreonBanner.Text,
+        ImGuiEx.EzTabBar("tabbar",
                         (Loc.T("Retainers"), MultiModeUI.Draw, null, true),
                         (Loc.T("Deployables"), WorkshopUI.Draw, null, true),
                         (Loc.T("Troubleshooting"), TroubleshootingUI.Draw, null, true),
-                        (Loc.T("Statistics"), DrawStats, null, true),
-                        (Loc.T("About"), CustomAboutTab.Draw, null, true)
+                        (Loc.T("Statistics"), DrawStats, null, true)
                         );
         if(!C.PinWindow)
         {

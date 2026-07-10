@@ -165,6 +165,15 @@ internal static unsafe class WorkshopUI
 
             var colpref = UIUtils.PushColIfPreferredCurrent(data);
 
+            var anyVesselDone = lst.Any(v => v.ReturnTime != 0 && v.GetRemainingSeconds() <= 0);
+            if(anyVesselDone)
+            {
+                ImGui.PushFont(UiBuilder.IconFont);
+                ImGuiEx.TextV(ImGuiColors.HealerGreen, FontAwesomeIcon.CheckCircle.ToIconString());
+                ImGui.PopFont();
+                ImGuiEx.Tooltip(Loc.T("Some voyages have returned"));
+                ImGui.SameLine(0, 3);
+            }
             if(ImGuiEx.CollapsingHeader(data.GetCutCharaString(StatusTextWidth) + $"###workshop{data.CID}"))
             {
                 MultiModeUI.SetAsPreferred(data);

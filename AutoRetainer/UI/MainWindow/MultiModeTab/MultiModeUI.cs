@@ -13,8 +13,6 @@ internal static unsafe class MultiModeUI
         List<OverlayTextData> overlayTexts = [];
         C.OfflineData.RemoveAll(x => C.Blacklist.Any(z => z.CID == x.CID));
         var sortedData = new List<OfflineCharacterData>();
-        var shouldExpand = false;
-        var doExpand = JustRelogged && !C.NoCurrentCharaOnTop;
         JustRelogged = false;
         if(C.NoCurrentCharaOnTop)
         {
@@ -25,7 +23,6 @@ internal static unsafe class MultiModeUI
             if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var cdata))
             {
                 sortedData.Add(cdata);
-                shouldExpand = true;
             }
             foreach(var x in C.OfflineData.ApplyOrder(C.RetainersVisualOrders))
             {
@@ -103,9 +100,14 @@ internal static unsafe class MultiModeUI
             }
             var colpref = UIUtils.PushColIfPreferredCurrent(data);
 
-            if(shouldExpand && doExpand)
+            var anyRetainerDone = data.GetEnabledRetainers().Any(r => r.HasVenture && r.Level != 0 && !r.Name.ToString().IsNullOrEmpty() && r.GetVentureSecondsRemaining(false) <= 0);
+            if(anyRetainerDone)
             {
-                ImGui.SetNextItemOpen(index == 0);
+                ImGui.PushFont(UiBuilder.IconFont);
+                ImGuiEx.TextV(ImGuiColors.HealerGreen, FontAwesomeIcon.CheckCircle.ToIconString());
+                ImGui.PopFont();
+                ImGuiEx.Tooltip(Loc.T("Some retainers have completed ventures"));
+                ImGui.SameLine(0, 3);
             }
             if(ImGui.CollapsingHeader(data.GetCutCharaString(StatusTextWidth) + $"###workshop{data.CID}" + $"###chara{data.CID}"))
             {
