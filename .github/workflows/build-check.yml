@@ -1,0 +1,29 @@
+name: Build Check
+
+on:
+  push:
+    branches: '*'
+    tags-ignore: '*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      CI: true
+      DALAMUD_HOME: ${{ github.workspace }}\dalamud
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 9.x
+      - name: Download Dalamud
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile latest.zip
+          Expand-Archive -Force latest.zip "$env:DALAMUD_HOME"
+      - name: Build with dotnet
+        run: dotnet build --configuration Release AutoRetainer/AutoRetainer.csproj
