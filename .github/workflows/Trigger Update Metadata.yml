@@ -1,6 +1,8 @@
 name: Trigger Update Metadata
 on:
   push:
+    tags-ignore:
+      - '*'
     paths:
       - meta/**
   workflow_dispatch:
