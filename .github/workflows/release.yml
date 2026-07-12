@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      CI: true
+      DALAMUD_HOME: ${{ github.workspace }}\dalamud
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 9.x
+      - name: Download Dalamud (pinned TC-compatible build)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://github.com/Lother/dalamud-tc-pin/releases/download/v12.0.2/dalamud-api12-net9.zip -OutFile dalamud-pinned.zip
+          Expand-Archive -Force dalamud-pinned.zip "$env:DALAMUD_HOME"
+          Expand-Archive -Force dalamud-pinned.zip "$env:APPDATA\xivlauncher\Addon\Hooks\dev\"
+      - name: Build with dotnet
+        run: dotnet build --configuration Release AutoRetainer/AutoRetainer.csproj
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          files: |
+            AutoRetainer/bin/Release/AutoRetainer/latest.zip
+            AutoRetainer/bin/Release/AutoRetainer/AutoRetainer.json
+          generate_release_notes: true
