@@ -411,6 +411,20 @@ internal static unsafe class VoyageUtils
         return "";
     }
 
+    internal static (string Text, int ModdedCount) GetSubmarineBuildDisplay(this AdditionalVesselData data)
+    {
+        if(data.Part1 != 0 && data.Part2 != 0 && data.Part3 != 0 && data.Part4 != 0)
+        {
+            var str = Build.ToIdentifier((ushort)((Items)data.Part1).GetPartId())
+                + Build.ToIdentifier((ushort)((Items)data.Part2).GetPartId())
+                + Build.ToIdentifier((ushort)((Items)data.Part3).GetPartId())
+                + Build.ToIdentifier((ushort)((Items)data.Part4).GetPartId());
+            var moddedCount = str.Count(c => c == '+');
+            return (" " + str.Replace("+", ""), moddedCount);
+        }
+        return ("", 0);
+    }
+
     internal static string GetPlanBuild(this LevelAndPartsData data)
     {
         if(data.Part1 != 0 && data.Part2 != 0 && data.Part3 != 0 && data.Part4 != 0)

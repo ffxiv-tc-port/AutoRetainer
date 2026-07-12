@@ -425,7 +425,12 @@ internal static unsafe class WorkshopUI
             ImGui.SameLine(0, 0);
             ImGuiEx.Text(ImGuiColors.DalamudGrey3, $".{lvlf:D2}".ReplaceByChar(Lang.Digits.Normal, Lang.Digits.GameFont));
             ImGui.SameLine(0, 0);
-            ImGuiEx.Text(adata.IsUnoptimalBuild(out var justification) ? ImGuiColors.DalamudOrange : null, adata.GetSubmarineBuild());
+            var (buildText, moddedCount) = adata.GetSubmarineBuildDisplay();
+            var buildColor = adata.IsUnoptimalBuild(out var justification) ? ImGuiColors.DalamudOrange
+                : moddedCount == 4 ? ImGuiColors.HealerGreen
+                : moddedCount > 0 ? ImGuiColors.DalamudYellow
+                : (Vector4?)null;
+            ImGuiEx.Text(buildColor, buildText);
             if(justification != null)
             {
                 ImGuiEx.Tooltip(justification);
