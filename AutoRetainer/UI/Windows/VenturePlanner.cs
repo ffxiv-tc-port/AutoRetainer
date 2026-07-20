@@ -195,7 +195,7 @@ public sealed class VenturePlanner : Window
                     ImGuiEx.InputWithRightButtonsArea(Loc.T("SavePlan"), delegate
                     {
                         if(overwrite) ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.DalamudYellow);
-                        ImGui.InputTextWithHint("##name", "Enter plan name...", ref adata.VenturePlan.Name, 50);
+                        ImGui.InputTextWithHint("##name", Loc.T("Enter plan name..."), ref adata.VenturePlan.Name, 50);
                         if(overwrite) ImGui.PopStyleColor();
                     }, delegate
                     {
@@ -206,9 +206,9 @@ public sealed class VenturePlanner : Window
                                 C.SavedPlans.RemoveAll(x => x.Name == adata.VenturePlan.Name);
                             }
                             C.SavedPlans.Add(adata.VenturePlan.JSONClone());
-                            Notify.Success($"Plan {adata.VenturePlan.Name} saved!");
+                            Notify.Success(string.Format(Loc.T("Plan {0} saved!"), adata.VenturePlan.Name));
                         }
-                        ImGuiEx.Tooltip(overwrite ? "Overwrite Existing Venture Plan" : $"Save Venture Plan");
+                        ImGuiEx.Tooltip(overwrite ? Loc.T("Overwrite Existing Venture Plan") : Loc.T("Save Venture Plan"));
                     });
                 }
 
@@ -283,7 +283,7 @@ public sealed class VenturePlanner : Window
                             }
                         }
                         ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, Vector2.Zero);
-                        if(ImGui.Button($"{Lang.CharDice}    Quick Exploration", ImGuiHelpers.GetButtonSize("A") with { X = ImGui.GetContentRegionAvail().X }))
+                        if(ImGui.Button($"{Lang.CharDice}    {Loc.T("Quick Exploration")}", ImGuiHelpers.GetButtonSize("A") with { X = ImGui.GetContentRegionAvail().X }))
                         {
                             adata.VenturePlan.List.Add(new(VentureUtils.QuickExplorationID));
                             adata.VenturePlanIndex = 0;
@@ -307,15 +307,15 @@ public sealed class VenturePlanner : Window
                         adata.VenturePlanIndex = 0;
                     }
                     ImGui.SameLine();
-                    ImGuiEx.Tooltip("Cancels remaining ventures from this plan and starts from the beginning");
+                    ImGuiEx.Tooltip(Loc.T("Cancels remaining ventures from this plan and starts from the beginning"));
                     ImGui.ProgressBar(pct, new Vector2(ImGui.GetContentRegionAvail().X, ImGuiHelpers.GetButtonSize("X").Y));
                 }
 
                 if(C.Verbose)
                 {
-                    if(ImGui.CollapsingHeader("Debug"))
+                    if(ImGui.CollapsingHeader(Loc.T("Debug")))
                     {
-                        ImGuiEx.InputUint("Index", ref adata.VenturePlanIndex);
+                        ImGuiEx.InputUint(Loc.T("Index"), ref adata.VenturePlanIndex);
                     }
                 }
 
@@ -323,7 +323,7 @@ public sealed class VenturePlanner : Window
             }
             else
             {
-                ImGuiEx.TextWrapped($"This retainer's venture plan is shared with different retainer's venture plan.");
+                ImGuiEx.TextWrapped(Loc.T("This retainer's venture plan is shared with different retainer's venture plan."));
             }
         }
 

@@ -6,17 +6,17 @@ public static unsafe class RetainerConfig
 {
     public static void Draw(OfflineRetainerData ret, OfflineCharacterData data, AdditionalRetainerData adata)
     {
-        ImGui.CollapsingHeader($"{Censor.Retainer(ret.Name)} - {Censor.Character(data.Name)} Configuration  ##conf", ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
+        ImGui.CollapsingHeader($"{Censor.Retainer(ret.Name)} - {Censor.Character(data.Name)} {Loc.T("Configuration")}  ##conf", ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
         ImGuiEx.Text(Loc.T("Additional Post-venture Tasks:"));
         //ImGui.Checkbox($"Entrust Duplicates", ref adata.EntrustDuplicates);
         var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan);
         ImGuiEx.TextV(Loc.T("Entrust Items:"));
-        if(!C.EnableEntrustManager) ImGuiEx.HelpMarker("Globally disabled in settings", EColor.RedBright, FontAwesomeIcon.ExclamationTriangle.ToIconString());
+        if(!C.EnableEntrustManager) ImGuiEx.HelpMarker(Loc.T("Globally disabled in settings"), EColor.RedBright, FontAwesomeIcon.ExclamationTriangle.ToIconString());
         ImGui.SameLine();
         ImGui.SetNextItemWidth(150f);
-        if(ImGui.BeginCombo($"##select", selectedPlan?.Name ?? "Disabled", ImGuiComboFlags.HeightLarge))
+        if(ImGui.BeginCombo($"##select", selectedPlan?.Name ?? Loc.T("Disabled"), ImGuiComboFlags.HeightLarge))
         {
-            if(ImGui.Selectable("Disabled")) adata.EntrustPlan = Guid.Empty;
+            if(ImGui.Selectable(Loc.T("Disabled"))) adata.EntrustPlan = Guid.Empty;
             for(var i = 0; i < C.EntrustPlans.Count; i++)
             {
                 var plan = C.EntrustPlans[i];
@@ -35,7 +35,7 @@ public static unsafe class RetainerConfig
         }
         if(ImGui.BeginPopup("CopyEntrustPlanTo"))
         {
-            if(ImGui.Selectable("To all other retainers of this character"))
+            if(ImGui.Selectable(Loc.T("To all other retainers of this character")))
             {
                 var cnt = 0;
                 foreach(var x in data.RetainerData)
@@ -43,9 +43,9 @@ public static unsafe class RetainerConfig
                     cnt++;
                     Utils.GetAdditionalData(data.CID, x.Name).EntrustPlan = adata.EntrustPlan;
                 }
-                Notify.Info($"Changed {cnt} retainers");
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
             }
-            if(ImGui.Selectable("To all other retainers without entrust plan of this character"))
+            if(ImGui.Selectable(Loc.T("To all other retainers without entrust plan of this character")))
             {
                 foreach(var x in data.RetainerData)
                 {
@@ -55,10 +55,10 @@ public static unsafe class RetainerConfig
                         Utils.GetAdditionalData(data.CID, x.Name).EntrustPlan = adata.EntrustPlan;
                         cnt++;
                     }
-                    Notify.Info($"Changed {cnt} retainers");
+                    Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
                 }
             }
-            if(ImGui.Selectable("To all other retainers of ALL characters"))
+            if(ImGui.Selectable(Loc.T("To all other retainers of ALL characters")))
             {
                 var cnt = 0;
                 foreach(var offlineData in C.OfflineData)
@@ -69,9 +69,9 @@ public static unsafe class RetainerConfig
                         cnt++;
                     }
                 }
-                Notify.Info($"Changed {cnt} retainers");
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
             }
-            if(ImGui.Selectable("To all other retainers without entrust plan of ALL characters"))
+            if(ImGui.Selectable(Loc.T("To all other retainers without entrust plan of ALL characters")))
             {
                 var cnt = 0;
                 foreach(var offlineData in C.OfflineData)
@@ -86,7 +86,7 @@ public static unsafe class RetainerConfig
                         }
                     }
                 }
-                Notify.Info($"Changed {cnt} retainers");
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
             }
             ImGui.EndPopup();
         }
@@ -102,11 +102,11 @@ public static unsafe class RetainerConfig
         Svc.PluginInterface.GetIpcProvider<ulong, string, object>(ApiConsts.OnRetainerSettingsDraw).SendMessage(data.CID, ret.Name);
         if(C.Verbose)
         {
-            if(ImGui.Button("Fake ready"))
+            if(ImGui.Button(Loc.T("Fake ready")))
             {
                 ret.VentureEndsAt = 1;
             }
-            if(ImGui.Button("Fake unready"))
+            if(ImGui.Button(Loc.T("Fake unready")))
             {
                 ret.VentureEndsAt = P.Time + 60 * 60;
             }

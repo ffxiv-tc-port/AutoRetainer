@@ -27,19 +27,19 @@ public class DeployablesTab : NeoUIEntry
         .Section(Loc.T("Alert Settings"))
         .Checkbox(Loc.T("Less than possible vessels enabled"), () => ref C.AlertNotAllEnabled)
         .Checkbox(Loc.T("Enabled vessel isn't deployed"), () => ref C.AlertNotDeployed)
-        .Widget("Unoptimal submersible configuration alerts:", (z) =>
+        .Widget(Loc.T("Unoptimal submersible configuration alerts:"), (z) =>
         {
             foreach(var x in C.UnoptimalVesselConfigurations)
             {
-                ImGuiEx.Text($"Rank {x.MinRank}-{x.MaxRank}, {(x.ConfigurationsInvert ? "NOT " : "")} {x.Configurations.Print()}");
-                if(ImGuiEx.HoveredAndClicked("Ctrl+click to delete", default, true))
+                ImGuiEx.Text(string.Format(Loc.T("Rank {0}-{1}, {2} {3}"), x.MinRank, x.MaxRank, x.ConfigurationsInvert ? Loc.T("NOT ") : "", x.Configurations.Print()));
+                if(ImGuiEx.HoveredAndClicked(Loc.T("Ctrl+click to delete"), default, true))
                 {
                     var t = x.GUID;
                     new TickScheduler(() => C.UnoptimalVesselConfigurations.RemoveAll(x => x.GUID == t));
                 }
             }
 
-            ImGuiEx.TextV($"Rank:");
+            ImGuiEx.TextV(Loc.T("Rank:"));
             ImGui.SameLine();
             ImGuiEx.SetNextItemWidthScaled(60f);
             ImGui.DragInt("##rank1", ref MinLevel, 0.1f);
@@ -48,14 +48,14 @@ public class DeployablesTab : NeoUIEntry
             ImGui.SameLine();
             ImGuiEx.SetNextItemWidthScaled(60f);
             ImGui.DragInt("##rank2", ref MaxLevel, 0.1f);
-            ImGuiEx.TextV($"Configurations:");
+            ImGuiEx.TextV(Loc.T("Configurations:"));
             ImGui.SameLine();
-            ImGui.Checkbox($"NOT", ref InvertConf);
+            ImGui.Checkbox(Loc.T("NOT"), ref InvertConf);
             ImGui.SameLine();
             ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - 100f.Scale());
             ImGui.InputText($"##conf", ref Conf, 3000);
             ImGui.SameLine();
-            if(ImGui.Button("Add"))
+            if(ImGui.Button(Loc.T("Add")))
             {
                 C.UnoptimalVesselConfigurations.Add(new()
                 {
@@ -160,7 +160,7 @@ public class DeployablesTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} submarines");
+            Notify.Success(string.Format(Loc.T("Affected {0} submarines"), num));
         }
 
         ImGui.Separator();
@@ -181,13 +181,13 @@ public class DeployablesTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} submarines");
+            Notify.Success(string.Format(Loc.T("Affected {0} submarines"), num));
         }
 
         ImGui.Separator();
 
         ImGui.SetNextItemWidth(150f);
-        if(ImGui.BeginCombo("##uplan", Loc.T("Unlock plan: ") + (SelectedUnlockPlan?.Name ?? Loc.T("not selected"), ImGuiComboFlags.HeightLarge)))
+        if(ImGui.BeginCombo("##uplan", Loc.T("Unlock plan: ") + (SelectedUnlockPlan?.Name ?? Loc.T("not selected")), ImGuiComboFlags.HeightLarge))
         {
             foreach(var plan in C.SubmarineUnlockPlans)
             {
@@ -213,7 +213,7 @@ public class DeployablesTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} submarines");
+            Notify.Success(string.Format(Loc.T("Affected {0} submarines"), num));
         }
         ImGui.Separator();
 
@@ -244,7 +244,7 @@ public class DeployablesTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} submarines");
+            Notify.Success(string.Format(Loc.T("Affected {0} submarines"), num));
         }
 
         ImGui.Separator();
@@ -263,7 +263,7 @@ public class DeployablesTab : NeoUIEntry
                     }
                 }
             }
-            Notify.Success($"Affected {num} submarines");
+            Notify.Success(string.Format(Loc.T("Affected {0} submarines"), num));
         }
 
         ImGui.Separator();
@@ -282,7 +282,7 @@ public class DeployablesTab : NeoUIEntry
                     }
                 }
             }
-            Notify.Success($"Affected {num} submarines");
+            Notify.Success(string.Format(Loc.T("Affected {0} submarines"), num));
         }
 
         ImGui.Separator();
@@ -299,7 +299,7 @@ public class DeployablesTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} characters");
+            Notify.Success(string.Format(Loc.T("Affected {0} characters"), num));
         }
 
         ImGui.Separator();
@@ -316,7 +316,7 @@ public class DeployablesTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} characters");
+            Notify.Success(string.Format(Loc.T("Affected {0} characters"), num));
         }
     }
 
@@ -338,7 +338,7 @@ public class DeployablesTab : NeoUIEntry
                 ImGui.DragInt($"##minlvl{entry.GUID}", ref entry.MinLevel, 0.1f);
                 ImGui.PopID();
                 ImGui.SameLine();
-                ImGuiEx.Text($"-");
+                ImGuiEx.Text(Loc.T("-"));
                 ImGuiEx.SetNextItemWidthScaled(60f);
                 ImGui.SameLine();
                 ImGui.PushID("##maxlvl");
@@ -415,7 +415,7 @@ public class DeployablesTab : NeoUIEntry
                 }
 
                 ImGui.Separator();
-                ImGui.Checkbox($"Different setup for first Submersible###firstSubDifferent{entry.GUID}", ref entry.FirstSubDifferent);
+                ImGui.Checkbox($"{Loc.T("Different setup for first Submersible")}###firstSubDifferent{entry.GUID}", ref entry.FirstSubDifferent);
                 if(entry.FirstSubDifferent)
                 {
                     ImGui.Text(Loc.T("First Sub Behavior:"));
@@ -469,7 +469,7 @@ public class DeployablesTab : NeoUIEntry
                 }
 
                 ImGui.NewLine();
-                if(ImGui.Button($"Delete##{entry.GUID}"))
+                if(ImGui.Button($"{Loc.T("Delete")}##{entry.GUID}"))
                 {
                     C.LevelAndPartsData.RemoveAt(index);
                 }
@@ -477,7 +477,7 @@ public class DeployablesTab : NeoUIEntry
         }
 
         ImGui.Separator();
-        if(ImGui.Button("Add"))
+        if(ImGui.Button(Loc.T("Add")))
         {
             C.LevelAndPartsData.Insert(0, new());
         }

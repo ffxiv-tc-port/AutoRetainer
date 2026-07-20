@@ -43,7 +43,7 @@ internal unsafe class SubmarinePointPlanUI : Window
             }
         }, () =>
         {
-            if(ImGui.Button("New plan"))
+            if(ImGui.Button(Loc.T("New plan")))
             {
                 var x = new SubmarinePointPlan
                 {
@@ -125,7 +125,7 @@ internal unsafe class SubmarinePointPlanUI : Window
                     }
                     catch(Exception ex)
                     {
-                        DuoLog.Error($"Could not import plan: {ex.Message}");
+                        DuoLog.Error(string.Format(Loc.T("Could not import plan: {0}"), ex.Message));
                         ex.Log();
                     }
                 }

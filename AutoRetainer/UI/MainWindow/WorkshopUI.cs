@@ -213,7 +213,7 @@ internal static unsafe class WorkshopUI
 
         if(C.Verbose)
         {
-            if(ImGui.CollapsingHeader("Public debug"))
+            if(ImGui.CollapsingHeader(Loc.T("Public debug")))
             {
                 try
                 {
@@ -223,23 +223,23 @@ internal static unsafe class WorkshopUI
                         {
                             TaskDeployOnPreviousVoyage.Enqueue();
                         }*/
-                        if(ImGui.Button("Select best path"))
+                        if(ImGui.Button(Loc.T("Select best path")))
                         {
                             TaskCalculateAndPickBestExpRoute.Enqueue();
                         }
-                        if(ImGui.Button("Select best path with 1 unlock included"))
+                        if(ImGui.Button(Loc.T("Select best path with 1 unlock included")))
                         {
                             TaskCalculateAndPickBestExpRoute.Enqueue(VoyageUtils.GetSubmarineUnlockPlanByGuid(Data.GetAdditionalVesselData(GenericHelpers.Read(CurrentSubmarine.Get()->Name), VoyageType.Submersible).SelectedUnlockPlan) ?? new());
                         }
-                        if(ImGui.Button("Select unlock path (up to 5)"))
+                        if(ImGui.Button(Loc.T("Select unlock path (up to 5)")))
                         {
                             TaskDeployOnUnlockRoute.EnqueuePickOrCalc(VoyageUtils.GetSubmarineUnlockPlanByGuid(Data.GetAdditionalVesselData(GenericHelpers.Read(CurrentSubmarine.Get()->Name), VoyageType.Submersible).SelectedUnlockPlan) ?? new(), UnlockMode.MultiSelect);
                         }
-                        if(ImGui.Button("Select unlock path (only 1)"))
+                        if(ImGui.Button(Loc.T("Select unlock path (only 1)")))
                         {
                             TaskDeployOnUnlockRoute.EnqueuePickOrCalc(VoyageUtils.GetSubmarineUnlockPlanByGuid(Data.GetAdditionalVesselData(GenericHelpers.Read(CurrentSubmarine.Get()->Name), VoyageType.Submersible).SelectedUnlockPlan) ?? new(), UnlockMode.SpamOne);
                         }
-                        if(ImGui.Button("Select point planner path"))
+                        if(ImGui.Button(Loc.T("Select point planner path")))
                         {
                             var plan = VoyageUtils.GetSubmarinePointPlanByGuid(Data.GetAdditionalVesselData(GenericHelpers.Read(CurrentSubmarine.Get()->Name), VoyageType.Submersible).SelectedPointPlan);
                             if(plan != null)
@@ -248,12 +248,12 @@ internal static unsafe class WorkshopUI
                             }
                             else
                             {
-                                DuoLog.Error($"No plan selected!");
+                                DuoLog.Error(Loc.T("No plan selected!"));
                             }
                         }
                         foreach(var x in Data.OfflineSubmarineData)
                         {
-                            if(ImGui.Button($"Repair {x.Name} submarine's broken components"))
+                            if(ImGui.Button(string.Format(Loc.T("Repair {0} submarine's broken components"), x.Name)))
                             {
                                 if(VoyageUtils.GetCurrentWorkshopPanelType() == PanelType.Submersible)
                                 {
@@ -263,16 +263,16 @@ internal static unsafe class WorkshopUI
                                 }
                                 else
                                 {
-                                    Notify.Error("You are not in a submersible menu");
+                                    Notify.Error(Loc.T("You are not in a submersible menu"));
                                 }
                             }
                         }
-                        if(ImGui.Button("Approach bell"))
+                        if(ImGui.Button(Loc.T("Approach bell")))
                         {
                             TaskInteractWithNearestBell.Enqueue(false);
                         }
 
-                        if(ImGui.Button("Approach panel"))
+                        if(ImGui.Button(Loc.T("Approach panel")))
                         {
                             TaskInteractWithNearestPanel.Enqueue(false);
                         }
@@ -287,7 +287,7 @@ internal static unsafe class WorkshopUI
                     }
                     else
                     {
-                        ImGuiEx.Text(EColor.RedBright, $"Currently executing: {P.TaskManager.CurrentTask?.Name}");
+                        ImGuiEx.Text(EColor.RedBright, string.Format(Loc.T("Currently executing: {0}"), P.TaskManager.CurrentTask?.Name));
                     }
                 }
                 catch(Exception e)
@@ -407,7 +407,7 @@ internal static unsafe class WorkshopUI
         if(adata.IndexOverride > 0)
         {
             ImGui.SameLine();
-            ImGuiEx.Text(ImGuiColors.DalamudGrey3, $"Index override: {adata.IndexOverride}");
+            ImGuiEx.Text(ImGuiColors.DalamudGrey3, string.Format(Loc.T("Index override: {0}"), adata.IndexOverride));
         }
         var end = ImGui.GetCursorPos();
         var p = vessel.GetRemainingSeconds() / (60f * 60f * 24f);
@@ -478,7 +478,7 @@ internal static unsafe class WorkshopUI
         }
         if(ImGuiEx.BeginPopupNextToElement(n))
         {
-            ImGui.CollapsingHeader($"{vessel.Name} - {Censor.Character(data.Name)} Configuration  ##conf", ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
+            ImGui.CollapsingHeader($"{vessel.Name} - {Censor.Character(data.Name)} {Loc.T("Configuration")}  ##conf", ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
             ImGuiEx.Text(Loc.T("Vessel behavior:"));
             ImGuiEx.EnumCombo("##vbeh", ref adata.VesselBehavior);
             if(adata.VesselBehavior == VesselBehavior.Unlock)
@@ -562,7 +562,7 @@ internal static unsafe class WorkshopUI
                                 var toDelete = x.Key;
                                 datas[copyTo] = x.Value;
                                 datas.Remove(toDelete);
-                                Notify.Success($"Moved data from {toDelete} to {copyTo}");
+                                Notify.Success(string.Format(Loc.T("Moved data from {0} to {1}"), toDelete, copyTo));
                             });
                         }
                         if(d) ImGui.EndDisabled();
@@ -572,10 +572,10 @@ internal static unsafe class WorkshopUI
             }
             if(C.Verbose)
             {
-                if(ImGui.Button("Fake ready")) vessel.ReturnTime = (uint)P.Time;
-                if(ImGui.Button("Fake ready+")) vessel.ReturnTime += 60u * (ImGui.GetIO().KeyCtrl ? 10u : 1u) * (ImGui.GetIO().KeyShift ? 10u : 1u);
-                if(ImGui.Button("Fake ready-")) vessel.ReturnTime -= 60u * (ImGui.GetIO().KeyCtrl ? 10u : 1u) * (ImGui.GetIO().KeyShift ? 10u : 1u);
-                if(ImGui.Button("Fake unready")) vessel.ReturnTime = (uint)(P.Time + 9999);
+                if(ImGui.Button(Loc.T("Fake ready"))) vessel.ReturnTime = (uint)P.Time;
+                if(ImGui.Button(Loc.T("Fake ready+"))) vessel.ReturnTime += 60u * (ImGui.GetIO().KeyCtrl ? 10u : 1u) * (ImGui.GetIO().KeyShift ? 10u : 1u);
+                if(ImGui.Button(Loc.T("Fake ready-"))) vessel.ReturnTime -= 60u * (ImGui.GetIO().KeyCtrl ? 10u : 1u) * (ImGui.GetIO().KeyShift ? 10u : 1u);
+                if(ImGui.Button(Loc.T("Fake unready"))) vessel.ReturnTime = (uint)(P.Time + 9999);
             }
             ImGui.EndPopup();
         }

@@ -12,7 +12,7 @@ namespace AutoRetainer.UI.Windows;
 internal unsafe class SubmarineUnlockPlanUI : Window
 {
     internal string SelectedPlanGuid = Guid.Empty.ToString();
-    internal string SelectedPlanName => VoyageUtils.GetSubmarineUnlockPlanByGuid(SelectedPlanGuid)?.Name ?? "No or unknown plan selected";
+    internal string SelectedPlanName => VoyageUtils.GetSubmarineUnlockPlanByGuid(SelectedPlanGuid)?.Name ?? Loc.T("No or unknown plan selected");
     internal SubmarineUnlockPlan SelectedPlan => VoyageUtils.GetSubmarineUnlockPlanByGuid(SelectedPlanGuid);
 
     public SubmarineUnlockPlanUI() : base("Submersible Voyage Unlockable Planner")
@@ -96,7 +96,7 @@ internal unsafe class SubmarineUnlockPlanUI : Window
             }
         }, () =>
         {
-            if(ImGui.Button("New plan"))
+            if(ImGui.Button(Loc.T("New plan")))
             {
                 var x = new SubmarineUnlockPlan();
                 x.Name = $"Plan {x.GUID}";
@@ -186,7 +186,7 @@ internal unsafe class SubmarineUnlockPlanUI : Window
                     }
                     catch(Exception ex)
                     {
-                        DuoLog.Error($"Could not import plan: {ex.Message}");
+                        DuoLog.Error(string.Format(Loc.T("Could not import plan: {0}"), ex.Message));
                         ex.Log();
                     }
                 }
@@ -198,7 +198,7 @@ internal unsafe class SubmarineUnlockPlanUI : Window
                 ImGui.SameLine();
                 if(ImGui.Button(Loc.T("Help")))
                 {
-                    Svc.Chat.Print($"Here is the list of all points that can be unlocked. Whenever a plugin needs to select something to unlock, a first available destination will be chosen from this list. Please note that you can NOT simply specify end point of unlocking, you need to select ALL destinations on your way.");
+                    Svc.Chat.Print(Loc.T("Here is the list of all points that can be unlocked. Whenever a plugin needs to select something to unlock, a first available destination will be chosen from this list. Please note that you can NOT simply specify end point of unlocking, you need to select ALL destinations on your way."));
                 }
             });
             if(ImGui.BeginChild("Plan"))
@@ -207,11 +207,11 @@ internal unsafe class SubmarineUnlockPlanUI : Window
                 {
                     ImGuiEx.TextWrapped(Loc.T("Access submarine list to retrieve data."));
                 }
-                ImGui.Checkbox($"{Loc.T("Unlock submarine slots. Current slots: ")}{GetNumUnlockedSubs()?.ToString() ?? "Unknown"}/4", ref SelectedPlan.UnlockSubs);
+                ImGui.Checkbox($"{Loc.T("Unlock submarine slots. Current slots: ")}{GetNumUnlockedSubs()?.ToString() ?? Loc.T("Unknown")}/4", ref SelectedPlan.UnlockSubs);
                 ImGuiEx.TextWrapped(Loc.T("Unlocking slots is always prioritized over unlocking routes."));
                 ImGui.Checkbox(Loc.T("Enforce Spam one destination mode in Deep sea site."), ref SelectedPlan.EnforceDSSSinglePoint);
                 ImGui.Checkbox(Loc.T("Set this plan as enforced."), ref SelectedPlan.EnforcePlan);
-                ImGuiEx.HelpMarker("Any point selected for unlock in this map will be executed by every single eligible submarine until everything is actually unlocked");
+                ImGuiEx.HelpMarker(Loc.T("Any point selected for unlock in this map will be executed by every single eligible submarine until everything is actually unlocked"));
                 if(ImGui.BeginTable("##planTable", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
                 {
                     ImGui.TableSetupColumn(Loc.T("Zone"), ImGuiTableColumnFlags.WidthStretch);
@@ -250,7 +250,7 @@ internal unsafe class SubmarineUnlockPlanUI : Window
                     }
                     ImGui.EndTable();
                 }
-                if(ImGui.CollapsingHeader("Display current point exploration order"))
+                if(ImGui.CollapsingHeader(Loc.T("Display current point exploration order")))
                 {
                     ImGuiEx.Text(SelectedPlan.GetPrioritizedPointList().Select(x => $"{Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(x.point).Destination} ({x.justification})").Join("\n"));
                 }

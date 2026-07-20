@@ -29,8 +29,8 @@ internal class WaitOverlay : Window
         Frame = ImGui.GetFrameCount();
         CImGui.igBringWindowToDisplayFront(CImGui.igGetCurrentWindow());
         ImGui.Dummy(new(ImGuiHelpers.MainViewport.Size.X, ImGuiHelpers.MainViewport.Size.Y / 3));
-        ImGuiEx.ImGuiLineCentered("Waitoverlay1", () => ImGuiEx.Text($"Calculating optimized path. Please wait."));
-        ImGuiEx.ImGuiLineCentered("Waitoverlay2", () => ImGuiEx.Text($"This can take several minutes."));
+        ImGuiEx.ImGuiLineCentered("Waitoverlay1", () => ImGuiEx.Text(Loc.T("Calculating optimized path. Please wait.")));
+        ImGuiEx.ImGuiLineCentered("Waitoverlay2", () => ImGuiEx.Text(Loc.T("This can take several minutes.")));
         ImGuiEx.Text("");
         var span = TimeSpan.FromMilliseconds(Environment.TickCount64 - StartTime);
         ImGuiEx.ImGuiLineCentered("Waitoverlay4", () => ImGuiEx.Text($"{span.Minutes:D2}:{span.Seconds:D2}"));
@@ -38,7 +38,7 @@ internal class WaitOverlay : Window
         ImGuiEx.Text("");
         ImGuiEx.ImGuiLineCentered("Waitoverlay3", () =>
         {
-            if(ImGui.Button("Hide this overlay"))
+            if(ImGui.Button(Loc.T("Hide this overlay")))
             {
                 IsProcessing = false;
             }
