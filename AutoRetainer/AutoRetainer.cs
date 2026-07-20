@@ -181,6 +181,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         VoyageMain.Init();
 
         MultiMode.Init();
+        MultiModeDtr.Init();
         NotificationMasterApi = new(Svc.PluginInterface);
         ODMTaskManager = new(new(timeLimitMS: 60 * 1000, abortOnTimeout: true, showDebug: true));
 
@@ -520,6 +521,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
 
     private void Tick(object _)
     {
+        MultiModeDtr.Tick();
         if(!IPC.Suppressed)
         {
             if(SchedulerMain.PluginEnabled && Svc.ClientState.LocalPlayer != null)
@@ -654,6 +656,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
             Safe(() => FPSManager.ForceRestore());
             Safe(() => PriorityManager.RestorePriority());
             Safe(() => VoyageMain.Shutdown());
+            Safe(() => MultiModeDtr.Dispose());
             Safe(() => ContextMenuManager.Dispose());
             PunishLibMain.Dispose();
             ECommonsMain.Dispose();
