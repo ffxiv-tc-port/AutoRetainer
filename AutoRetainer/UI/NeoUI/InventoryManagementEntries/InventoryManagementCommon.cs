@@ -49,7 +49,7 @@ public static unsafe class InventoryManagementCommon
         ImGuiEx.TreeNodeCollapsingHeader(Loc.T("Mass addition/removal"), () =>
         {
             ImGui.SetNextItemWidth(200f);
-            if(ImGui.BeginCombo(Loc.T("Select Categories"), SelectedCategories.Count != 0 ? $"{SelectedCategories.Count} selected" : Loc.T("None selected"), ImGuiComboFlags.HeightLarge))
+            if(ImGui.BeginCombo(Loc.T("Select Categories"), SelectedCategories.Count != 0 ? string.Format(Loc.T("{0} selected"), SelectedCategories.Count) : Loc.T("None selected"), ImGuiComboFlags.HeightLarge))
             {
                 if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Plus, Loc.T("All")))
                 {
@@ -64,13 +64,13 @@ public static unsafe class InventoryManagementCommon
                     Modified = true;
                 }
                 ImGui.SameLine();
-                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Hammer, "+Main/offhand"))
+                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Hammer, Loc.T("+Main/offhand")))
                 {
                     SelectedCategories.Add(Utils.WeaponsUICategories);
                     Modified = true;
                 }
                 ImGui.SameLine();
-                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.User, "+Armor"))
+                if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.User, Loc.T("+Armor")))
                 {
                     SelectedCategories.Add(Utils.ArmorsUICategories);
                     Modified = true;
@@ -114,7 +114,7 @@ public static unsafe class InventoryManagementCommon
                     && (ItemSearch == "" || x.Name.ToString().Contains(ItemSearch, StringComparison.OrdinalIgnoreCase))
                     ).ToList();
                 }
-                if(ImGuiEx.CollapsingHeader($"Selected {SelectedItems.Count} items, among which {SelectedItems.Count(x => list.Contains(x.RowId))} already present in list###counter"))
+                if(ImGuiEx.CollapsingHeader(string.Format(Loc.T("Selected {0} items, among which {1} already present in list"), SelectedItems.Count, SelectedItems.Count(x => list.Contains(x.RowId))) + "###counter"))
                 {
                     var actions = new List<Action>();
                     foreach(var x in SelectedItems)

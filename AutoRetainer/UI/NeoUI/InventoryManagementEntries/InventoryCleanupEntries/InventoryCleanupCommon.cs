@@ -72,7 +72,7 @@ public static unsafe class InventoryCleanupCommon
                 C.AdditionalIMSettings.Add(newPlan);
                 SelectedPlanGuid = newPlan.GUID;
             }
-            ImGuiEx.Tooltip("Add new plan");
+            ImGuiEx.Tooltip(Loc.T("Add new plan"));
             ImGui.SameLine(0, 1);
             if(ImGuiEx.IconButton(FontAwesomeIcon.Copy))
             {
@@ -80,7 +80,7 @@ public static unsafe class InventoryCleanupCommon
                 clone.GUID = Guid.Empty;
                 Copy(EzConfig.DefaultSerializationFactory.Serialize(clone));
             }
-            ImGuiEx.Tooltip("Copy");
+            ImGuiEx.Tooltip(Loc.T("Copy"));
             ImGui.SameLine(0, 1);
             if(ImGuiEx.IconButton(FontAwesomeIcon.Paste))
             {
@@ -96,7 +96,7 @@ public static unsafe class InventoryCleanupCommon
                     Notify.Error(e.Message);
                 }
             }
-            ImGuiEx.Tooltip("Paste");
+            ImGuiEx.Tooltip(Loc.T("Paste"));
             if(selectedPlan != null)
             {
                 ImGui.SameLine(0, 1);
@@ -105,19 +105,19 @@ public static unsafe class InventoryCleanupCommon
                     C.DefaultIMSettings = selectedPlan;
                     new TickScheduler(() => C.AdditionalIMSettings.Remove(selectedPlan));
                 }
-                ImGuiEx.Tooltip("Make this plan default. Current default plan will be overwritten. Hold CTRL and click.");
+                ImGuiEx.Tooltip(Loc.T("Make this plan default. Current default plan will be overwritten. Hold CTRL and click."));
                 ImGui.SameLine(0, 1);
                 if(ImGuiEx.IconButton(FontAwesomeIcon.Trash, enabled: ImGuiEx.Ctrl && selectedPlan != null))
                 {
                     new TickScheduler(() => C.AdditionalIMSettings.Remove(selectedPlan));
                 }
-                ImGuiEx.Tooltip("Delete this plan. Hold CTRL and click.");
+                ImGuiEx.Tooltip(Loc.T("Delete this plan. Hold CTRL and click."));
             }
         });
         if(selectedPlan != null)
         {
             ImGuiEx.SetNextItemFullWidth();
-            ImGui.InputTextWithHint("##name", "Enter plan name", ref selectedPlan.Name, 100);
+            ImGui.InputTextWithHint("##name", Loc.T("Enter plan name"), ref selectedPlan.Name, 100);
 
             if(Data != null)
             {
@@ -125,7 +125,7 @@ public static unsafe class InventoryCleanupCommon
                 {
                     ImGuiEx.Text(ImGuiColors.ParsedGreen, UiBuilder.IconFont, FontAwesomeIcon.Check.ToIconString());
                     ImGui.SameLine();
-                    ImGuiEx.Text(ImGuiColors.ParsedGreen, $"Used by current character");
+                    ImGuiEx.Text(ImGuiColors.ParsedGreen, Loc.T("Used by current character"));
                     ImGui.SameLine();
                     if(ImGui.SmallButton(Loc.T("Unassign")))
                     {
@@ -136,7 +136,7 @@ public static unsafe class InventoryCleanupCommon
                 {
                     ImGuiEx.Text(ImGuiColors.DalamudOrange, UiBuilder.IconFont, FontAwesomeIcon.ExclamationTriangle.ToIconString());
                     ImGui.SameLine();
-                    ImGuiEx.Text(ImGuiColors.DalamudOrange, $"Not used by current character");
+                    ImGuiEx.Text(ImGuiColors.DalamudOrange, Loc.T("Not used by current character"));
                     ImGui.SameLine();
                     if(ImGui.SmallButton(Loc.T("Assign")))
                     {

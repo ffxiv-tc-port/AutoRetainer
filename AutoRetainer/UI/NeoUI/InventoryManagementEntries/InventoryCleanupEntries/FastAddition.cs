@@ -27,7 +27,7 @@ public class FastAddition : InventoryManagemenrBase
                     if(!selectedSettings.IMProtectList.Contains(id) && !selectedSettings.IMAutoVendorSoft.Contains(id) && !selectedSettings.IMAutoVendorHard.Contains(id))
                     {
                         selectedSettings.IMAutoVendorSoft.Add(id);
-                        Notify.Success($"Added {ExcelItemHelper.GetName(id)} to Quick Venture Sell List");
+                        Notify.Success(string.Format(Loc.T("Added {0} to Quick Venture Sell List"), ExcelItemHelper.GetName(id)));
                         selectedSettings.IMAutoVendorHard.Remove(id);
                     }
                 }
@@ -36,14 +36,14 @@ public class FastAddition : InventoryManagemenrBase
                     if(!selectedSettings.IMProtectList.Contains(id) && !selectedSettings.IMAutoVendorHard.Contains(id) && !selectedSettings.IMAutoVendorSoft.Contains(id))
                     {
                         selectedSettings.IMAutoVendorHard.Add(id);
-                        Notify.Success($"Added {ExcelItemHelper.GetName(id)} to Unconditional Sell List");
+                        Notify.Success(string.Format(Loc.T("Added {0} to Unconditional Sell List"), ExcelItemHelper.GetName(id)));
                         selectedSettings.IMAutoVendorSoft.Remove(id);
                     }
                 }
                 if(ImGui.GetIO().KeyAlt)
                 {
-                    if(selectedSettings.IMAutoVendorSoft.Remove(id)) Notify.Info($"Removed {ExcelItemHelper.GetName(id)} from Quick Venture Sell List");
-                    if(selectedSettings.IMAutoVendorHard.Remove(id)) Notify.Info($"Removed {ExcelItemHelper.GetName(id)} from Unconditional Sell List");
+                    if(selectedSettings.IMAutoVendorSoft.Remove(id)) Notify.Info(string.Format(Loc.T("Removed {0} from Quick Venture Sell List"), ExcelItemHelper.GetName(id)));
+                    if(selectedSettings.IMAutoVendorHard.Remove(id)) Notify.Info(string.Format(Loc.T("Removed {0} from Unconditional Sell List"), ExcelItemHelper.GetName(id)));
                 }
             }
         });

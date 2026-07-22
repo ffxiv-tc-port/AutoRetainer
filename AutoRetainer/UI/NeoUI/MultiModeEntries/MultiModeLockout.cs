@@ -9,13 +9,13 @@ public class MultiModeLockout : NeoUIEntry
 
     public override void Draw()
     {
-        ImGuiEx.TextV("For");
+        ImGuiEx.TextV(Loc.T("For"));
         ImGui.SameLine();
         ImGui.SetNextItemWidth(150f);
         ImGui.InputInt(Loc.T("hours..."), ref Num.ValidateRange(1, 10000));
         foreach(var x in Enum.GetValues<ExcelWorldHelper.Region>())
         {
-            if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Lock, $"...do not log into {x} region"))
+            if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Lock, string.Format(Loc.T("...do not log into {0} region"), x)))
             {
                 C.LockoutTime[x] = DateTimeOffset.Now.ToUnixTimeSeconds() + Num * 60 * 60;
             }

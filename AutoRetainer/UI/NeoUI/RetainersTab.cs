@@ -25,7 +25,7 @@ public class RetainersTab : NeoUIEntry
     {
         ImGuiEx.Text(Loc.T("Select retainers:"));
         ImGuiEx.SetNextItemFullWidth();
-        if(ImGui.BeginCombo("##sel", $"Selected {SelectedRetainers.Count}", ImGuiComboFlags.HeightLarge))
+        if(ImGui.BeginCombo("##sel", string.Format(Loc.T("Selected {0}"), SelectedRetainers.Count), ImGuiComboFlags.HeightLarge))
         {
             ref var search = ref Ref<string>.Get("Search");
             ImGui.InputTextWithHint("##searchRetainers", Loc.T("Character search"), ref search, 100);
@@ -119,7 +119,7 @@ public class RetainersTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} retainers");
+            Notify.Success(string.Format(Loc.T("Affected {0} retainers"), num));
         }
 
         ImGui.Separator();
@@ -150,7 +150,7 @@ public class RetainersTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} retainers");
+            Notify.Success(string.Format(Loc.T("Affected {0} retainers"), num));
         }
 
         ImGui.Separator();
@@ -168,7 +168,7 @@ public class RetainersTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} retainers");
+            Notify.Success(string.Format(Loc.T("Affected {0} retainers"), num));
         }
 
         ImGui.Separator();
@@ -186,7 +186,7 @@ public class RetainersTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} retainers");
+            Notify.Success(string.Format(Loc.T("Affected {0} retainers"), num));
         }
 
         ImGui.Separator();
@@ -200,7 +200,7 @@ public class RetainersTab : NeoUIEntry
                 retainers.Add(x.RetainerName);
                 num++;
             }
-            Notify.Success($"Affected {num} characters");
+            Notify.Success(string.Format(Loc.T("Affected {0} characters"), num));
         }
 
         ImGui.Separator();
@@ -214,7 +214,7 @@ public class RetainersTab : NeoUIEntry
                 retainers.Remove(x.RetainerName);
                 num++;
             }
-            Notify.Success($"Affected {num} characters");
+            Notify.Success(string.Format(Loc.T("Affected {0} characters"), num));
         }
 
         ImGui.Separator();
@@ -231,7 +231,7 @@ public class RetainersTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} characters");
+            Notify.Success(string.Format(Loc.T("Affected {0} characters"), num));
         }
 
         ImGui.Separator();
@@ -248,7 +248,7 @@ public class RetainersTab : NeoUIEntry
                     num++;
                 }
             }
-            Notify.Success($"Affected {num} characters");
+            Notify.Success(string.Format(Loc.T("Affected {0} characters"), num));
         }
     }
 }

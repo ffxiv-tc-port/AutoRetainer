@@ -45,7 +45,7 @@ public class CharaOrder : NeoUIEntry
                         chr.Enabled = false;
                         C.SelectedRetainers.Remove(chr.CID);
                     }
-                    ImGuiEx.Tooltip("Enable retainers");
+                    ImGuiEx.Tooltip(Loc.T("Enable retainers"));
                     ImGui.SameLine();
                     if(ImGuiEx.ButtonCheckbox(FontAwesomeIcon.Ship, ref chr.ExcludeWorkshop, inverted: true))
                     {
@@ -53,25 +53,25 @@ public class CharaOrder : NeoUIEntry
                         chr.EnabledSubs.Clear();
                         chr.EnabledAirships.Clear();
                     }
-                    ImGuiEx.Tooltip("Enable deployables");
+                    ImGuiEx.Tooltip(Loc.T("Enable deployables"));
                     ImGui.SameLine();
                     ImGuiEx.ButtonCheckbox(FontAwesomeIcon.DoorOpen, ref chr.ExcludeOverlay, inverted: true);
-                    ImGuiEx.Tooltip("Display on login overlay");
+                    ImGuiEx.Tooltip(Loc.T("Display on login overlay"));
                     ImGui.SameLine();
                     ImGuiEx.ButtonCheckbox(FontAwesomeIcon.Coins, ref chr.NoGilTrack, inverted: true);
-                    ImGuiEx.Tooltip("Count gil on this character towards total");
+                    ImGuiEx.Tooltip(Loc.T("Count gil on this character towards total"));
                     ImGui.SameLine();
                     if(ImGuiEx.IconButton(FontAwesomeIcon.Trash, enabled: ImGuiEx.Ctrl))
                     {
                         new TickScheduler(() => C.OfflineData.Remove(chr));
                     }
-                    ImGuiEx.Tooltip($"Hold CTRL and click to delete stored character data. It will be recreated once you relog back.");
+                    ImGuiEx.Tooltip(Loc.T("Hold CTRL and click to delete stored character data. It will be recreated once you relog back."));
                     ImGui.SameLine();
                     if(ImGuiEx.IconButton("\uf057", enabled: ImGuiEx.Ctrl))
                     {
                         C.Blacklist.Add((chr.CID, chr.Name));
                     }
-                    ImGuiEx.Tooltip($"Hold CTRL and click to delete stored character data and prevent it from being ever created again, effectively excluding it from being processed by AutoRetainer entirely in any ways.");
+                    ImGuiEx.Tooltip(Loc.T("Hold CTRL and click to delete stored character data and prevent it from being ever created again, effectively excluding it from being processed by AutoRetainer entirely in any ways."));
 
                     ImGui.PopID();
                 }
@@ -84,7 +84,7 @@ public class CharaOrder : NeoUIEntry
 
         if(C.Blacklist.Count != 0)
         {
-            b = b.Section("Excluded Characters")
+            b = b.Section(Loc.T("Excluded Characters"))
                 .Widget(() =>
                 {
                     for(var i = 0; i < C.Blacklist.Count; i++)
@@ -92,7 +92,7 @@ public class CharaOrder : NeoUIEntry
                         var d = C.Blacklist[i];
                         ImGuiEx.TextV($"{d.Name} ({d.CID:X16})");
                         ImGui.SameLine();
-                        if(ImGui.Button($"Delete##bl{i}"))
+                        if(ImGui.Button(Loc.T("Delete") + $"##bl{i}"))
                         {
                             C.Blacklist.RemoveAt(i);
                             C.SelectedRetainers.Remove(d.CID);

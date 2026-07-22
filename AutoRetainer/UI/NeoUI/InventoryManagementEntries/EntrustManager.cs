@@ -20,7 +20,7 @@ public class EntrustManager : InventoryManagemenrBase
 
         ImGuiEx.InputWithRightButtonsArea(() =>
         {
-            if(ImGui.BeginCombo($"##select", selectedPlan?.Name ?? "Select plan...", ImGuiComboFlags.HeightLarge))
+            if(ImGui.BeginCombo($"##select", selectedPlan?.Name ?? Loc.T("Select plan..."), ImGuiComboFlags.HeightLarge))
             {
                 for(var i = 0; i < C.EntrustPlans.Count; i++)
                 {
@@ -41,14 +41,14 @@ public class EntrustManager : InventoryManagemenrBase
                 var plan = new EntrustPlan();
                 C.EntrustPlans.Add(plan);
                 SelectedGuid = plan.Guid;
-                plan.Name = $"Entrust plan {C.EntrustPlans.Count}";
+                plan.Name = string.Format(Loc.T("Entrust plan {0}"), C.EntrustPlans.Count);
             }
             ImGui.SameLine();
             if(ImGuiEx.IconButton(FontAwesomeIcon.Trash, enabled: selectedPlan != null && ImGuiEx.Ctrl))
             {
                 C.EntrustPlans.Remove(selectedPlan);
             }
-            ImGuiEx.Tooltip("Hold CTRL and click");
+            ImGuiEx.Tooltip(Loc.T("Hold CTRL and click"));
             ImGui.SameLine();
             if(ImGuiEx.IconButton(FontAwesomeIcon.Copy, enabled: selectedPlan != null))
             {
@@ -64,7 +64,7 @@ public class EntrustManager : InventoryManagemenrBase
                     if(plan.GetType().GetFieldPropertyUnions(ReflectionHelper.AllFlags).Any(x => x.GetValue(plan) == null)) throw new NullReferenceException();
                     C.EntrustPlans.Add(plan);
                     SelectedGuid = plan.Guid;
-                    Notify.Success("Imported plan from clipboard");
+                    Notify.Success(Loc.T("Imported plan from clipboard"));
                     EzThrottler.Throttle("ImportPlan", 2000, true);
                 }
                 catch(Exception e)
@@ -76,7 +76,7 @@ public class EntrustManager : InventoryManagemenrBase
         if(selectedPlan != null)
         {
             ImGuiEx.SetNextItemFullWidth();
-            ImGui.InputTextWithHint($"##name", "Plan name", ref selectedPlan.Name, 100);
+            ImGui.InputTextWithHint($"##name", Loc.T("Plan name"), ref selectedPlan.Name, 100);
             ImGui.Checkbox(Loc.T("Entrust Duplicates"), ref selectedPlan.Duplicates);
             ImGuiEx.HelpMarker(Loc.T("Mimics vanilla entrust duplicates option: entrusts any items that already present in retainer's inventory up until your retainer fills up it's stack of items. Does not affects crystals. Items and categories that are explicitly added into the list below will be excluded from being processed by this option."));
             ImGui.Indent();
@@ -90,7 +90,7 @@ public class EntrustManager : InventoryManagemenrBase
             ImGui.Separator();
             ImGuiEx.TreeNodeCollapsingHeader($"{Loc.T("Entrust categories (")}{selectedPlan.EntrustCategories.Count}{Loc.T(" selected)")}###ecats", () =>
             {
-                ImGuiEx.TextWrapped($"Here you can select item categories that will be entrusted as a whole. Individual items that are selected below will be excluded from these rules.");
+                ImGuiEx.TextWrapped(Loc.T("Here you can select item categories that will be entrusted as a whole. Individual items that are selected below will be excluded from these rules."));
                 if(ImGui.BeginTable("EntrustTable", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.BordersInner))
                 {
                     ImGui.TableSetupColumn("##1");
@@ -140,14 +140,14 @@ public class EntrustManager : InventoryManagemenrBase
                     {
                         selectedPlan.EntrustItemsAmountToKeep[x] = amount;
                     }
-                    ImGuiEx.Tooltip("Amount to keep in your inventory");
+                    ImGuiEx.Tooltip(Loc.T("Amount to keep in your inventory"));
                 });
             });
             ImGuiEx.TreeNodeCollapsingHeader(Loc.T("Fast addition/removal"), () =>
             {
-                ImGuiEx.TextWrapped(GradientColor.Get(EColor.RedBright, EColor.YellowBright), $"While this text is visible, hover over items while holding:");
-                ImGuiEx.Text(!ImGui.GetIO().KeyShift ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, $"Shift - add to entrust plan");
-                ImGuiEx.Text(!ImGui.GetIO().KeyAlt ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, $"Alt - delete from entrust plan");
+                ImGuiEx.TextWrapped(GradientColor.Get(EColor.RedBright, EColor.YellowBright), Loc.T("While this text is visible, hover over items while holding:"));
+                ImGuiEx.Text(!ImGui.GetIO().KeyShift ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, Loc.T("Shift - add to entrust plan"));
+                ImGuiEx.Text(!ImGui.GetIO().KeyAlt ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, Loc.T("Alt - delete from entrust plan"));
                 if(Svc.GameGui.HoveredItem > 0)
                 {
                     var id = (uint)(Svc.GameGui.HoveredItem % 1000000);
@@ -156,7 +156,7 @@ public class EntrustManager : InventoryManagemenrBase
                         if(!selectedPlan.EntrustItems.Contains(id))
                         {
                             selectedPlan.EntrustItems.Add(id);
-                            Notify.Success($"Added {ExcelItemHelper.GetName(id)} to entrust plan {selectedPlan.Name}");
+                            Notify.Success(string.Format(Loc.T("Added {0} to entrust plan {1}"), ExcelItemHelper.GetName(id), selectedPlan.Name));
                         }
                     }
                     if(ImGui.GetIO().KeyAlt)
@@ -164,7 +164,7 @@ public class EntrustManager : InventoryManagemenrBase
                         if(selectedPlan.EntrustItems.Contains(id))
                         {
                             selectedPlan.EntrustItems.Remove(id);
-                            Notify.Success($"Removed {ExcelItemHelper.GetName(id)} from entrust plan {selectedPlan.Name}");
+                            Notify.Success(string.Format(Loc.T("Removed {0} from entrust plan {1}"), ExcelItemHelper.GetName(id), selectedPlan.Name));
                         }
                     }
                 }

@@ -16,7 +16,7 @@ public class HardList : InventoryManagemenrBase
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.CollectionButtonCheckbox(FontAwesomeIcon.Database.ToIconString(), x, s.IMAutoVendorHardIgnoreStack);
                 ImGui.PopFont();
-                ImGuiEx.Tooltip($"Ignore stack setting for this item");
+                ImGuiEx.Tooltip(Loc.T("Ignore stack setting for this item"));
             }))
             .Separator()
             .Widget(() =>

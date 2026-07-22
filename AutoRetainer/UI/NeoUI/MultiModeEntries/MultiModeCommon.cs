@@ -20,11 +20,11 @@ public class MultiModeCommon : NeoUIEntry
             ImGui.SetNextItemWidth(150f);
             var names = C.OfflineData.Where(s => !s.Name.IsNullOrEmpty()).Select(s => $"{s.Name}@{s.World}");
             var dict = names.ToDictionary(s => s, s => Censor.Character(s));
-            dict.Add("", "Disabled");
-            dict.Add("~", "Last logged in character");
+            dict.Add("", Loc.T("Disabled"));
+            dict.Add("~", Loc.T("Last logged in character"));
             ImGuiEx.Combo(x, ref C.AutoLogin, ["", "~", .. names], names: dict);
         })
-        .SliderInt(150f, "Delay", () => ref C.AutoLoginDelay.ValidateRange(0, 60), 0, 20, "Set appropriate delay to let plugins fully load before logging in and to allow yourself some time to cancel login if needed")
+        .SliderInt(150f, Loc.T("Delay"), () => ref C.AutoLoginDelay.ValidateRange(0, 60), 0, 20, Loc.T("Set appropriate delay to let plugins fully load before logging in and to allow yourself some time to cancel login if needed"))
 
         .Section(Loc.T("Inventory warnings"))
         .InputInt(100f, Loc.T("Retainer list: remaining inventory slots warning"), () => ref C.UIWarningRetSlotNum.ValidateRange(2, 1000))
@@ -57,13 +57,13 @@ public class MultiModeCommon : NeoUIEntry
         .Checkbox(Loc.T("Teleport to free company house for deployables"), () => ref C.GlobalTeleportOptions.Deployables)
         .Checkbox(Loc.T("Enable Simple Teleport"), () => ref C.AllowSimpleTeleport)
         .Unindent()
-        .Widget(() => ImGuiEx.HelpMarker("""
+        .Widget(() => ImGuiEx.HelpMarker(Loc.T("""
             Allows teleporting to houses without registering them in Lifestream. Note: the Lifestream plugin is still required for teleportation to work.
 
             Warning: This option is less reliable than registering your houses in Lifestream. Use it only if necessary.
-            """, EColor.RedBright, FontAwesomeIcon.ExclamationTriangle.ToIconString()))
+            """), EColor.RedBright, FontAwesomeIcon.ExclamationTriangle.ToIconString()))
 
         .Section(Loc.T("Bailout Module"))
-        .Checkbox(Loc.T("Auto-close and retry logging in on connection errors"), () => ref C.ResolveConnectionErrors, "Upon disconnecting, AutoRetainer will attempt to log back in. If the session has expired, no login attempt will be made.")
+        .Checkbox(Loc.T("Auto-close and retry logging in on connection errors"), () => ref C.ResolveConnectionErrors, Loc.T("Upon disconnecting, AutoRetainer will attempt to log back in. If the session has expired, no login attempt will be made."))
         .Widget(() => ImGuiEx.PluginAvailabilityIndicator([new("NoKillPlugin")]));
 }
