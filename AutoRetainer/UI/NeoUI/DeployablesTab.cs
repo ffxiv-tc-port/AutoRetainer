@@ -338,7 +338,7 @@ public class DeployablesTab : NeoUIEntry
                 ImGui.DragInt($"##minlvl{entry.GUID}", ref entry.MinLevel, 0.1f);
                 ImGui.PopID();
                 ImGui.SameLine();
-                ImGuiEx.Text(Loc.T("-"));
+                ImGuiEx.Text("-");
                 ImGuiEx.SetNextItemWidthScaled(60f);
                 ImGui.SameLine();
                 ImGui.PushID("##maxlvl");

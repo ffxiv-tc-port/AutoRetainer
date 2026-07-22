@@ -45,7 +45,7 @@ internal class MultiModeOverlay : Window
                     {
                         BailoutManager.IsLogOnTitleEnabled = false;
                     }
-                    ImGui.SetTooltip($"AutoRetainer was requested to temporarily wait for valid character on login screen. \nLeft click - open AutoRetainer. \nRight click - abort.");
+                    ImGui.SetTooltip(Loc.T("AutoRetainer was requested to temporarily wait for valid character on login screen. \nLeft click - open AutoRetainer. \nRight click - abort."));
                 }
             }
             else
@@ -72,7 +72,7 @@ internal class MultiModeOverlay : Window
                         Shutdown.ForceShutdownAt = 0;
                         Shutdown.ShutdownAt = 0;
                     }
-                    ImGui.SetTooltip($"A shutdown timer is set.\nShutting down in {TimeSpan.FromMilliseconds(Shutdown.ShutdownAt - Environment.TickCount64)}\nForce shutdown in {TimeSpan.FromMilliseconds(Shutdown.ForceShutdownAt - Environment.TickCount64)} \nLeft click - open AutoRetainer. \nRight click - clear timer.");
+                    ImGui.SetTooltip(string.Format(Loc.T("A shutdown timer is set.\nShutting down in {0}\nForce shutdown in {1} \nLeft click - open AutoRetainer. \nRight click - clear timer."), TimeSpan.FromMilliseconds(Shutdown.ShutdownAt - Environment.TickCount64), TimeSpan.FromMilliseconds(Shutdown.ForceShutdownAt - Environment.TickCount64)));
                 }
             }
             else
@@ -201,7 +201,7 @@ internal class MultiModeOverlay : Window
                         C.NightMode = false;
                         MultiMode.BailoutNightMode();
                     }
-                    ImGui.SetTooltip($"Night mode enabled. \nLeft click - open AutoRetainer. \nRight click - disable.");
+                    ImGui.SetTooltip(Loc.T("Night mode enabled. \nLeft click - open AutoRetainer. \nRight click - disable."));
                 }
             }
             else

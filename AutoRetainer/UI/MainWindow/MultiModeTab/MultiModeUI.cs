@@ -58,7 +58,7 @@ internal static unsafe class MultiModeUI
             {
                 if(MultiMode.Relog(data, out var error, RelogReason.ConfigGUI))
                 {
-                    Notify.Success("Relogging...");
+                    Notify.Success(Loc.T("Relogging..."));
                 }
                 else
                 {

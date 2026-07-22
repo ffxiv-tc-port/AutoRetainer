@@ -138,7 +138,7 @@ internal unsafe class AutoRetainerWindow : Window
         if(C.ShowDeployables && (VoyageUtils.Workshops.Contains(Svc.ClientState.TerritoryType) || VoyageScheduler.Enabled))
         {
             ImGui.SameLine();
-            ImGui.Checkbox($"Deployables", ref VoyageScheduler.Enabled);
+            ImGui.Checkbox(Loc.T("Deployables"), ref VoyageScheduler.Enabled);
         }
         if(disabled)
         {
@@ -195,7 +195,7 @@ internal unsafe class AutoRetainerWindow : Window
         if(P.TaskManager.IsBusy)
         {
             ImGui.SameLine();
-            if(ImGui.Button($"Abort {P.TaskManager.NumQueuedTasks} tasks"))
+            if(ImGui.Button(string.Format(Loc.T("Abort {0} tasks"), P.TaskManager.NumQueuedTasks)))
             {
                 P.TaskManager.Abort();
             }
@@ -223,7 +223,7 @@ internal unsafe class AutoRetainerWindow : Window
 
     private void DrawStats()
     {
-        NuiTools.ButtonTabs([[C.RecordStats ? new(Loc.T("Ventures"), S.VentureStats.DrawVentures) : null, new("Gil", S.GilDisplay.Draw), new(Loc.T("FC Data"), S.FCData.Draw)]]);
+        NuiTools.ButtonTabs([[C.RecordStats ? new(Loc.T("Ventures"), S.VentureStats.DrawVentures) : null, new(Loc.T("Gil"), S.GilDisplay.Draw), new(Loc.T("FC Data"), S.FCData.Draw)]]);
     }
 
     public override void OnClose()
