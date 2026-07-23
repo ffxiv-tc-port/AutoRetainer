@@ -32,6 +32,10 @@ internal static unsafe class SchedulerMain
     internal static ImmutableList<string> RetainerPostprocess = Array.Empty<string>().ToImmutableList();
     internal static ImmutableList<string> CharacterPostprocess = Array.Empty<string>().ToImmutableList();
 
+    /// <summary>Retainers (this character, this automation cycle) still waiting for their deferred
+    /// entrust-duplicates/auto-vendor batch pass, run once every retainer's venture business is settled.</summary>
+    internal static List<string> PendingEntrustVendorPostprocess = [];
+
     internal static PluginEnableReason Reason { get; set; }
 
     internal static bool? EnablePlugin(PluginEnableReason reason)
@@ -77,11 +81,6 @@ internal static unsafe class SchedulerMain
                                     P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(retainer));
 
                                     var adata = Utils.GetAdditionalData(Svc.ClientState.LocalContentId, ret.Name.ToString());
-
-                                    if(Data.GetIMSettings().IMEnableAutoVendor)
-                                    {
-                                        TaskVendorItems.Enqueue();
-                                    }
 
                                     VentureOverride = 0;
 
@@ -164,10 +163,16 @@ internal static unsafe class SchedulerMain
                                         adata.VenturePlanIndex++;
                                     }
 
+                                    // Entrusting duplicates and auto-vendoring are deferred to a final batch
+                                    // pass (see PendingEntrustVendorPostprocess below) that only runs once every
+                                    // retainer has had its venture business settled, instead of interleaving them
+                                    // into each individual retainer visit.
                                     var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
-                                    if(C.EnableEntrustManager && selectedPlan != null)
+                                    var needsEntrust = C.EnableEntrustManager && selectedPlan != null;
+                                    var needsVendor = Data.GetIMSettings().IMEnableAutoVendor;
+                                    if((needsEntrust || needsVendor) && !PendingEntrustVendorPostprocess.Contains(retainer))
                                     {
-                                        TaskEntrustDuplicates.EnqueueNew(selectedPlan);
+                                        PendingEntrustVendorPostprocess.Add(retainer);
                                     }
 
                                     //withdraw gil
@@ -183,11 +188,6 @@ internal static unsafe class SchedulerMain
                                         }
                                     }
 
-                                    if(Data.GetIMSettings().IMEnableAutoVendor)
-                                    {
-                                        TaskVendorItems.Enqueue();
-                                    }
-
                                     //fire event, let other plugins deal with retainer
                                     TaskPostprocessRetainerIPC.Enqueue(retainer);
 
@@ -201,7 +201,37 @@ internal static unsafe class SchedulerMain
                             }
                             else
                             {
-                                if((C.Stay5 || MultiMode.Active) && !Utils.IsAllCurrentCharacterRetainersHaveMoreThan5Mins())
+                                if(PendingEntrustVendorPostprocess.Count > 0)
+                                {
+                                    //every retainer's venture business is settled for this cycle - now run the
+                                    //deferred entrust-duplicates/auto-vendor pass, one retainer per visit
+                                    var next = PendingEntrustVendorPostprocess[0];
+                                    PendingEntrustVendorPostprocess.RemoveAt(0);
+                                    if(Utils.TryGetRetainerByName(next, out _))
+                                    {
+                                        var adata = Utils.GetAdditionalData(Svc.ClientState.LocalContentId, next);
+                                        P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(next));
+
+                                        var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
+                                        if(C.EnableEntrustManager && selectedPlan != null)
+                                        {
+                                            TaskEntrustDuplicates.EnqueueNew(selectedPlan);
+                                        }
+
+                                        if(Data.GetIMSettings().IMEnableAutoVendor)
+                                        {
+                                            TaskVendorItems.Enqueue();
+                                        }
+
+                                        if(C.RetainerMenuDelay > 0)
+                                        {
+                                            TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
+                                        }
+                                        P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
+                                        P.TaskManager.Enqueue(RetainerHandlers.ConfirmCantBuyback);
+                                    }
+                                }
+                                else if((C.Stay5 || MultiMode.Active) && !Utils.IsAllCurrentCharacterRetainersHaveMoreThan5Mins())
                                 {
                                     //nothing
                                 }
