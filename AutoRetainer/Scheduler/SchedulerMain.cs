@@ -1,8 +1,11 @@
 ﻿using AutoRetainer.Internal;
+using AutoRetainer.Internal.InventoryManagement;
 using AutoRetainer.Scheduler.Handlers;
 using AutoRetainer.Scheduler.Tasks;
 using AutoRetainerAPI.Configuration;
+using ECommons.ExcelServices;
 using ECommons.Throttlers;
+using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using FFXIVClientStructs.FFXIV.Component.GUI;
@@ -166,11 +169,11 @@ internal static unsafe class SchedulerMain
                                     // Entrusting duplicates and auto-vendoring are deferred to a final batch
                                     // pass (see PendingEntrustVendorPostprocess below) that only runs once every
                                     // retainer has had its venture business settled, instead of interleaving them
-                                    // into each individual retainer visit.
+                                    // into each individual retainer visit. Only queue retainers that actually have
+                                    // something to do - this retainer's own inventory is already loaded right now
+                                    // (we're mid-visit), so it's checked live instead of just "is this enabled".
                                     var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
-                                    var needsEntrust = C.EnableEntrustManager && selectedPlan != null;
-                                    var needsVendor = Data.GetIMSettings().IMEnableAutoVendor;
-                                    if((needsEntrust || needsVendor) && !PendingEntrustVendorPostprocess.Contains(retainer))
+                                    if(RetainerHasEntrustOrVendorWork(selectedPlan) && !PendingEntrustVendorPostprocess.Contains(retainer))
                                     {
                                         PendingEntrustVendorPostprocess.Add(retainer);
                                     }
@@ -375,5 +378,121 @@ internal static unsafe class SchedulerMain
             }
         }
         return null;
+    }
+
+    /// <summary>Whether the deferred entrust/vendor batch pass would actually find anything to do for
+    /// the retainer whose inventory is currently loaded (called mid-visit, right after venture business),
+    /// so this retainer isn't reopened later for nothing. Vendor only ever needs the player's own
+    /// inventory; entrust's "unconditional" items/categories are checked against the player's carried
+    /// counts, and duplicates are checked against this retainer's live inventory since it's already
+    /// open right now - none of this is guessable without the retainer being open.</summary>
+    private static unsafe bool RetainerHasEntrustOrVendorWork(EntrustPlan? plan)
+    {
+        var vs = Data.GetIMSettings();
+
+        if(vs.IMEnableAutoVendor)
+        {
+            foreach(var invType in InventorySpaceManager.GetAllowedToSellInventoryTypes())
+            {
+                var inv = InventoryManager.Instance()->GetInventoryContainer(invType);
+                if(inv == null) continue;
+                for(var i = 0; i < inv->Size; i++)
+                {
+                    var item = inv->Items[i];
+                    if(item.ItemId == 0) continue;
+                    if((item.Quantity < vs.IMAutoVendorHardStackLimit || vs.IMAutoVendorHardIgnoreStack.Contains(item.ItemId))
+                        && vs.IMAutoVendorHard.Contains(item.ItemId)
+                        && !TaskDesynthItems.DesynthEligible(item.ItemId))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if(!C.EnableEntrustManager || plan == null)
+        {
+            return false;
+        }
+
+        var allowedPlayerInventories = plan.GetAllowedInventories();
+
+        //unconditional entrusts: player is carrying more than the configured keep-amount
+        foreach(var type in allowedPlayerInventories)
+        {
+            var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) continue;
+            for(var i = 0; i < inv->Size; i++)
+            {
+                var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                if(item->ItemId == 0 || item->Quantity == 0) continue;
+                if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
+
+                int? toKeep = null;
+                if(plan.EntrustItems.Contains(item->ItemId))
+                {
+                    toKeep = plan.EntrustItemsAmountToKeep.SafeSelect(item->ItemId);
+                }
+                else
+                {
+                    var data = ExcelItemHelper.Get(item->ItemId);
+                    if(data != null && plan.EntrustCategories.TryGetFirst(c => c.ID == data.Value.ItemUICategory.RowId, out var catInfo))
+                    {
+                        toKeep = catInfo.AmountToKeep;
+                    }
+                }
+
+                if(toKeep != null && Utils.GetItemCount(allowedPlayerInventories, item->ItemId) > toKeep)
+                {
+                    return true;
+                }
+            }
+        }
+
+        //duplicates: this retainer's own inventory is loaded right now (mid-visit), so it's safe to check
+        if(plan.Duplicates)
+        {
+            foreach(var type in Utils.RetainerInventoriesWithCrystals)
+            {
+                if(type.EqualsAny(InventoryType.Crystals, InventoryType.RetainerCrystals)) continue;
+                var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+                if(inv == null) continue;
+                for(var i = 0; i < inv->Size; i++)
+                {
+                    var item = inv->GetInventorySlot(i);
+                    if(item->ItemId == 0) continue;
+                    if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
+
+                    if(plan.DuplicatesMultiStack)
+                    {
+                        if(Utils.GetItemCount(allowedPlayerInventories, item->ItemId) > 0)
+                        {
+                            return true;
+                        }
+                        continue;
+                    }
+
+                    var data = ExcelItemHelper.Get(item->ItemId);
+                    if(data == null || data.Value.IsUnique) continue;
+                    if(data.Value.StackSize - item->Quantity <= 0) continue;
+
+                    foreach(var playerType in allowedPlayerInventories)
+                    {
+                        var playerInv = InventoryManager.Instance()->GetInventoryContainer(playerType);
+                        if(playerInv == null) continue;
+                        for(var q = 0; q < playerInv->Size; q++)
+                        {
+                            var playerItem = playerInv->GetInventorySlot(q);
+                            if(playerItem->ItemId == item->ItemId && playerItem->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality) == item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 }
