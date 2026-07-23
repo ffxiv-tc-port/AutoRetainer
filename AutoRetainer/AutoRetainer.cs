@@ -65,6 +65,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
     internal long Time => C.UseServerTime ? CSFramework.GetServerTime() : DateTimeOffset.Now.ToUnixTimeSeconds();
 
     internal RetainerListOverlay RetainerListOverlay;
+    internal RetainerInventoryOverlay RetainerInventoryOverlay;
     internal uint LastVentureID = 0;
     internal uint ListUpdateFrame = 0;
 
@@ -136,6 +137,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         MarketCooldownOverlay = new();
         new MultiModeOverlay();
         RetainerListOverlay = new();
+        RetainerInventoryOverlay = new();
         LoginOverlay = new LoginOverlay();
         SubmarineUnlockPlanUI = new();
         SubmarinePointPlanUI = new();
@@ -449,6 +451,17 @@ public unsafe class AutoRetainer : IDalamudPlugin
         else if(arguments.EqualsIgnoreCase("deliver"))
         {
             TaskDeliverItems.Enqueue();
+        }
+        else if(arguments.EqualsIgnoreCaseAny("retrieveall", "ra"))
+        {
+            if(InventorySpaceManager.IsRetainerInventoryLoaded())
+            {
+                TaskRetrieveAllFromRetainer.Enqueue();
+            }
+            else
+            {
+                DuoLog.Warning("Open a retainer's inventory first.");
+            }
         }
         else if(arguments.StartsWith("set"))
         {
