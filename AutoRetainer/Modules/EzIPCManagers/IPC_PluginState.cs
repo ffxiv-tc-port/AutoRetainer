@@ -1,6 +1,8 @@
 using AutoRetainer.Internal;
+using AutoRetainer.Internal.InventoryManagement;
 using AutoRetainer.Modules.Voyage;
 using ECommons.EzIpcManager;
+using FFXIVClientStructs.FFXIV.Client.Game;
 
 namespace AutoRetainer.Modules.EzIPCManagers;
 public class IPC_PluginState
@@ -128,5 +130,35 @@ public class IPC_PluginState
     public bool IsItemProtected(uint itemId)
     {
         return Data.GetIMSettings().IMProtectList.Contains(itemId);
+    }
+
+    /// <summary>Fires a single retrieve-from-retainer command for the first occupied slot found in the
+    /// currently open retainer's item storage (items and crystals), into the player's own bags - never
+    /// routes through the armoury chest, same as AutoRetainer's own entrust/vendor tasks. Deliberately
+    /// does not wait for the retrieve to land before returning, unlike AutoRetainer's own throttled tasks -
+    /// callers (e.g. an SND macro looping this) are expected to control their own pacing between calls, in
+    /// exchange for real speed instead of the ~500ms+confirm-per-item pace the built-in tasks use.
+    /// Returns false once nothing is left to retrieve, or the player's own inventory is nearly full.</summary>
+    [EzIPC]
+    public unsafe bool RetrieveNextRetainerItemSlot()
+    {
+        if(!InventorySpaceManager.IsRetainerInventoryLoaded()) return false;
+        if(Utils.GetInventoryFreeSlotCount() <= C.MultiMinInventorySlots) return false;
+
+        foreach(var type in Utils.RetainerInventoriesWithCrystals)
+        {
+            var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) continue;
+            for(var i = 0; i < inv->Size; i++)
+            {
+                var item = inv->GetInventorySlot(i);
+                if(item->ItemId != 0 && item->Quantity > 0)
+                {
+                    P.Memory.RetainerItemCommandDetour(InventorySpaceManager.AgentRetainerItemCommandModule, (uint)i, type, 0, RetainerItemCommand.RetrieveFromRetainer);
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }
