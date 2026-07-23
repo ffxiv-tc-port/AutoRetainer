@@ -2,6 +2,7 @@ using AutoRetainer.Internal;
 using AutoRetainer.Internal.InventoryManagement;
 using AutoRetainer.Modules.Voyage;
 using ECommons.EzIpcManager;
+using ECommons.ExcelServices;
 using FFXIVClientStructs.FFXIV.Client.Game;
 
 namespace AutoRetainer.Modules.EzIPCManagers;
@@ -154,6 +155,17 @@ public class IPC_PluginState
                 var item = inv->GetInventorySlot(i);
                 if(item->ItemId != 0 && item->Quantity > 0)
                 {
+                    // Unique items (rare-marked gear etc.) the player already owns one of
+                    // anywhere - bags, armoury, or equipped - can never be retrieved; the
+                    // game silently rejects it every single time. Skip these instead of
+                    // returning true and getting a caller stuck retrying the same slot
+                    // forever, since nothing ever moves.
+                    var data = ExcelItemHelper.Get(item->ItemId);
+                    if(data != null && data.Value.IsUnique && Utils.GetItemCount(Utils.PlayerEntireInventory, item->ItemId) > 0)
+                    {
+                        continue;
+                    }
+
                     P.Memory.RetainerItemCommandDetour(InventorySpaceManager.AgentRetainerItemCommandModule, (uint)i, type, 0, RetainerItemCommand.RetrieveFromRetainer);
                     return true;
                 }
