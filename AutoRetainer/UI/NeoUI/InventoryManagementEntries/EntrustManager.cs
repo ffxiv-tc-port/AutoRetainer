@@ -105,7 +105,7 @@ public class EntrustManager : InventoryManagemenrBase
                         ImGui.TableNextColumn();
                         if(ThreadLoadImageHandler.TryGetIconTextureWrap(x.Icon, true, out var icon))
                         {
-                            ImGui.Image(icon.ImGuiHandle, new(ImGui.GetFrameHeight()));
+                            ImGui.Image(icon.Handle, new(ImGui.GetFrameHeight()));
                         }
                         ImGui.TableNextColumn();
                         if(ImGui.Checkbox(x.Name.ToString(), ref contains))
