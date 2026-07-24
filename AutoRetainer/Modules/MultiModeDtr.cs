@@ -28,7 +28,7 @@ internal static class MultiModeDtr
         _entry.Text = $"{icon.ToIconString()} 多角色模式";
     }
 
-    private static void OnClick()
+    private static void OnClick(DtrInteractionEvent evt)
     {
         MultiMode.Enabled = !MultiMode.Enabled;
         _lastState = null;
