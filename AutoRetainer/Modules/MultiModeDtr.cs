@@ -1,6 +1,7 @@
 using AutoRetainer.Modules.Multi;
 using Dalamud.Game.Gui.Dtr;
-using Dalamud.Game.Text;
+using Dalamud.Game.Text.SeStringHandling;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using ECommons.DalamudServices;
 
 namespace AutoRetainer.Modules;
@@ -24,8 +25,12 @@ internal static class MultiModeDtr
         if(_lastState == MultiMode.Enabled) return;
         _lastState = MultiMode.Enabled;
 
-        var icon = MultiMode.Enabled ? SeIconChar.Circle : SeIconChar.Cross;
-        _entry.Text = $"{icon.ToIconString()} 多角色模式";
+        // bell icon identifies the entry, dot icon shows on/off state - game icon font has no
+        // bell glyph, so this uses IconPayload/BitmapFontIcon (bitmap icons) instead of
+        // SeIconChar (PUA glyph text), same technique as LazyLoot/WrathCombo's DTR entries
+        _entry.Text = new SeString(
+            new IconPayload(BitmapFontIcon.Alarm),
+            new IconPayload(MultiMode.Enabled ? BitmapFontIcon.GreenDot : BitmapFontIcon.NoCircle));
     }
 
     private static void OnClick()
