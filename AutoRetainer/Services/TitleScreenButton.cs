@@ -15,7 +15,9 @@ public class TitleScreenButton : IDisposable
     private void RegisterTitleIcon(object f)
     {
         Svc.Framework.Update -= RegisterTitleIcon;
-        var tex = Svc.Texture.GetFromGame(Path.Combine(Svc.PluginInterface.AssemblyLocation.DirectoryName, "res", "autoretainer.png"));
+        // 這裡組出來的是檔案系統的絕對路徑，不是遊戲 sqpack 路徑；用 GetFromGame 會找不到檔案，
+        // 標題畫面的按鈕就被 Dalamud 整個移除掉。
+        var tex = Svc.Texture.GetFromFileAbsolute(Path.Combine(Svc.PluginInterface.AssemblyLocation.DirectoryName, "res", "autoretainer.png"));
         TitleScreenMenuEntryButton = Svc.TitleScreenMenu.AddEntry(Svc.PluginInterface.Manifest.Name, tex, () => P.AutoRetainerWindow.IsOpen = true);
     }
 
