@@ -6,7 +6,7 @@
     "Description": "躺在床上就能收取並指派雇員的遠航任務。",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/ffxiv-tc-port/AutoRetainer",
-    "DalamudApiLevel": 12,
+    "DalamudApiLevel": 13,
     "LoadPriority": 0,
     "IconUrl": "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/icons/AutoRetainer.png"
 }
