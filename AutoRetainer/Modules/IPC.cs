@@ -23,6 +23,7 @@ internal static class IPC
         Svc.PluginInterface.GetIpcProvider<bool, object>("AutoRetainer.SetSuppressed").RegisterAction(SetSuppressed);
         Svc.PluginInterface.GetIpcProvider<bool>("AutoRetainer.GetMultiModeEnabled").RegisterFunc(GetMultiModeEnabled);
         Svc.PluginInterface.GetIpcProvider<bool, object>("AutoRetainer.SetMultiModeEnabled").RegisterAction(SetMultiModeEnabled);
+        Svc.PluginInterface.GetIpcProvider<bool>("AutoRetainer.IsBusy").RegisterFunc(GetIsBusy);
         Svc.PluginInterface.GetIpcProvider<uint, object>("AutoRetainer.SetVenture").RegisterAction(SetVenture);
         Svc.PluginInterface.GetIpcProvider<ulong, OfflineCharacterData>("AutoRetainer.GetOfflineCharacterData").RegisterFunc(GetOCD);
         Svc.PluginInterface.GetIpcProvider<OfflineCharacterData, object>("AutoRetainer.WriteOfflineCharacterData").RegisterAction(SetOCD);
@@ -50,6 +51,7 @@ internal static class IPC
         Svc.PluginInterface.GetIpcProvider<bool, object>("AutoRetainer.SetSuppressed").UnregisterAction();
         Svc.PluginInterface.GetIpcProvider<bool>("AutoRetainer.GetMultiModeEnabled").UnregisterFunc();
         Svc.PluginInterface.GetIpcProvider<bool, object>("AutoRetainer.SetMultiModeEnabled").UnregisterAction();
+        Svc.PluginInterface.GetIpcProvider<bool>("AutoRetainer.IsBusy").UnregisterFunc();
         Svc.PluginInterface.GetIpcProvider<uint, object>("AutoRetainer.SetVenture").UnregisterAction();
         Svc.PluginInterface.GetIpcProvider<ulong, OfflineCharacterData>("AutoRetainer.GetOfflineCharacterData").UnregisterFunc();
         Svc.PluginInterface.GetIpcProvider<OfflineCharacterData, object>("AutoRetainer.WriteOfflineCharacterData").UnregisterAction();
@@ -170,6 +172,18 @@ internal static class IPC
     {
         MultiMode.Enabled = s;
         MultiMode.OnMultiModeEnabled();
+    }
+
+    /// <summary>
+    /// 「AutoRetainer 正在驅動雇員自動化」的唯讀狀態，給市場板類外掛
+    /// （如 Marketbuddy）做傳喚鈴互斥用：
+    /// PluginEnabled＝鈴自動化已武裝（開著就會在鈴開啟時接手，含
+    /// IPC.Suppressed 尊重）、MultiMode.Active＝多角色模式執行期狀態、
+    /// TaskManager.IsBusy＝任務引擎正在執行。純暴露狀態，零行為變更。
+    /// </summary>
+    private static bool GetIsBusy()
+    {
+        return SchedulerMain.PluginEnabled || MultiMode.Active || P.TaskManager.IsBusy;
     }
 
     internal static void FireSendRetainerToVentureEvent(string retainer)
