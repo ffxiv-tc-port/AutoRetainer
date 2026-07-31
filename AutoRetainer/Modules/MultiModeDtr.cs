@@ -15,7 +15,7 @@ internal static class MultiModeDtr
     {
         _entry = Svc.DtrBar.Get("AutoRetainer.MultiMode");
         _entry.OnClick = OnClick;
-        _entry.Tooltip = "點擊切換多角色模式 (Multi Mode)";
+        _entry.Tooltip = "AutoRetainer — 多角色模式\n左鍵：開啟／關閉多角色模式\n右鍵：開啟／關閉主視窗";
         _lastState = null;
     }
 
@@ -35,6 +35,14 @@ internal static class MultiModeDtr
 
     private static void OnClick(DtrInteractionEvent evt)
     {
+        // 右鍵開關主視窗（再按一次關閉）。原本沒有分辨按鍵，右鍵也會切換多角色模式，
+        // 等於跟左鍵重複，所以接管它不會損失既有功能。
+        if (evt.ClickType == MouseClickType.Right)
+        {
+            P.AutoRetainerWindow.IsOpen ^= true;
+            return;
+        }
+
         MultiMode.Enabled = !MultiMode.Enabled;
         _lastState = null;
     }
