@@ -683,7 +683,9 @@ public static unsafe class Utils
 
     internal static void ExtraLog(string s)
     {
-        if(C.ExtraDebug) PluginLog.Debug(s);
+        // 外掛自訂等級只能比全域記錄等級更嚴格,不能更寬鬆(ScopedPluginLogService 的行為)。
+        // 使用者開啟「額外記錄」開關就是想看到這些訊息,若寫 Debug,一般記錄等級下永遠不會顯示。
+        if(C.ExtraDebug) PluginLog.Information(s);
     }
 
     internal static bool ContainsAllItems<T>(this IEnumerable<T> a, IEnumerable<T> b)
