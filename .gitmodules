@@ -9,16 +9,16 @@
 	url = https://github.com/ffxiv-tc-port/AutoRetainerAPI.git
 [submodule "NightmareUI"]
 	path = NightmareUI
-	url = https://github.com/NightmareXIV/NightmareUI
+	url = https://github.com/ffxiv-tc-port/NightmareUI.git
 [submodule "NightmareUI.OtterGuiWrapper"]
 	path = NightmareUI.OtterGuiWrapper
-	url = https://github.com/NightmareXIV/NightmareUI.OtterGuiWrapper
+	url = https://github.com/ffxiv-tc-port/NightmareUI.OtterGuiWrapper.git
 [submodule "OtterGui"]
 	path = OtterGui
 	url = https://github.com/ffxiv-tc-port/OtterGui.git
 [submodule "ECommons.FileWriter"]
 	path = ECommons.FileWriter
-	url = https://github.com/Limiana/ECommons.FileWriter
+	url = https://github.com/ffxiv-tc-port/ECommons.FileWriter.git
 [submodule "FFXIVClientStructs"]
 	path = FFXIVClientStructs
-	url = https://github.com/Limiana/FFXIVClientStructs
+	url = https://github.com/ffxiv-tc-port/FFXIVClientStructs.git
