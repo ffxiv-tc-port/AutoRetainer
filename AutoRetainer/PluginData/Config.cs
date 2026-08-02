@@ -89,15 +89,6 @@ internal unsafe class Config
     public int UIWarningDepTanksNum = 300;
     public int UIWarningDepRepairNum = 100;
     public int UIWarningDepSlotNum = 20;
-    /// <summary>
-    /// 軍票繳交每一步之間的節流幀數（送出、確認 HQ 對話框、繳交回呼共用）。
-    /// 上游寫死 10 幀——60fps 下每步 0.167 秒，一件要過兩到三步，實測每件約 0.66 秒，
-    /// 其中約 0.43 秒純粹是在等節流。改成可調、預設 3。
-    /// ⚠️ 調太低有風險：可能點到還沒 ready 的介面，或觸發伺服器端的操作頻率限制。
-    /// 覺得不穩就往上調，10 是上游原值。
-    /// </summary>
-    public int GcHandinThrottleFrames = 3;
-
     public int TargetMSPTIdle = 0;
     public int TargetMSPTRunning = 0;
     public bool NoFPSLockWhenActive = true;
