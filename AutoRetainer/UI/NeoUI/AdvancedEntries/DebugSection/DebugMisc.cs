@@ -48,11 +48,24 @@ internal unsafe class DebugMisc : DebugSectionBase
         if(ImGui.CollapsingHeader("Retainer item stats"))
         {
             var im = InventoryManager.Instance();
+            // 除錯顯示。RetainerEquippedItems 只有在雇員視窗開著時才載入，沒開就是 null——常態不是異常。
             var c = im->GetInventoryContainer(InventoryType.RetainerEquippedItems);
-            for(var i = 0; i < c->Size; i++)
+            if(c == null)
             {
-                var slot = c->GetInventorySlot(i);
-                ImGuiEx.Text($"{i} ({slot->GetItemId()}): {ExcelItemHelper.GetName(slot->GetItemId() % 1000000)}, gathering: {slot->GetStat(BaseParamEnum.Gathering)} [{slot->GetStatCap(BaseParamEnum.Gathering)}], perception: {slot->GetStat(BaseParamEnum.Perception)} [{slot->GetStatCap(BaseParamEnum.Perception)}]");
+                ImGuiEx.Text(EColor.RedBright, "Container not loaded (no retainer open)");
+            }
+            else
+            {
+                for(var i = 0; i < c->Size; i++)
+                {
+                    var slot = c->GetInventorySlot(i);
+                    if(slot == null)
+                    {
+                        ImGuiEx.Text(EColor.RedBright, $"{i}: <unreadable>");
+                        continue;
+                    }
+                    ImGuiEx.Text($"{i} ({slot->GetItemId()}): {ExcelItemHelper.GetName(slot->GetItemId() % 1000000)}, gathering: {slot->GetStat(BaseParamEnum.Gathering)} [{slot->GetStatCap(BaseParamEnum.Gathering)}], perception: {slot->GetStat(BaseParamEnum.Perception)} [{slot->GetStatCap(BaseParamEnum.Perception)}]");
+                }
             }
         }
         if(ImGui.Button("Test Haseltweaks"))

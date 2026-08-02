@@ -354,16 +354,26 @@ internal static unsafe class GCContinuation
         return canFit;
     }
 
+    /// <remarks>
+    /// 讀不到的容器／格位一律跳過，也就是**只可能少報不可能多報**。唯一的呼叫端拿 <c>false</c>
+    /// 去走 <c>return 0</c>（＝這次不兌換），少報一律讓判斷倒向「不做事」。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     public static bool DoesInventoryHaveDeliverableItem()
     {
         foreach(var x in Utils.PlayerInvetories)
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(x);
+            if(inv == null) continue;
             for(var i = 0; i < inv->GetSize(); i++)
             {
                 var item = inv->GetInventorySlot(i);
-                var data = ExcelItemHelper.Get(item->ItemId);
+                if(item == null) continue;
                 if(item->ItemId == 0 || Data.GetIMSettings().IMProtectList.Contains(item->ItemId)) continue;
+                // ⚠️ data 必須在 ItemId == 0 的早退之後才取值：ExcelItemHelper.Get 對未知 ID 回 null，
+                // 而原本的寫法先 Get 再讀 data.Value，未知 ID 會丟 InvalidOperationException。
+                var data = ExcelItemHelper.Get(item->ItemId);
+                if(data == null) continue;
                 if(!data.Value.ItemUICategory.RowId.EqualsAny([.. Utils.ArmorsUICategories, .. Utils.WeaponsUICategories])) continue;
                 if(!data.Value.GetRarity().EqualsAny(ItemRarity.Green, ItemRarity.Pink, ItemRarity.Blue)) continue;
                 if(data.Value.Desynth == 0) continue;

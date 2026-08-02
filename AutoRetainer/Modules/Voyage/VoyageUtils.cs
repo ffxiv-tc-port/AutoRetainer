@@ -363,10 +363,21 @@ internal static unsafe class VoyageUtils
                         adata.NextLevelExp = vessel->NextLevelExp;
                         adata.CurrentExp = vessel->CurrentExp;
                         //PluginLog.Debug("Write offline sub data");
-                        adata.Part1 = (int)GetVesselComponent(i, VoyageType.Submersible, 0)->ItemId;
-                        adata.Part2 = (int)GetVesselComponent(i, VoyageType.Submersible, 1)->ItemId;
-                        adata.Part3 = (int)GetVesselComponent(i, VoyageType.Submersible, 2)->ItemId;
-                        adata.Part4 = (int)GetVesselComponent(i, VoyageType.Submersible, 3)->ItemId;
+                        // 這裡用 Try 版而不是會丟例外的 GetVesselComponent，理由有兩個：
+                        // 1. 本函式在航海面板裡每 100ms 跑一次，且沒有任何呼叫端接例外。
+                        // 2. 這四個欄位會被持久化進 OfflineData。四個要嘛全寫要嘛全不寫——
+                        //    只寫到一半或寫進 0，等於把「這一瞬間讀不到」固化成「這艘船沒有這個零件」，
+                        //    之後的 UI 顯示與換零件計畫都會照著錯的值走。讀不到就留著上一輪的舊值。
+                        if(TryGetVesselComponent(i, VoyageType.Submersible, 0, out var part1)
+                            && TryGetVesselComponent(i, VoyageType.Submersible, 1, out var part2)
+                            && TryGetVesselComponent(i, VoyageType.Submersible, 2, out var part3)
+                            && TryGetVesselComponent(i, VoyageType.Submersible, 3, out var part4))
+                        {
+                            adata.Part1 = (int)part1->ItemId;
+                            adata.Part2 = (int)part2->ItemId;
+                            adata.Part3 = (int)part3->ItemId;
+                            adata.Part4 = (int)part4->ItemId;
+                        }
                         adata.Points = vessel->CurrentExplorationPoints.ToArray();
                     }
                 }
@@ -482,8 +493,9 @@ internal static unsafe class VoyageUtils
     }
 
 
-    internal static InventoryItem* GetVesselComponent(int vesselIndex, VoyageType type, int slotIndex)
+    internal static bool TryGetVesselComponent(int vesselIndex, VoyageType type, int slotIndex, out InventoryItem* component)
     {
+        component = null;
         int begin;
         InventoryType itype;
         if(type == VoyageType.Airship)
@@ -501,8 +513,29 @@ internal static unsafe class VoyageUtils
             throw new ArgumentOutOfRangeException(nameof(type));
         }
         var index = begin + slotIndex;
-        var slot = FFXIVClientStructs.FFXIV.Client.Game.InventoryManager.Instance()->GetInventoryContainer(itype)->GetInventorySlot(index);
-        return slot;
+        var container = FFXIVClientStructs.FFXIV.Client.Game.InventoryManager.Instance()->GetInventoryContainer(itype);
+        if(container == null) return false;
+        // GetInventorySlot 是虛擬函式（進遊戲原生碼），對超界索引的行為未經證實，所以先自己夾。
+        // 正常情況下 index 一定在範圍內（vesselIndex 由 GetVesselIndexByName 產生，查不到會丟例外）。
+        if(index < 0 || index >= container->Size) return false;
+        component = container->GetInventorySlot(index);
+        return component != null;
+    }
+
+    /// <remarks>
+    /// 🔴 讀不到時**丟例外，不回 null**。八個呼叫端全部拿到指標就直接解參考，回 null 只是把同一個
+    /// 解參考往上搬一層；而靜默回退更糟——<see cref="GetIsVesselNeedsRepair"/> 會把「讀不到」
+    /// 算成「這個零件不用修」，那是**錯的但看起來合理**的答案，船會帶著壞掉的零件出航。
+    /// 同檔的 <see cref="GetVesselIndexByName"/> 對它自己的「查不到」也是丟例外，行為一致。
+    /// 需要「讀不到就安靜跳過」語意的呼叫端請改用 <see cref="TryGetVesselComponent"/>。
+    /// </remarks>
+    internal static InventoryItem* GetVesselComponent(int vesselIndex, VoyageType type, int slotIndex)
+    {
+        if(!TryGetVesselComponent(vesselIndex, type, slotIndex, out var component))
+        {
+            throw new InvalidOperationException($"Could not read vessel component: vessel={vesselIndex}, type={type}, slot={slotIndex}");
+        }
+        return component;
     }
 
     internal static int GetVesselIndexByName(string name, VoyageType type)

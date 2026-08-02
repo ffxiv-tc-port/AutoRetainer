@@ -126,11 +126,23 @@ internal unsafe class Memory : IDisposable
         SellItemHook.Original(inventorySlot, a2, a3);
     }
 
+    /// <remarks>
+    /// 讀不到容器／格位時丟例外，**不是**靜默 return —— 本方法唯一的作用就是送出賣出指令，
+    /// 而「讀不到」代表無法確認要賣的是什麼。靜默跳過會讓呼叫端以為賣掉了，
+    /// 丟例外則與同方法既有的「找不到 Shop」失敗路徑一致（兩個呼叫端都在 task／UI 裡，接得住）。
+    /// ⚠️ 這裡不能省掉容器檢查而依賴呼叫端：<c>NpcSaleManager</c> 雖然自己檢查過，
+    /// 但那是**另一次讀取**，本方法重新解析一次容器，狀態可能已經變了。
+    /// </remarks>
     public void SellItemToShop(InventoryType type, int slot)
     {
         if(TryGetAddonByName<AtkUnitBase>("Shop", out var addon) && IsAddonReady(addon))
         {
-            var slotPtr = InventoryManager.Instance()->GetInventoryContainer(type)->GetInventorySlot(slot);
+            var container = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(container == null) throw new InvalidOperationException($"Inventory container {type} is not loaded.");
+            // GetInventorySlot 是虛擬函式（進遊戲原生碼），對超界索引的行為未經證實，所以先自己夾。
+            if(slot < 0 || slot >= container->Size) throw new ArgumentOutOfRangeException(nameof(slot), $"Slot {slot} is out of range for {type} (size {container->Size}).");
+            var slotPtr = container->GetInventorySlot(slot);
+            if(slotPtr == null) throw new InvalidOperationException($"Inventory slot {type}({slot}) could not be read.");
             if(slotPtr->ItemId != 0)
             {
                 if(Data.GetIMSettings().IMProtectList.Contains(slotPtr->ItemId)) throw new InvalidOperationException($"Attempted to sell protected item: {ExcelItemHelper.GetName(slotPtr->ItemId)}");

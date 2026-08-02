@@ -386,6 +386,12 @@ internal static unsafe class SchedulerMain
     /// inventory; entrust's "unconditional" items/categories are checked against the player's carried
     /// counts, and duplicates are checked against this retainer's live inventory since it's already
     /// open right now - none of this is guessable without the retainer being open.</summary>
+    /// <remarks>
+    /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少報工作、不可能多報**。回傳值只用來決定
+    /// 「要不要把這個雇員排進待辦」，少報＝這一輪不重開他，下一輪重新評估時就會補回來；
+    /// 多報才是有代價的（白開一次雇員），而跳過永遠不會造成多報。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     private static unsafe bool RetainerHasEntrustOrVendorWork(EntrustPlan? plan)
     {
         var vs = Data.GetIMSettings();
@@ -395,7 +401,7 @@ internal static unsafe class SchedulerMain
             foreach(var invType in InventorySpaceManager.GetAllowedToSellInventoryTypes())
             {
                 var inv = InventoryManager.Instance()->GetInventoryContainer(invType);
-                if(inv == null) continue;
+                if(inv == null || inv->Items == null) continue;
                 for(var i = 0; i < inv->Size; i++)
                 {
                     var item = inv->Items[i];
@@ -425,6 +431,7 @@ internal static unsafe class SchedulerMain
             for(var i = 0; i < inv->Size; i++)
             {
                 var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                if(item == null) continue;
                 if(item->ItemId == 0 || item->Quantity == 0) continue;
                 if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
 
@@ -460,6 +467,7 @@ internal static unsafe class SchedulerMain
                 for(var i = 0; i < inv->Size; i++)
                 {
                     var item = inv->GetInventorySlot(i);
+                    if(item == null) continue;
                     if(item->ItemId == 0) continue;
                     if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
 
@@ -483,6 +491,7 @@ internal static unsafe class SchedulerMain
                         for(var q = 0; q < playerInv->Size; q++)
                         {
                             var playerItem = playerInv->GetInventorySlot(q);
+                            if(playerItem == null) continue;
                             if(playerItem->ItemId == item->ItemId && playerItem->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality) == item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality))
                             {
                                 return true;

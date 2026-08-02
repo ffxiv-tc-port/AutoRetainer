@@ -403,7 +403,15 @@ internal static unsafe class TaskEntrustDuplicates
         }
         else
         {
-            var slot = InventoryManager.Instance()->GetInventoryContainer(type)->GetInventorySlot(i);
+            // 讀不到就這一輪什麼都不做。呼叫端在本方法回來後一律 return false（＝繼續輪詢），
+            // 下一輪會重新掃描並補上，跟上面 !IsRetainerInventoryLoaded() 那條分支的行為一致。
+            // 🔴 絕對不能在讀不到的情況下往下走：底下會送出 RetainerItemCommand 實際搬運道具，
+            // 拿不到 slot 就等於不知道自己在搬什麼。
+            var container = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(container == null) return;
+            if(i < 0 || i >= container->Size) return;
+            var slot = container->GetInventorySlot(i);
+            if(slot == null) return;
             void printToChat()
             {
                 if(C.EnableEntrustChat && ExcelItemHelper.Get(slot->ItemId) != null) Svc.Chat.Print(new SeStringBuilder().Append("Entrusting: ").Append([new ItemPayload(slot->ItemId, slot->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality))]).Append(ExcelItemHelper.GetName(slot->ItemId)).Append([RawPayload.LinkTerminator]).Build());

@@ -57,15 +57,23 @@ public static unsafe class TaskDesynthItems
         return false;
     }
 
+    /// <remarks>
+    /// 讀不到的容器／格位一律跳過，也就是**只可能少列不可能多列**。呼叫端拿空清單會
+    /// <c>return true</c>（＝這個 task 結束），少列＝這輪少分解幾件，下次進到這個 task 會重掃補回；
+    /// 多列才有代價（分解到不該分解的東西），而跳過永遠不會造成多列。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     private static List<Pointer<InventoryItem>> GetEligibleItems()
     {
         List<Pointer<InventoryItem>> items = [];
         foreach(var inv in DesynthableInventories)
         {
             var cont = InventoryManager.Instance()->GetInventoryContainer(inv);
+            if(cont == null) continue;
             for(var i = 0; i < cont->Size; ++i)
             {
                 var item = cont->GetInventorySlot(i);
+                if(item == null) continue;
                 if(IsOnIMList(item->ItemId) && DesynthEligible(item->ItemId))
                     items.Add(item);
             }
