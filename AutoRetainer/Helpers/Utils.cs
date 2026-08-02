@@ -523,15 +523,31 @@ public static unsafe class Utils
         return plan.AllowEntrustFromArmory ? [.. PlayerInvetoriesWithCrystals, .. PlayerArmory] : PlayerInvetoriesWithCrystals;
     }
 
+    /// <summary>
+    /// Snapshots the contents of the given inventories. Counterpart of
+    /// <see cref="MatchesCapturedInventoryState"/>, which must walk the containers in the same order.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 拿不到的容器／格位一律「跳過」，不是中止整個快照。這條路徑每次雇員存入送出指令都會走到
+    /// （<c>TaskEntrustDuplicates</c> 的閘門與 <c>NpcSaleManager</c> 的等待判定），而
+    /// <c>NpcSaleManager</c> 是拿本函式的兩次輸出互相 <c>SequenceEqual</c>：中止會讓新的一次回傳短少
+    /// 的清單，跟舊快照比對不相等 → 把「狀態根本沒變」誤判成「已變動」→ 閘門提前放行。
+    /// 跳過則兩次都跳過同樣的容器，比對結果仍然是相等，行為維持不變。
+    /// 同檔的 <see cref="MatchesCapturedInventoryState"/> 與 <c>NpcSaleManager.SellHardListItemsTask</c>
+    /// 都已經是這個寫法，本函式先前是唯一漏掉的一個。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     public static List<(uint ID, uint Quantity)> GetCapturedInventoryState(IEnumerable<InventoryType> inventoryTypes)
     {
         var ret = new List<(uint ID, uint Quantity)>();
         foreach(var type in inventoryTypes)
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) continue;
             for(var i = 0; i < inv->Size; i++)
             {
                 var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                if(item == null) continue;
                 ret.Add((item->ItemId, (uint)item->Quantity));
             }
         }
