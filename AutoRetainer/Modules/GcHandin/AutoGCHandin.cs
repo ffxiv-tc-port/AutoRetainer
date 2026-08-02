@@ -136,7 +136,12 @@ internal static unsafe class AutoGCHandin
     private const int RewardTimeoutMs = 3000;
     // 走到這裡代表獎勵視窗已經關掉（伺服器確認繳交），代理人卻遲遲不能收事件。
     // 舊值 5000 太長：這種情況下退回「等遊戲自己重建」本來就會成功，不需要空等五秒。
-    private const int RefreshTimeoutMs = 2000;
+    //
+    // ⚠️ 這道保險絲同時是「AddonId != 0 這個新閘門萬一在台服不成立」的成本上限。
+    // 那個前提是從反組譯推出來的、還沒有實機資料佐證；如果它永遠是 0，每一件都會
+    // 走到這裡。獎勵視窗關掉之後遊戲自己重建約 0.42 秒，1000ms 留了 2 倍餘裕，
+    // 把最壞情況壓在「比現在慢約 3 倍」而不是「慢 6 倍」，而且 log 會直接指名 AddonId。
+    private const int RefreshTimeoutMs = 1000;
 
     private const int MinListTimeoutMs = 300;
     private const int MaxListTimeoutMs = 5000;
