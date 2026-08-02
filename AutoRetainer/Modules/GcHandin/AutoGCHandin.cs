@@ -223,6 +223,15 @@ internal static unsafe class AutoGCHandin
                                         GcDiagReset();
                                     }
                                     InvokeHandin(addon, nextItem.Value.Index);
+                                    // 🔴 送出之後把這個節流器重設，否則整段掃描會每一幀重跑。
+                                    // FrameThrottler.Check 只是「問有沒有過期」，過期後會一直回 true，
+                                    // 而真正被節流的是 InvokeHandin 內另一個名字（AutoGCHandinCallback），
+                                    // 所以上面那段（FindNextHandinItem → 掃整份清單 → 對每個候選
+                                    // CountItemsInInventory 掃遍所有背包 → 三層排序）在等獎勵視窗出現的
+                                    // 這段期間是每幀執行的。實機 log 可見同一件在 56ms 內被重複處理 7 次
+                                    // （清單 95 件 ⇒ 每幀近百次背包全掃），這就是繳交時聊天會頓的原因。
+                                    // 重設之後這段每個週期只跑一次；Callback 本身的節流不受影響。
+                                    FrameThrottler.Throttle("Handin.HandleConfirmation", 10, true);
                                 }
                                 else
                                 {
