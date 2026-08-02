@@ -54,5 +54,13 @@ public sealed unsafe class GCCharacterConfiguration : InventoryManagemenrBase
             }
             ImGui.EndTable();
         }
+
+        ImGui.Separator();
+        ImGui.SetNextItemWidth(150f);
+        if(ImGui.SliderInt(Loc.T("Handin pacing (frames per step)"), ref C.GcHandinThrottleFrames, 1, 20))
+        {
+            C.GcHandinThrottleFrames = Math.Clamp(C.GcHandinThrottleFrames, 1, 60);
+        }
+        ImGuiEx.HelpMarker(Loc.T("How many frames to wait between each step of a Grand Company handin (submit, HQ confirmation, callback). Upstream hardcodes 10, which at 60fps is 0.167s per step - with two to three steps per item that accounts for most of the ~0.66s each turn-in takes. Lower is faster; too low may click a window that is not ready yet, or trip the server's rate limiting. Set it back to 10 for upstream behaviour."));
     }
 }

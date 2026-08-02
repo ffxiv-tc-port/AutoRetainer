@@ -85,12 +85,18 @@ internal static unsafe class AutoGCHandin
         }
     }
 
+    /// <summary>
+    /// 每一步之間的節流幀數。上游寫死 10（60fps 下每步 0.167 秒），改成讀設定、預設 3。
+    /// 夾在 1–60：0 會讓節流完全失效、過大則毫無意義。
+    /// </summary>
+    private static int GcThrottleFrames => Math.Clamp(C.GcHandinThrottleFrames, 1, 60);
+
     private static bool HandleConfirmation()
     {
         const string Throttler = "Handin.HandleConfirmation";
         if(TryGetAddonByName<AddonGrandCompanySupplyReward>("GrandCompanySupplyReward", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
-            if(addon->DeliverButton->IsEnabled && FrameThrottler.Throttle(Throttler, 10))
+            if(addon->DeliverButton->IsEnabled && FrameThrottler.Throttle(Throttler, GcThrottleFrames))
             {
                 new AddonMaster.GrandCompanySupplyReward(addon).Deliver();
                 DebugLog($"Delivering Item");
@@ -116,7 +122,7 @@ internal static unsafe class AutoGCHandin
                 //102434	Do you really want to trade a high-quality item?
                 if(str.Equals(GenericHelpers.GetText(Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(102434).Text).Cleanup()))
                 {
-                    if(FrameThrottler.Throttle(Throttler, 10))
+                    if(FrameThrottler.Throttle(Throttler, GcThrottleFrames))
                     {
                         new AddonMaster.SelectYesno((IntPtr)addon).Yes();
                         DebugLog($"Selecting yes");
@@ -286,7 +292,7 @@ internal static unsafe class AutoGCHandin
 
     internal static void InvokeHandin(AtkUnitBase* addon, int which)
     {
-        if(FrameThrottler.Throttle("AutoGCHandinCallback", 10)) Callback.Fire(addon, true, 1, which, Callback.ZeroAtkValue);
+        if(FrameThrottler.Throttle("AutoGCHandinCallback", GcThrottleFrames)) Callback.Fire(addon, true, 1, which, Callback.ZeroAtkValue);
     }
 
     internal static bool HasInInventory(uint itemID)
