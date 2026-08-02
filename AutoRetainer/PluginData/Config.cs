@@ -236,6 +236,11 @@ internal unsafe class Config
     public bool ConnectionErrorsBlacklist = true;
     public bool EnableEntrustManager = true;
     public bool EnableEntrustChat = false;
+    /// <summary>Minimum spacing between two entrust commands, in milliseconds. This is a floor, not the
+    /// pacing source - the flow already waits for each item to actually leave the inventory before sending
+    /// the next one, so lowering this does not allow two commands to be in flight at once. See
+    /// TaskEntrustDuplicates for the measurements the default is derived from.</summary>
+    public int EntrustIntervalMS = 150;
 
     public bool HETWhenDisabled = false;
     public bool UseTitleScreenButton = false;

@@ -301,6 +301,8 @@
   "Entrust Manager": "委託管理",
   "Entrust categories (": "存放類別 (已選擇",
   "Entrust individual items (": "存放單一物品 (已選擇",
+  "Entrust interval, ms": "存放間隔（毫秒）",
+  "Minimum spacing between two entrust commands. The plugin already waits for each item to actually leave your inventory before sending the next one, so this is only a lower bound on top of that wait - it never allows two commands to be in flight at once.\n\nLowering it makes entrusting faster, but a value below the round trip to the server buys nothing, and a very low value may get commands dropped by the server. Raise it if you see items being skipped or \"no inventory change\" messages in the log.": "兩次存放指令之間的最小間隔。外掛本來就會等前一件物品真的離開背包才送出下一件，所以這只是疊在那道等待之上的下限，不會讓兩道指令同時在途中。\n\n調低會讓存放更快，但低於與伺服器往返的時間就不會再有效果，而且太低可能會讓指令被伺服器丟棄。若看到物品被跳過、或記錄裡出現「沒有背包變化」的訊息，請把這個值調高。",
   "Entrust individual items ({selectedPlan.EntrustItems.Count} selected)###eitems": "存放單一物品 (已選擇{selectedPlan.EntrustItems.Count} 個)###eitems",
   "Entrust manager is globally disabled, while some retainers have their entrust plans assigned. Entrust plans will only be processed manually.": "託管管理器已全域停用，但部分僱員已指派託管計劃。託管計劃將僅在手動操作時處理。",
   "Entrust plan \"": "存放計畫「",

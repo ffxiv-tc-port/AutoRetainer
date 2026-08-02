@@ -27,9 +27,36 @@ internal static unsafe class TaskEntrustDuplicates
 
     private const int MaxEntrustAttempts = 3;
 
+    /// <summary>Bounds for <see cref="Config.EntrustIntervalMS"/>.
+    ///
+    /// The lower bound is NOT about command spacing - the retry rate is already bounded elsewhere (every
+    /// send re-arms the 5 second "InventoryTimeout" with rethrottle:true, and <see cref="IsSlotStuck"/>
+    /// caps a slot at <see cref="MaxEntrustAttempts"/> tries), so even at 0 this throttle could not produce
+    /// a per-frame resend. What it does bound is the full inventory scan below: while the retainer window
+    /// is still opening, every pass that gets past this throttle rebuilds the item/count dictionaries and
+    /// then discovers the retainer inventory is not loaded yet. At 50ms that is a handful of scans per
+    /// flow; with no floor at all it would be one per frame, which is the same per-frame-rescan stutter
+    /// already fixed once in the GC handin flow.</summary>
+    private const int MinEntrustIntervalMS = 50;
+    private const int MaxEntrustIntervalMS = 1000;
+
+    /// <summary>The configured spacing, clamped. Read per pass so changing the setting takes effect
+    /// without a reload.
+    ///
+    /// Why the default is 150 and not the 333 it used to be: the [TED-timing] numbers from a live
+    /// multi-character run showed the per item period sitting at ~330ms with the server round trip only
+    /// ~120ms of it (measured plain_avg across six flows: 95/104/166/101/123/149ms), the remaining ~200ms
+    /// being this throttle. The real "wait for the previous item to land" gate is the InventoryTimeout /
+    /// captured-inventory-state comparison further down, which walks every slot and refuses to move on
+    /// until the previous item has actually left - this throttle is dead time layered on top of it.
+    /// 150ms sits just above the observed round trip, so it stops being the binding constraint in the
+    /// normal case while still capping how often the scan below can run.</summary>
+    private static int EntrustInterval => Math.Clamp(C.EntrustIntervalMS, MinEntrustIntervalMS, MaxEntrustIntervalMS);
+
     // Timing breakdown for the flow currently running. All wall-clock, all reported once per flow so the
     // cost of a slow entrust run can be attributed instead of guessed at.
     private static long FlowStartedAt;
+    private static long FlowFirstSendAt;
     private static long LastSendAt;
     private static long LastLandedAt;
     private static long LastSendThrottleWaitMs;
@@ -47,6 +74,7 @@ internal static unsafe class TaskEntrustDuplicates
     {
         Attempts.Clear();
         FlowStartedAt = Environment.TickCount64;
+        FlowFirstSendAt = 0;
         LastSendAt = 0;
         LastLandedAt = 0;
         LastSendThrottleWaitMs = 0;
@@ -71,7 +99,11 @@ internal static unsafe class TaskEntrustDuplicates
         var plainMs = FlowRoundTripMs - FlowPartialRoundTripMs;
         PluginLog.Information($"[TED-timing] flow done: total={total}ms moves={FlowMoves} (plain={plain} partial/InputNumeric={FlowPartialMoves}) " +
             $"roundtrip_total={FlowRoundTripMs}ms (plain_avg={(plain > 0 ? plainMs / plain : 0)}ms partial_avg={(FlowPartialMoves > 0 ? FlowPartialRoundTripMs / FlowPartialMoves : 0)}ms) " +
-            $"throttle_wait_total={FlowThrottleWaitMs}ms timeouts={FlowTimeouts} timeout_total={FlowTimeoutMs}ms stuck_slots_skipped={FlowSkippedStuck}");
+            $"throttle_wait_total={FlowThrottleWaitMs}ms timeouts={FlowTimeouts} timeout_total={FlowTimeoutMs}ms stuck_slots_skipped={FlowSkippedStuck} " +
+            // Everything before the first command went out: waiting for SelectString, then opening the
+            // retainer inventory. It is per-flow rather than per-item, so it does not shrink when the
+            // interval does - which makes it the largest remaining component once the interval is lowered.
+            $"startup={(FlowFirstSendAt == 0 ? -1 : FlowFirstSendAt - FlowStartedAt)}ms interval={EntrustInterval}ms");
         ResetFlowTracking();
     }
 
@@ -114,9 +146,12 @@ internal static unsafe class TaskEntrustDuplicates
         var count = previous.ItemId == itemId && previous.Quantity == quantity ? previous.Count + 1 : 1;
         Attempts[(type, slot)] = new EntrustAttempt(itemId, quantity, count, false);
         LastSendAt = now;
+        if(FlowFirstSendAt == 0) FlowFirstSendAt = now;
         LastSendWasPartial = partial;
-        // How long we sat in our own 333ms EntrustItem throttle after the previous item landed. On the
-        // normal path this is ~0, because the server round trip is longer than the throttle.
+        // How long we sat in our own EntrustItem throttle after the previous item landed. The original
+        // comment here claimed this was "~0, because the server round trip is longer than the throttle";
+        // the instrumentation proved the opposite - at the old 333ms it was ~200ms per item against a
+        // ~120ms round trip, i.e. the throttle was the pacing source and the server was not.
         LastSendThrottleWaitMs = LastLandedAt == 0 ? 0 : now - LastLandedAt;
     }
 
@@ -172,7 +207,11 @@ internal static unsafe class TaskEntrustDuplicates
                 LastLandedAt = Environment.TickCount64;
                 LastSendAt = 0;
             }
-            if(EzThrottler.Throttle("EntrustItem", 333))
+            // Sole user of the "EntrustItem" throttle key - EzThrottler keys are global and process
+            // persistent, so this was checked before changing the value. ("EntrustItemInputNumeric" above
+            // and "InventoryTimeout" are separate keys, and NpcSaleManager has its own
+            // "NpcInventoryTimeout".)
+            if(EzThrottler.Throttle("EntrustItem", EntrustInterval))
             {
                 // Only build the [TED] diagnostics when someone has actually asked to see them. They are
                 // not free: each line does an Excel row lookup plus a SeString to string conversion, and

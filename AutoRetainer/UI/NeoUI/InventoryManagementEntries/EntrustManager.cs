@@ -16,6 +16,9 @@ public class EntrustManager : InventoryManagemenrBase
         ImGuiEx.TextWrapped(Loc.T("Use advanced entrust manager to entrust specific items to specific retainers. In this window you can configure specific plans; then, you can assign entrust plans to your retainers in retainer configuration window."));
         ImGui.Checkbox(Loc.T("Enable"), ref C.EnableEntrustManager);
         ImGui.Checkbox(Loc.T("Output entrusted items into chat"), ref C.EnableEntrustChat);
+        ImGui.SetNextItemWidth(150f);
+        ImGuiEx.SliderInt(Loc.T("Entrust interval, ms"), ref C.EntrustIntervalMS.ValidateRange(50, 1000), 50, 1000);
+        ImGuiEx.HelpMarker(Loc.T("Minimum spacing between two entrust commands. The plugin already waits for each item to actually leave your inventory before sending the next one, so this is only a lower bound on top of that wait - it never allows two commands to be in flight at once.\n\nLowering it makes entrusting faster, but a value below the round trip to the server buys nothing, and a very low value may get commands dropped by the server. Raise it if you see items being skipped or \"no inventory change\" messages in the log."));
         var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == SelectedGuid);
 
         ImGuiEx.InputWithRightButtonsArea(() =>

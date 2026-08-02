@@ -135,6 +135,7 @@ internal static unsafe class AutoGCHandin
     // Grep 標記：GCHandin
     private static long CycleStartedAt;
     private static long CycleDeliveredAt;
+    private static long CycleRewardGoneAt;
     private static long CycleRefreshedAt;
 
     private static long NowMs => Environment.TickCount64;
@@ -148,7 +149,7 @@ internal static unsafe class AutoGCHandin
     private static void ResetPhase()
     {
         SetPhase(HandinPhase.Idle);
-        CycleStartedAt = CycleDeliveredAt = CycleRefreshedAt = 0;
+        CycleStartedAt = CycleDeliveredAt = CycleRewardGoneAt = CycleRefreshedAt = 0;
     }
 
     private static void LogCycle()
@@ -158,9 +159,14 @@ internal static unsafe class AutoGCHandin
         PluginLog.Information(
             $"[GCHandin] 每件 {now - CycleStartedAt}ms | " +
             $"送出→按交付 {(CycleDeliveredAt == 0 ? -1 : CycleDeliveredAt - CycleStartedAt)}ms | " +
-            $"交付→主動刷新 {(CycleDeliveredAt == 0 || CycleRefreshedAt == 0 ? -1 : CycleRefreshedAt - CycleDeliveredAt)}ms | " +
+            $"交付→主動刷新 {(CycleDeliveredAt == 0 || CycleRefreshedAt == 0 ? -1 : CycleRefreshedAt - CycleDeliveredAt)}ms " +
+            // 拆開「交付→主動刷新」的兩段，用來回答那 250~375ms 到底是誰花掉的：
+            // 前段是遊戲自己把獎勵視窗收掉（＝伺服器確認繳交），後段才是我們送刷新事件的閘門。
+            // 如果前段幾乎等於全部，那就是下限，不要再往這裡調。
+            $"(等獎勵視窗關閉 {(CycleDeliveredAt == 0 || CycleRewardGoneAt == 0 ? -1 : CycleRewardGoneAt - CycleDeliveredAt)}ms + " +
+            $"等刷新閘門 {(CycleRewardGoneAt == 0 || CycleRefreshedAt == 0 ? -1 : CycleRefreshedAt - CycleRewardGoneAt)}ms) | " +
             $"刷新→清單更新 {(CycleRefreshedAt == 0 ? -1 : now - CycleRefreshedAt)}ms");
-        CycleStartedAt = CycleDeliveredAt = CycleRefreshedAt = 0;
+        CycleStartedAt = CycleDeliveredAt = CycleRewardGoneAt = CycleRefreshedAt = 0;
     }
 
     private static bool HandleConfirmation()
@@ -234,6 +240,9 @@ internal static unsafe class AutoGCHandin
                 {
                     // DR 的三個閘門：獎勵視窗已關、清單 addon 就緒、代理人的清單陣列還在。
                     if(TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyReward", out var reward) && reward != null) return true;
+                    // 第一次看到獎勵視窗不見的時刻。這是遊戲收到伺服器繳交確認才會發生的事，
+                    // 我們送刷新事件最早也只能在這之後。
+                    if(CycleRewardGoneAt == 0) CycleRewardGoneAt = NowMs;
                     var listReady = TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var list) && IsAddonReady(list);
                     if(listReady && GCSupplyRefresh.RequestExpertDeliveryRefresh())
                     {
@@ -344,6 +353,7 @@ internal static unsafe class AutoGCHandin
                                     ListCountAtHandin = reader.NumItems;
                                     CycleStartedAt = NowMs;
                                     CycleDeliveredAt = 0;
+                                    CycleRewardGoneAt = 0;
                                     CycleRefreshedAt = 0;
                                     SetPhase(HandinPhase.AwaitingReward);
                                 }
