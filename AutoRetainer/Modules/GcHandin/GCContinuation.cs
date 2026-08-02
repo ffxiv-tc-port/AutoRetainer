@@ -327,7 +327,7 @@ internal static unsafe class GCContinuation
             return (uint)Math.Min(canBuy, targetQuantity);
         }
 
-        var canFit = Utils.GetAmountThatCanFit(Utils.PlayerInvetories, meta.ItemID, false, out _);
+        var canFit = Utils.GetAmountThatCanFit(Utils.PlayerInvetories, meta.ItemID, false);
         if(canFit == 0)
         {
             if(!potential)

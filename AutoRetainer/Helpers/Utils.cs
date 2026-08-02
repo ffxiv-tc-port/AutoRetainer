@@ -539,6 +539,33 @@ public static unsafe class Utils
     }
 
     /// <summary>
+    /// Whether the given inventories still hold exactly what <see cref="GetCapturedInventoryState"/>
+    /// recorded. Equivalent to <c>GetCapturedInventoryState(types).SequenceEqual(captured)</c> but walks
+    /// the containers in place and bails at the first difference, so it allocates nothing. The callers
+    /// that poll this run once per frame, where a fresh ~200 element list every frame is pure waste.
+    /// </summary>
+    public static bool MatchesCapturedInventoryState(IEnumerable<InventoryType> inventoryTypes, List<(uint ID, uint Quantity)> captured)
+    {
+        if(captured == null) return false;
+        var index = 0;
+        foreach(var type in inventoryTypes)
+        {
+            var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) return false;
+            for(var i = 0; i < inv->Size; i++)
+            {
+                if(index < 0 || index >= captured.Count) return false;
+                var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                if(item == null) return false;
+                var recorded = captured[index];
+                if(recorded.ID != item->ItemId || recorded.Quantity != (uint)item->Quantity) return false;
+                index++;
+            }
+        }
+        return index == captured.Count;
+    }
+
+    /// <summary>
     /// Request all unique items from select inventories
     /// </summary>
     /// <param name="inventoryTypes"></param>
@@ -601,17 +628,43 @@ public static unsafe class Utils
     }
 
     /// <summary>
-    /// Gets amount of items that can fit into inventories
+    /// Gets amount of items that can fit into inventories.
+    /// </summary>
+    /// <remarks>
+    /// Use this overload unless you are actually going to show the diagnostics to someone. The
+    /// <c>debugData</c> overload builds one interpolated string per scanned slot - up to ~175 for a
+    /// retainer's item pages, several of them with an Excel name lookup - and callers used to build
+    /// them unconditionally and then throw them away, which is a large amount of garbage for a method
+    /// that gets called inside per-item scan loops.
+    /// </remarks>
+    public static uint GetAmountThatCanFit(IEnumerable<InventoryType> inventoryTypes, uint itemId, bool isHq)
+    {
+        return GetAmountThatCanFitInternal(inventoryTypes, itemId, isHq, null);
+    }
+
+    /// <summary>
+    /// Gets amount of items that can fit into inventories, along with a per-slot explanation of how the
+    /// number was reached. Only call this when the explanation is going to be read - see the remarks on
+    /// the three-argument overload.
     /// </summary>
     /// <param name="inventoryTypes"></param>
     /// <param name="itemId"></param>
     /// <param name="isHq"></param>
+    /// <param name="debugData"></param>
     /// <returns></returns>
     public static uint GetAmountThatCanFit(IEnumerable<InventoryType> inventoryTypes, uint itemId, bool isHq, out List<string> debugData)
     {
+        debugData = [];
+        return GetAmountThatCanFitInternal(inventoryTypes, itemId, isHq, debugData);
+    }
+
+    /// <param name="debugData">Null to skip building the per-slot explanation entirely. Every use below is
+    /// through <c>?.</c>, which short-circuits argument evaluation, so a null collector means the
+    /// interpolated strings are never built in the first place.</param>
+    private static uint GetAmountThatCanFitInternal(IEnumerable<InventoryType> inventoryTypes, uint itemId, bool isHq, List<string> debugData)
+    {
         uint ret = 0;
         var data = ExcelItemHelper.Get(itemId);
-        debugData = [];
         if(data == null) return 0;
         if(data.Value.IsUnique)
         {
@@ -635,7 +688,7 @@ public static unsafe class Utils
                     if(item->ItemId == itemId)
                     {
                         ret += (uint)(data.Value.StackSize - item->Quantity);
-                        debugData.Add($"[TED] [CrystalDebugData] in {type} slot {i} found incomplete stack: {ExcelItemHelper.GetName(itemId, true)} q={item->Quantity} canFit={ret}");
+                        debugData?.Add($"[TED] [CrystalDebugData] in {type} slot {i} found incomplete stack: {ExcelItemHelper.GetName(itemId, true)} q={item->Quantity} canFit={ret}");
                         return ret;
                     }
                 }
@@ -654,12 +707,12 @@ public static unsafe class Utils
                     if(item->ItemId == itemId && item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality) == isHq && !item->Flags.HasFlag(InventoryItem.ItemFlags.Collectable))
                     {
                         if(data.Value.IsUnique) return 0;
-                        debugData.Add($"[TED] [DebugData] in {type} slot {i} found incomplete stack: {ExcelItemHelper.GetName(itemId, true)} q={item->Quantity} canFit={ret}");
+                        debugData?.Add($"[TED] [DebugData] in {type} slot {i} found incomplete stack: {ExcelItemHelper.GetName(itemId, true)} q={item->Quantity} canFit={ret}");
                         ret += (uint)(data.Value.StackSize - item->Quantity);
                     }
                     else if(item->ItemId == 0)
                     {
-                        debugData.Add($"[TED] [DebugData] in {type} slot {i} is empty, canFit={data.Value.StackSize}");
+                        debugData?.Add($"[TED] [DebugData] in {type} slot {i} is empty, canFit={data.Value.StackSize}");
                         ret += data.Value.StackSize;
                     }
                 }
