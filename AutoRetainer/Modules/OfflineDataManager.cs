@@ -166,7 +166,13 @@ internal static unsafe class OfflineDataManager
 
             var uiModule = UIModule.Instance();
             var atkModule = uiModule == null ? null : uiModule->GetRaptureAtkModule();
-            var numArray = atkModule == null ? null : atkModule->AtkModule.GetNumberArrayData(58);
+            // 同樣是 7.2 → 7.3 的 +1 位移：上游寫死的 58 在台服 7.20 指到的是
+            // ContentsFinderConfirm，部隊金幣在 FreeCompanyChest（59）。
+            // 這不是外推值 —— 出貨的 CS 直接把 59 命名為 FreeCompanyChest，58 命名為
+            // ContentsFinderConfirm，兩個名字都在同一份列舉裡，而那份列舉已含 7.3 插入的
+            // CastBarEnemy。一樣引用列舉不寫死數字。
+            var numArray = atkModule == null ? null : atkModule->AtkModule.GetNumberArrayData(
+                (int)FFXIVClientStructs.FFXIV.Component.GUI.NumberArrayType.FreeCompanyChest);
 
             // 🔴 原本只驗 numArray != null 就直接索引第 354 格 —— 只有 null 檢查、
             // **完全沒有長度檢查**。這跟 BossModReborn 那個實機爆 2823 次的半套邊界檢查
@@ -176,7 +182,9 @@ internal static unsafe class OfflineDataManager
             if(numArray != null && numArray->IntArray != null && numArray->Size > FcGilIndex)
             {
                 var gil = numArray->IntArray[FcGilIndex];
-                if(gil != 0 || S.FCPointsUpdater?.IsFCChestReady() == true)
+                // 值本身也要合理才採用。負數代表讀到的不是金幣（陣列選錯或還沒填），
+                // 這種時候寧可讓部隊金幣維持舊值不更新，也不要寫一個假數字進設定檔。
+                if(gil >= 0 && (gil != 0 || S.FCPointsUpdater?.IsFCChestReady() == true))
                 {
                     C.FCData[fc->Id].Gil = gil;
                     C.FCData[fc->Id].LastGilUpdate = DateTimeOffset.Now.ToUnixTimeMilliseconds();
