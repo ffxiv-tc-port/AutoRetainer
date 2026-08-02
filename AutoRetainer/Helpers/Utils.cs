@@ -1429,6 +1429,35 @@ public static unsafe class Utils
         return GetInventoryFreeSlotCount() >= C.MultiMinInventorySlots;
     }
 
+    /// <summary>Whether the player's own inventory can be read right now at all.
+    ///
+    /// 🔴 <see cref="GetInventoryFreeSlotCount"/> skips containers it cannot read, so "not loaded yet"
+    /// and "completely full" both come back as 0 - they are indistinguishable at the call site. That is
+    /// fine for the callers that only ever *withhold* an action, but not for the ones whose false branch
+    /// disables the plugin or writes <c>Enabled = false</c> into a character's saved data: those act
+    /// destructively on the zero and the user has to undo it by hand.
+    ///
+    /// The containers are genuinely unreadable while zoning and for a short window after login, both of
+    /// which the retainer/multi-mode flow hits constantly (it relogs between characters by design), so
+    /// gate any such decision on this first and simply re-check on a later frame when it returns false.
+    /// ⚠️ Deliberately NOT folded into <see cref="IsInventoryFree"/>: that would answer "yes, free" for
+    /// an inventory nobody has read, which is the permissive direction and would let the venture loop
+    /// start blind.</summary>
+    internal static bool IsInventoryStateReadable()
+    {
+        if(!Player.Available) return false;
+        if(Svc.Condition[ConditionFlag.BetweenAreas] || Svc.Condition[ConditionFlag.BetweenAreas51]) return false;
+        var c = InventoryManager.Instance();
+        if(c == null) return false;
+        InventoryType[] types = [InventoryType.Inventory1, InventoryType.Inventory2, InventoryType.Inventory3, InventoryType.Inventory4];
+        foreach(var x in types)
+        {
+            var inv = c->GetInventoryContainer(x);
+            if(inv == null || inv->Items == null || inv->Size <= 0) return false;
+        }
+        return true;
+    }
+
     internal static void ResetEscIgnoreByWindows()
     {
         P.SubmarinePointPlanUI.RespectCloseHotkey = !C.IgnoreEsc;

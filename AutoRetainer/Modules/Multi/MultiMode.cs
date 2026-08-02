@@ -194,7 +194,11 @@ internal static unsafe class MultiMode
                     return;
                 }
             }
-            if(ProperOnLogin.PlayerPresent && !P.TaskManager.IsBusy)
+            // 🔴 這裡的 else 會把角色從多開排程裡永久剔除（Enabled 是存進設定檔的，要使用者自己回去打勾），
+            // 而 ProperOnLogin.PlayerPresent 只保證 LocalPlayer 不是 null —— 換區與剛登入時它就是 true，
+            // 但背包容器可能還讀不到，空格數會回 0，跟「背包真的滿了」完全同形。多開模式本來就一直在換角色登入，
+            // 所以先確認讀得到再判斷；讀不到就這一幀不做決定。
+            if(ProperOnLogin.PlayerPresent && !P.TaskManager.IsBusy && Utils.IsInventoryStateReadable())
             {
                 if(!Utils.IsInventoryFree())
                 {
@@ -612,7 +616,10 @@ internal static unsafe class MultiMode
             {
                 return true;
             }
-            if(!ro)
+            // 🔴 同上：這是持久化的剔除。上面兩個判斷都讀背包（GetVenturesAmount 走
+            // GetInventoryItemCount、IsInventoryFree 走空格數），兩者在容器讀不到時都會回 0 ——
+            // 「探險幣不夠」與「背包滿」會同時假成立。讀不到就先不剔除，下一幀讀得到時照樣會執行。
+            if(!ro && Utils.IsInventoryStateReadable())
             {
                 data.Enabled = false;
             }

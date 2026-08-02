@@ -850,5 +850,8 @@
   "調達依頼：園芸　　（必要ベンチャースクリップ：1枚）": "調達依頼：園芸\\u3000\\u3000（必要ベンチャースクリップ：1枚）",
   "調達依頼：採掘　　（必要ベンチャースクリップ：1枚）": "調達依頼：採掘\\u3000\\u3000（必要ベンチャースクリップ：1枚）",
   "調達依頼：渉猟　　（必要ベンチャースクリップ：1枚）": "調達依頼：渉猟\\u3000\\u3000（必要ベンチャースクリップ：1枚）",
-  "調達依頼：漁猟　　（必要ベンチャースクリップ：1枚）": "調達依頼：漁猟\\u3000\\u3000（必要ベンチャースクリップ：1枚）"
+  "調達依頼：漁猟　　（必要ベンチャースクリップ：1枚）": "調達依頼：漁猟\\u3000\\u3000（必要ベンチャースクリップ：1枚）",
+  "Inventory is full - running the pending entrust/auto-vendor pass first to try to free up space.": "背包空間不足：先執行尚未完成的存入／自動賣出批次，嘗試騰出空間。",
+  "Not collected this run ({0}): {1}": "本輪未收取（{0} 名僱員）：{1}",
+  "Venture results stay on the retainer until they are collected, so nothing is lost - free up inventory space and they will be picked up on the next run.": "探險成果會一直留在僱員身上直到收取為止，不會遺失；騰出背包空間後下一輪就會自動補收。"
 }
