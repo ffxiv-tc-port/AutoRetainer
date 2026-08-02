@@ -80,6 +80,9 @@ public static unsafe class Utils
                 RetainersVisualOrder.Region_NA => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.NA,
                 RetainersVisualOrder.Region_EU => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.EU,
                 RetainersVisualOrder.Region_OC => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.OC,
+                // 台服(陸行鳥)。ExcelWorldHelper.Region 列舉沒有具名的 TW 值(公開 API 不能隨便加成員,
+                // 見 ECommons ExcelWorldHelper.cs 的說明),所以直接轉型比對,做法與 GetRegionDisplayName() 一致。
+                RetainersVisualOrder.Region_TW => ExcelWorldHelper.Get(data.World)?.GetRegion() != (ExcelWorldHelper.Region)8,
                 RetainersVisualOrder.DataCenter => ExcelWorldHelper.Get(data.World)?.DataCenter.RowId ?? 0,
                 RetainersVisualOrder.Inventory_Slots => (int)data.InventorySpace,
                 RetainersVisualOrder.Ventures => (int)data.Ventures,
@@ -97,6 +100,9 @@ public static unsafe class Utils
                 DeployablesVisualOrder.Region_NA => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.NA,
                 DeployablesVisualOrder.Region_EU => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.EU,
                 DeployablesVisualOrder.Region_OC => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.OC,
+                // 台服(陸行鳥)。ExcelWorldHelper.Region 列舉沒有具名的 TW 值(公開 API 不能隨便加成員,
+                // 見 ECommons ExcelWorldHelper.cs 的說明),所以直接轉型比對,做法與 GetRegionDisplayName() 一致。
+                DeployablesVisualOrder.Region_TW => ExcelWorldHelper.Get(data.World)?.GetRegion() != (ExcelWorldHelper.Region)8,
                 DeployablesVisualOrder.DataCenter => ExcelWorldHelper.Get(data.World)?.DataCenter.RowId ?? 0,
                 DeployablesVisualOrder.Inventory_Slots => (int)data.InventorySpace,
                 DeployablesVisualOrder.Ceruleum => (int)data.Ceruleum,
