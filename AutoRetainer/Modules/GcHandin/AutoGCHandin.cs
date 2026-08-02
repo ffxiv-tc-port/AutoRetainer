@@ -85,20 +85,49 @@ internal static unsafe class AutoGCHandin
         }
     }
 
+    // ── 繳交節奏量測（暫時性）────────────────────────────────────────────
+    // 實測每件固定 0.672 秒（八段、800+ 件，p90 0.722），把節流從 10 幀砍到 3 幀
+    // 變化 0.000 秒 —— 所以瓶頸不在我們的幀節流。但「到底卡在哪一道閘門」我還沒證明過，
+    // 不該用推測當結論。這裡把一個繳交週期切成四段各自計時，跑一次就知道。
+    // 一律 Information：使用者的記錄等級會濾掉 Debug/Verbose。
+    // Grep 標記：GCDIAG
+    private static long cycleDeliverAt;      // 按下「交付」的時刻
+    private static long cycleRewardGoneAt;   // 獎勵視窗消失
+    private static long cycleListReadyAt;    // 軍需品清單重新可互動
+    private static long cycleThrottleOkAt;   // 幀節流放行
+    private static bool cycleRewardSeen;
+
+    private static long NowMs => Environment.TickCount64;
+
+    private static void GcDiagReset()
+    {
+        cycleDeliverAt = cycleRewardGoneAt = cycleListReadyAt = cycleThrottleOkAt = 0;
+        cycleRewardSeen = false;
+    }
+
     private static bool HandleConfirmation()
     {
         const string Throttler = "Handin.HandleConfirmation";
         if(TryGetAddonByName<AddonGrandCompanySupplyReward>("GrandCompanySupplyReward", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
+            cycleRewardSeen = true;
             if(addon->DeliverButton->IsEnabled && FrameThrottler.Throttle(Throttler, 10))
             {
                 new AddonMaster.GrandCompanySupplyReward(addon).Deliver();
                 DebugLog($"Delivering Item");
+                cycleDeliverAt = NowMs;
+                cycleRewardGoneAt = cycleListReadyAt = cycleThrottleOkAt = 0;
                 return true;
             }
         }
         else
         {
+            // 獎勵視窗已經不在了 —— 記下第一個看到它消失的時刻。
+            if(cycleRewardSeen && cycleDeliverAt != 0 && cycleRewardGoneAt == 0)
+            {
+                cycleRewardGoneAt = NowMs;
+                cycleRewardSeen = false;
+            }
             //FrameThrottler.Throttle(Throttler, 4, true);
         }
         return false;
@@ -159,8 +188,11 @@ internal static unsafe class AutoGCHandin
                 else
                 {
                     Overlay.Allowed = true;
+                    // 清單重新可互動的時刻（能走到這裡就代表 addon 已 ready）
+                    if(cycleDeliverAt != 0 && cycleListReadyAt == 0) cycleListReadyAt = NowMs;
                     if(FrameThrottler.Check("Handin.HandleConfirmation"))
                     {
+                        if(cycleDeliverAt != 0 && cycleThrottleOkAt == 0) cycleThrottleOkAt = NowMs;
                         try
                         {
                             var reader = new ReaderGrandCompanySupplyList(addon);
@@ -178,6 +210,18 @@ internal static unsafe class AutoGCHandin
                                         throw new GCHandinInterruptedException($"Item {itemName} was not found in inventory");
                                     }
                                     DebugLog($"Handing in item {itemName} for {nextItem.Value.Seals} seals (index={nextItem.Value.Index})");
+                                    if(cycleDeliverAt != 0)
+                                    {
+                                        var now = NowMs;
+                                        // 一個週期切成四段：交付→獎勵視窗消失→清單可互動→幀節流放行→送出下一件
+                                        PluginLog.Information(
+                                            $"[GCDIAG] cycle total={now - cycleDeliverAt}ms | " +
+                                            $"deliver→rewardGone={(cycleRewardGoneAt == 0 ? -1 : cycleRewardGoneAt - cycleDeliverAt)}ms | " +
+                                            $"rewardGone→listReady={(cycleRewardGoneAt == 0 || cycleListReadyAt == 0 ? -1 : cycleListReadyAt - cycleRewardGoneAt)}ms | " +
+                                            $"listReady→throttleOk={(cycleListReadyAt == 0 || cycleThrottleOkAt == 0 ? -1 : cycleThrottleOkAt - cycleListReadyAt)}ms | " +
+                                            $"throttleOk→invoke={(cycleThrottleOkAt == 0 ? -1 : now - cycleThrottleOkAt)}ms");
+                                        GcDiagReset();
+                                    }
                                     InvokeHandin(addon, nextItem.Value.Index);
                                 }
                                 else
