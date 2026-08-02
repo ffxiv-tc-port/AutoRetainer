@@ -223,12 +223,18 @@ public static unsafe class Utils
         }
     }
 
+    /// <remarks>
+    /// 讀不到的容器一律跳過、繼續累加。唯一的呼叫端 <c>AutoGCHandin</c> 把結果當**排序鍵**用
+    /// （<c>ThenByDescending</c>），少算一個容器只會換到另一個一樣合法的順序。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     public static int CountItemsInInventory(uint id, bool? hq, IEnumerable<InventoryType> inventories)
     {
         var ret = 0;
         foreach(var inventory in inventories)
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(inventory);
+            if(inv == null || inv->Items == null) continue;
             for(var i = 0; i < inv->Size; i++)
             {
                 var slot = inv->Items[i];
@@ -586,15 +592,22 @@ public static unsafe class Utils
     /// </summary>
     /// <param name="inventoryTypes"></param>
     /// <returns></returns>
+    /// <remarks>
+    /// 讀不到的容器／格位一律跳過。唯一的呼叫端 <c>TaskEntrustDuplicates</c> 拿這份集合決定「這輪要存入哪些道具」，
+    /// 少一個 ID 只代表那件道具這輪不處理（下輪重掃會補回來），不會做出多餘的動作。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     public static HashSet<uint> GetItemsInInventory(IEnumerable<InventoryType> inventoryTypes)
     {
         var ret = new HashSet<uint>();
         foreach(var type in inventoryTypes)
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) continue;
             for(var i = 0; i < inv->Size; i++)
             {
                 var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                if(item == null) continue;
                 if(item->ItemId != 0)
                 {
                     ret.Add(item->ItemId);
@@ -610,15 +623,23 @@ public static unsafe class Utils
     /// <param name="inventoryTypes"></param>
     /// <param name="itemId"></param>
     /// <returns></returns>
+    /// <remarks>
+    /// 讀不到的容器／格位一律跳過、繼續累加，也就是**只可能少算不可能多算**。三個呼叫端全部是拿結果去
+    /// 跟門檻比大小後才「做事」（<c>SchedulerMain</c> 的 <c>&gt; toKeep</c> 與 <c>&gt; 0</c> 決定要不要排訪問、
+    /// <c>IPC_PluginState</c> 的 <c>&gt; 0</c> 決定要不要跳過獨占道具），少算一律讓判斷倒向「不做事」。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     public static int GetItemCount(IEnumerable<InventoryType> inventoryTypes, uint itemId)
     {
         var ret = 0;
         foreach(var type in inventoryTypes)
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) continue;
             for(var i = 0; i < inv->Size; i++)
             {
                 var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                if(item == null) continue;
                 if(item->ItemId == itemId)
                 {
                     ret += (int)item->Quantity;
@@ -628,10 +649,30 @@ public static unsafe class Utils
         return ret;
     }
 
+    /// <summary>
+    /// Whether the given container can be walked at all right now. A container that is not currently
+    /// loaded (retainer pages while no retainer is open, say) comes back as a null pointer, or as a
+    /// container whose backing item array has not been allocated.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 這是「能不能讀」不是「有沒有東西」。呼叫端如果需要**證明某件道具不存在**，光看
+    /// <see cref="ContainsItem"/> 回 false 是不夠的——讀不到的容器也會回 false。要先用本方法確認讀得到。
+    /// </remarks>
+    public static bool IsInventoryReadable(this InventoryType type)
+    {
+        var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+        return inv != null && inv->Items != null;
+    }
+
+    /// <remarks>
+    /// ⚠️ 讀不到的容器回 <c>false</c>——語意是「在**讀得到的格位裡**沒找到」，**不是**「這件道具不存在」。
+    /// 需要後者的呼叫端請先過 <see cref="IsInventoryReadable"/>。
+    /// </remarks>
     public static bool ContainsItem(this InventoryType type, uint item, bool? isHq = null)
     {
         var im = InventoryManager.Instance();
         var inv = im->GetInventoryContainer(type);
+        if(inv == null || inv->Items == null) return false;
         for(var i = 0; i < inv->Size; i++)
         {
             var slot = inv->Items[i];
@@ -677,6 +718,20 @@ public static unsafe class Utils
     /// <param name="debugData">Null to skip building the per-slot explanation entirely. Every use below is
     /// through <c>?.</c>, which short-circuits argument evaluation, so a null collector means the
     /// interpolated strings are never built in the first place.</param>
+    /// <remarks>
+    /// 🔴 本函式讀不到容器時一律 <c>return 0</c>，**不是** <c>continue</c>——跟同檔其他幾個累加型函式相反。
+    /// 理由是這裡「跳過一個容器」會讓結果**偏高**，而不是偏低：
+    /// <list type="number">
+    /// <item>水晶分支跳過的若正好是那個裝著未滿堆疊的容器，迴圈會落到結尾的
+    /// <c>return data.Value.StackSize</c>，直接回報一整堆的容量——這是可能回傳的最大值。</item>
+    /// <item>一般分支跳過的若正好是那個裝著獨占道具的容器，就錯過 <c>if(data.Value.IsUnique) return 0</c>，
+    /// 於是把「一件都放不下」算成一個正數。</item>
+    /// </list>
+    /// 而回傳值會被拿去夾 <c>toEntrust</c>（<c>TaskEntrustDuplicates</c>）與軍票兌換數量（<c>GCContinuation</c>），
+    /// 高估＝送出遊戲一定會拒絕的數量。回 0 是保守失敗（這輪不動作），而且兩個呼叫端都是輪詢重跑的，
+    /// 容器一旦載入下一輪就自動恢復，不會卡死。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     private static uint GetAmountThatCanFitInternal(IEnumerable<InventoryType> inventoryTypes, uint itemId, bool isHq, List<string> debugData)
     {
         uint ret = 0;
@@ -684,13 +739,15 @@ public static unsafe class Utils
         if(data == null) return 0;
         if(data.Value.IsUnique)
         {
+            // 讀不到的容器不能用來證明「身上沒有這件獨占道具」（ContainsItem 對讀不到的容器也是回 false），
+            // 所以讀不到就當作「可能已經有了」→ 回 0。
             if(inventoryTypes.ContainsAny(Utils.PlayerEntireInventory))
             {
-                if(Utils.PlayerEntireInventory.Any(i => i.ContainsItem(itemId, null))) return 0;
+                if(Utils.PlayerEntireInventory.Any(i => !i.IsInventoryReadable() || i.ContainsItem(itemId, null))) return 0;
             }
             if(inventoryTypes.ContainsAny(Utils.RetainerEntireInventory))
             {
-                if(Utils.RetainerEntireInventory.Any(i => i.ContainsItem(itemId, null))) return 0;
+                if(Utils.RetainerEntireInventory.Any(i => !i.IsInventoryReadable() || i.ContainsItem(itemId, null))) return 0;
             }
         }
         if(data.Value.ItemUICategory.RowId == 59)//crystal special handling
@@ -698,9 +755,11 @@ public static unsafe class Utils
             foreach(var type in inventoryTypes)
             {
                 var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+                if(inv == null) return 0;
                 for(var i = 0; i < inv->Size; i++)
                 {
                     var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                    if(item == null) return 0;
                     if(item->ItemId == itemId)
                     {
                         ret += (uint)(data.Value.StackSize - item->Quantity);
@@ -717,9 +776,11 @@ public static unsafe class Utils
             {
                 if(type.EqualsAny(InventoryType.Crystals, InventoryType.RetainerCrystals)) continue;
                 var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+                if(inv == null) return 0;
                 for(var i = 0; i < inv->Size; i++)
                 {
                     var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                    if(item == null) return 0;
                     if(item->ItemId == itemId && item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality) == isHq && !item->Flags.HasFlag(InventoryItem.ItemFlags.Collectable))
                     {
                         if(data.Value.IsUnique) return 0;
@@ -1429,6 +1490,12 @@ public static unsafe class Utils
         return false;
     }
 
+    /// <remarks>
+    /// 讀不到的容器一律跳過、繼續累加，也就是**只可能少算空格不可能多算**。所有呼叫端都是拿結果去跟下限比
+    /// （<c>&gt;= MultiMinInventorySlots</c>、<c>&lt; Max(5, UIWarningRetSlotNum)</c> 等），少算一律讓判斷倒向
+    /// 「背包不夠、先不要動作」。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     internal static int GetInventoryFreeSlotCount()
     {
         InventoryType[] types = [InventoryType.Inventory1, InventoryType.Inventory2, InventoryType.Inventory3, InventoryType.Inventory4];
@@ -1437,6 +1504,7 @@ public static unsafe class Utils
         foreach(var x in types)
         {
             var inv = c->GetInventoryContainer(x);
+            if(inv == null || inv->Items == null) continue;
             for(var i = 0; i < inv->Size; i++)
             {
                 if(inv->Items[i].ItemId == 0)
