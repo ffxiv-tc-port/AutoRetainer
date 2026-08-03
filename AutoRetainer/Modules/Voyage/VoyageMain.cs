@@ -129,8 +129,63 @@ internal static unsafe class VoyageMain
         }
     }
 
+    // Environment.TickCount64 of the moment the voyage panel first looked "covered by a vessel
+    // parts window while nothing is queued". long.MaxValue means we are not in that state.
+    private static long VesselPartsWindowStuckSince = long.MaxValue;
+
+    /// <summary>
+    /// Recovers from an aborted task queue that left the repair / component-change window open.
+    ///
+    /// P.TaskManager is created with abortOnTimeout:true and TaskManager.Abort() clears the WHOLE
+    /// queue, so a single step that times out, throws, or returns null anywhere inside
+    /// TaskRepairAll / TaskChangeComponents also discards the trailing CloseRepair /
+    /// CloseChangeComponents step (and everything that was queued after it).
+    /// CompanyCraftSupply / AirShipPartsMenu then stay up, GetCurrentWorkshopPanelType reports
+    /// PanelType.None because it only ever looks for SelectString, DoWorkshopPanelTick has no
+    /// branch for None, and BailoutManager only rescues SelectString / _CharaSelectReturn /
+    /// Dialogue - so the scheduler ticks every frame doing nothing, silently, until the user
+    /// notices the window sitting there.
+    ///
+    /// This is deliberately narrow: it only ever fires the exact same close callback the normal
+    /// flow uses, only while the deployables scheduler is enabled (i.e. AutoRetainer is the one
+    /// driving the panel), only while the task queue is empty, and only while the voyage menu is
+    /// actually covered. If the assumption is wrong the worst case is a close callback that the
+    /// game ignores, which is what already happens whenever CloseRepair is throttled.
+    /// </summary>
+    private static void TickVesselPartsWindowWatchdog()
+    {
+        // IsVesselPartsWindowOpen is checked before the panel type on purpose - it is the cheap
+        // test and it is false in every normal frame.
+        if(!C.EnableBailout
+            || Utils.IsBusy
+            || !VoyageScheduler.IsVesselPartsWindowOpen()
+            || VoyageUtils.GetCurrentWorkshopPanelType() != PanelType.None)
+        {
+            VesselPartsWindowStuckSince = long.MaxValue;
+            return;
+        }
+
+        if(VesselPartsWindowStuckSince == long.MaxValue)
+        {
+            VesselPartsWindowStuckSince = Environment.TickCount64;
+            return;
+        }
+
+        // Floor of 5s so a user who set BailoutTimeout very low can not make this fire during the
+        // few frames it takes a normally-closed window to actually disappear.
+        var stuckFor = Environment.TickCount64 - VesselPartsWindowStuckSince;
+        if(stuckFor < Math.Max(C.BailoutTimeout, 5) * 1000) return;
+        if(!EzThrottler.Throttle("Voyage.VesselPartsWindowBailout", 3000)) return;
+
+        DuoLog.Warning($"[Bailout] Closing stuck vessel parts window");
+        // Information, not Debug: this is the line we need from a user's log when it does not work.
+        PluginLog.Information($"[Bailout] Vessel parts window blocked the voyage panel for {stuckFor}ms with an empty task queue. PartPickerOpen={VoyageScheduler.IsPartPickerOpen()}");
+        VoyageScheduler.CloseRepair();
+    }
+
     private static void DoWorkshopPanelTick()
     {
+        TickVesselPartsWindowWatchdog();
         if(!P.TaskManager.IsBusy)
         {
             if(FrameThrottler.Check("SchedulerRestartCooldown"))
