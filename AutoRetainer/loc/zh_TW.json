@@ -195,6 +195,8 @@
   "Copy plan settings": "複製計畫設定",
   "Copy to Clipboard": "複製到剪貼簿",
   "Could not import plan: {0}": "無法匯入計畫：{0}",
+  "Could not resume automatic expert delivery after spending seals - reopen the supply list and enable it again if you want to continue.": "花完軍票後無法自動恢復專家繳交，請重新打開補給清單並再次啟用。",
+  "\"{0}\" stopped before it finished - any remaining retainers were skipped.": "「{0}」尚未完成就中斷了，剩下的雇員已跳過。",
   "Count gil on this character towards total": "將此角色的Gil計入總額",
   "Critical Operation Failure": "關鍵操作失敗",
   "Ctrl - add to Unconditional Sell List": "Ctrl - 添加至無條件出售清單",

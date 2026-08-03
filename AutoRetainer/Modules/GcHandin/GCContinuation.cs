@@ -32,26 +32,57 @@ internal static unsafe class GCContinuation
     public static bool DebugMode = false;
     public static bool DebugConf = false;
 
+    /// <summary>
+    /// Per-step configuration for the continuation chains, deliberately mirroring the one
+    /// <see cref="ContinuePurchase"/> already uses.
+    ///
+    /// P.TaskManager defaults to abortOnTimeout:true and Abort() clears the ENTIRE queue, so under
+    /// the default configuration ANY step of this chain timing out also discarded
+    /// <see cref="EnableDeliveringIfPossible"/> - the one and only place that sets
+    /// <see cref="AutoGCHandin.Operation"/> back to true. The user-visible result was "it stopped
+    /// handing in after spending my seals", reported nowhere except a PluginLog.Warning.
+    ///
+    /// Skipping a step instead of killing the queue is safe here because every step is idempotent
+    /// and self-checking: they each look for their own addon and return false until it is present,
+    /// so a step that is skipped simply leaves its window unopened and the following steps also fall
+    /// through without acting. Nothing in this chain commits an irreversible action - the purchases
+    /// themselves are gated behind ContinuePurchase, which already used exactly this configuration.
+    /// </summary>
+    private static readonly TaskManagerConfiguration ContinuationConf = new(abortOnTimeout: false, timeLimitMS: 20000);
+
     public static void EnqueueInitiation(bool redeliver)
     {
-        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied);
-        P.TaskManager.Enqueue(GCContinuation.InteractWithShop);
-        P.TaskManager.Enqueue(BeginNewPurchase);
-        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied);
+        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied, ContinuationConf);
+        P.TaskManager.Enqueue(GCContinuation.InteractWithShop, ContinuationConf);
+        P.TaskManager.Enqueue(BeginNewPurchase, ContinuationConf);
+        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied, ContinuationConf);
         if(redeliver)
         {
-            P.TaskManager.Enqueue(GCContinuation.InteractWithExchange);
-            P.TaskManager.Enqueue(GCContinuation.SelectProvisioningMission);
-            P.TaskManager.Enqueue(() => GCContinuation.SelectSupplyListTab(2), "SelectSupplyListTab(2)");
-            P.TaskManager.Enqueue(GCContinuation.EnableDeliveringIfPossible);
+            P.TaskManager.Enqueue(GCContinuation.InteractWithExchange, ContinuationConf);
+            P.TaskManager.Enqueue(GCContinuation.SelectProvisioningMission, ContinuationConf);
+            P.TaskManager.Enqueue(() => GCContinuation.SelectSupplyListTab(2), "SelectSupplyListTab(2)", ContinuationConf);
+            P.TaskManager.Enqueue(GCContinuation.EnableDeliveringIfPossible, ContinuationConf);
+            // Without this the failure stays invisible: if the chain gets as far as here but the
+            // supply list never becomes operable, Operation is left false and automatic delivery
+            // just never resumes, with nothing said in chat. Runs as its own step so it reports the
+            // outcome of the whole chain rather than of any single addon check.
+            P.TaskManager.Enqueue(ReportIfDeliveringDidNotResume, "ReportIfDeliveringDidNotResume", ContinuationConf);
         }
+    }
+
+    private static void ReportIfDeliveringDidNotResume()
+    {
+        if(AutoGCHandin.Operation) return;
+        DuoLog.Warning(Loc.T("Could not resume automatic expert delivery after spending seals - reopen the supply list and enable it again if you want to continue."));
     }
 
     public static void EnqueueDeliveryClose()
     {
-        P.TaskManager.Enqueue(GCContinuation.CloseSupplyList);
-        P.TaskManager.Enqueue(GCContinuation.CloseSelectString);
-        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied);
+        // Same reasoning as above: CloseSupplyList failing used to take CloseSelectString down with
+        // it, leaving the retainer-style selection window sitting on screen with no explanation.
+        P.TaskManager.Enqueue(GCContinuation.CloseSupplyList, ContinuationConf);
+        P.TaskManager.Enqueue(GCContinuation.CloseSelectString, ContinuationConf);
+        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied, ContinuationConf);
     }
 
     internal static bool SetVenturesExchangeAmount(int amount)

@@ -155,7 +155,10 @@ internal static unsafe class VoyageScheduler
         {
             if(Utils.GenericThrottle)
             {
-                Chat.ExecuteCommand("/automove on");
+                // Same shape as the retainer bell approach: AutomoveOffPanel is a separate queued
+                // step that only completes inside ~4 yalms, so it must not be the only thing that
+                // can stop autorun. See AutomoveManager.
+                AutomoveManager.On();
                 Utils.RegenerateRandom();
                 return true;
             }
@@ -171,7 +174,7 @@ internal static unsafe class VoyageScheduler
             {
                 if(Utils.GenericThrottle)
                 {
-                    Chat.ExecuteCommand("/automove off");
+                    AutomoveManager.Off();
                     return true;
                 }
             }

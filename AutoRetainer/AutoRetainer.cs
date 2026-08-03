@@ -549,6 +549,10 @@ public unsafe class AutoRetainer : IDalamudPlugin
         TextAdvanceManager.Tick();
         Shutdown.Tick();
         BailoutManager.Tick();
+        // Both of these recover from an aborted task queue, so they must be driven from the framework
+        // update rather than from the queue they are watching.
+        AutomoveManager.Tick();
+        RetainerBulkOperation.Tick();
         if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && Utils.TryGetCurrentRetainer(out var name) && Utils.TryGetRetainerByName(name, out var retainer))
         {
             if(!retainer.VentureID.EqualsAny(0u, LastVentureID))
