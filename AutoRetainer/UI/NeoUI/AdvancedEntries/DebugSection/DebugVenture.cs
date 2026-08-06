@@ -22,7 +22,8 @@ internal unsafe class DebugVenture : DebugSectionBase
         }
         if(TryGetAddonByName<AddonRetainerTaskAsk>("RetainerTaskAsk", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
-            ImGuiEx.Text($"Enabled: {addon->AssignButton->IsEnabled}");
+            // 按鈕還沒建構完成時畫「?」而不是「False」——後者會讓人以為已經確認過按鈕是停用的。
+            ImGuiEx.Text($"Enabled: {Utils.GetButtonEnabled(addon->AssignButton)?.ToString() ?? "?"}");
         }
 
         foreach(var x in C.OfflineData)

@@ -35,7 +35,7 @@ public static unsafe class PartSwapperTasks
         {
             if(Utils.GenericThrottle)
             {
-                if(addon.CloseButton->IsEnabled)
+                if(Utils.IsButtonEnabled(addon.CloseButton))
                 {
                     Log("Registering sub");
                     addon.Close();

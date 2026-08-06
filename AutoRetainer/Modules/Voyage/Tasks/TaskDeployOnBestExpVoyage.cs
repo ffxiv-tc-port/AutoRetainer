@@ -31,7 +31,7 @@ internal static unsafe class TaskDeployOnBestExpVoyage
             if(TryGetAddonByName<AtkUnitBase>("AirShipExploration", out var addon) && IsAddonReady(addon))
             {
                 var button = addon->UldManager.NodeList[2]->GetAsAtkComponentButton();
-                if(!button->IsEnabled)
+                if(!Utils.IsButtonEnabled(button))
                 {
                     EzThrottler.Throttle("Voyage.Deploy", 500, true);
                     return false;

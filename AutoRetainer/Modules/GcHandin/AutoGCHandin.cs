@@ -289,7 +289,7 @@ internal static unsafe class AutoGCHandin
             var deliverButton = addon->DeliverButton;
             // 這個節流器的名字刻意跟掃描閘門分開。舊版兩者共用一個名字，
             // 送出繳交時的 rethrottle 會連帶把「按交付」也延後最多 10 幀。
-            if(deliverButton != null && deliverButton->IsEnabled && FrameThrottler.Throttle(ThrottlerDeliver, 10))
+            if(Utils.IsButtonEnabled(deliverButton) && FrameThrottler.Throttle(ThrottlerDeliver, 10))
             {
                 new AddonMaster.GrandCompanySupplyReward(addon).Deliver();
                 DebugLog($"Delivering Item");
@@ -305,7 +305,7 @@ internal static unsafe class AutoGCHandin
     {
         if(TryGetAddonByName<AddonSelectYesno>("SelectYesno", out var addon) && IsAddonReady(&addon->AtkUnitBase) && Operation)
         {
-            if(addon->YesButton->IsEnabled)
+            if(Utils.IsButtonEnabled(addon->YesButton))
             {
                 var str = addon->PromptText->NodeText.GetText().Cleanup();
                 DebugLog($"SelectYesno encountered: {str}");

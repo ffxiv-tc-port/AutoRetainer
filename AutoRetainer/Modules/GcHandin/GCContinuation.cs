@@ -109,7 +109,7 @@ internal static unsafe class GCContinuation
         if(TryGetAddonByName<AtkUnitBase>("ShopExchangeCurrencyDialog", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectExchange"))
         {
             var button = addon->GetComponentButtonById(17);
-            if(button->IsEnabled)
+            if(Utils.IsButtonEnabled(button))
             {
                 (*button).ClickAddonButton(addon);
             }

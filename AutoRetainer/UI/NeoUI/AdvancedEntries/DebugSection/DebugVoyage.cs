@@ -75,7 +75,8 @@ internal unsafe class DebugVoyage : DebugSectionBase
                 if(TryGetAddonByName<AtkUnitBase>("AirShipExplorationResult", out var addon) && IsAddonReady(addon))
                 {
                     var button = addon->UldManager.NodeList[3]->GetAsAtkComponentButton();
-                    ImGuiEx.Text($"Button: {button->IsEnabled}");
+                    // 同上：外層雖然有 try/catch，但 AVE 是 corrupted-state exception，攔不到。
+                    ImGuiEx.Text($"Button: {Utils.GetButtonEnabled(button)?.ToString() ?? "?"}");
                 }
                 if(ImGui.Button("Interact with nearest panel"))
                 {

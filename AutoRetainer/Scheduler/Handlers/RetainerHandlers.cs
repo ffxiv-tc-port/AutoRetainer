@@ -90,11 +90,11 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AddonRetainerTaskResult>("RetainerTaskResult", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
             const string thrName = "ClickResultReassign.WaitForButtonEnabled";
-            if(!addon->ReassignButton->IsEnabled)
+            if(!Utils.IsButtonEnabled(addon->ReassignButton))
             {
                 FrameThrottler.Throttle(thrName, 5, true);
             }
-            if(FrameThrottler.Check(thrName) && addon->ReassignButton->IsEnabled && Utils.GenericThrottle)
+            if(FrameThrottler.Check(thrName) && Utils.IsButtonEnabled(addon->ReassignButton) && Utils.GenericThrottle)
             {
                 new AddonMaster.RetainerTaskResult(addon).Reassign();
                 DebugLog($"Clicked reassign");
@@ -113,11 +113,11 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AddonRetainerTaskResult>("RetainerTaskResult", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
             const string thrName = "RetainerTaskResult.WaitForButtonEnabled";
-            if(!addon->ConfirmButton->IsEnabled)
+            if(!Utils.IsButtonEnabled(addon->ConfirmButton))
             {
                 FrameThrottler.Throttle(thrName, 5, true);
             }
-            if(FrameThrottler.Check(thrName) && addon->ConfirmButton->IsEnabled && Utils.GenericThrottle)
+            if(FrameThrottler.Check(thrName) && Utils.IsButtonEnabled(addon->ConfirmButton) && Utils.GenericThrottle)
             {
                 new AddonMaster.RetainerTaskResult(addon).Confirm();
                 DebugLog($"Clicked confirm");
@@ -136,11 +136,11 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AddonRetainerTaskAsk>("RetainerTaskAsk", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
             const string thrName = "ClickAskAssign.WaitForButtonEnabled";
-            if(!addon->AssignButton->IsEnabled)
+            if(!Utils.IsButtonEnabled(addon->AssignButton))
             {
                 FrameThrottler.Throttle(thrName, 5, true);
             }
-            if(FrameThrottler.Check(thrName) && addon->AssignButton->IsEnabled && Utils.GenericThrottle)
+            if(FrameThrottler.Check(thrName) && Utils.IsButtonEnabled(addon->AssignButton) && Utils.GenericThrottle)
             {
                 new AddonMaster.RetainerTaskAsk((IntPtr)addon).Assign();
                 DebugLog("Clicked assign");
@@ -159,11 +159,11 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AddonRetainerTaskAsk>("RetainerTaskAsk", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
             const string thrName = "ClickAskReturn.WaitForButtonEnabled";
-            if(!addon->ReturnButton->IsEnabled)
+            if(!Utils.IsButtonEnabled(addon->ReturnButton))
             {
                 FrameThrottler.Throttle(thrName, 5, true);
             }
-            if(FrameThrottler.Check(thrName) && addon->ReturnButton->IsEnabled && Utils.GenericThrottle)
+            if(FrameThrottler.Check(thrName) && Utils.IsButtonEnabled(addon->ReturnButton) && Utils.GenericThrottle)
             {
                 new AddonMaster.RetainerTaskAsk((IntPtr)addon).Return();
                 DebugLog("Clicked return");
@@ -202,7 +202,7 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AtkUnitBase>(invName.Name, out var addon) && IsAddonReady(addon))
         {
             var button = (AtkComponentButton*)addon->UldManager.NodeList[invName.EntrustDuplicatesIndex]->GetComponent();
-            if(addon->UldManager.NodeList[invName.EntrustDuplicatesIndex]->IsVisible() && button->IsEnabled && Utils.GenericThrottle)
+            if(addon->UldManager.NodeList[invName.EntrustDuplicatesIndex]->IsVisible() && Utils.IsButtonEnabled(button) && Utils.GenericThrottle)
             {
                 //new ClickButtonGeneric(addon, invName.Name).Click(button);
                 Callback.Fire(addon, false, (int)0);
@@ -222,7 +222,7 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AtkUnitBase>("RetainerItemTransferList", out var addon) && IsAddonReady(addon))
         {
             var button = (AtkComponentButton*)addon->UldManager.NodeList[3]->GetComponent();
-            if(addon->UldManager.NodeList[3]->IsVisible() && button->IsEnabled && Utils.GenericThrottle)
+            if(addon->UldManager.NodeList[3]->IsVisible() && Utils.IsButtonEnabled(button) && Utils.GenericThrottle)
             {
                 button->ClickAddonButton(addon);
                 DebugLog($"Clicked duplicates confirm");
@@ -244,7 +244,7 @@ internal static unsafe class RetainerHandlers
         {
             var button = (AtkComponentButton*)addon->UldManager.NodeList[2]->GetComponent();
             var nodetext = GenericHelpers.ReadSeString(&addon->UldManager.NodeList[2]->GetComponent()->UldManager.NodeList[2]->GetAsAtkTextNode()->NodeText).GetText();
-            if(nodetext == text && addon->UldManager.NodeList[2]->IsVisible() && button->IsEnabled && Utils.GenericThrottle)
+            if(nodetext == text && addon->UldManager.NodeList[2]->IsVisible() && Utils.IsButtonEnabled(button) && Utils.GenericThrottle)
             {
                 button->ClickAddonButton(addon);
                 DebugLog($"Clicked transfer progress close");
@@ -410,7 +410,7 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AtkUnitBase>("Bank", out var addon) && IsAddonReady(addon))
         {
             var withdraw = (AtkComponentButton*)addon->UldManager.NodeList[3]->GetComponent();
-            if(addon->UldManager.NodeList[3]->IsVisible() && withdraw->IsEnabled && !forceCancel)
+            if(addon->UldManager.NodeList[3]->IsVisible() && Utils.IsButtonEnabled(withdraw) && !forceCancel)
             {
                 if(Utils.GenericThrottle)
                 {
@@ -430,7 +430,7 @@ internal static unsafe class RetainerHandlers
             else
             {
                 var cancel = (AtkComponentButton*)addon->UldManager.NodeList[2]->GetComponent();
-                if(addon->UldManager.NodeList[2]->IsVisible() && cancel->IsEnabled)
+                if(addon->UldManager.NodeList[2]->IsVisible() && Utils.IsButtonEnabled(cancel))
                 {
                     if(Utils.GenericThrottle)
                     {

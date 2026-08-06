@@ -33,6 +33,34 @@ namespace AutoRetainer.Helpers;
 
 public static unsafe class Utils
 {
+    /// <summary>
+    /// 安全地讀取按鈕的啟用狀態，無法判定時回傳 null。
+    /// <para>
+    /// 🔴 ClientStructs 的 <c>AtkComponentButton.IsEnabled</c> 實作是
+    /// <c>AtkComponentBase.OwnerNode-&gt;AtkResNode.NodeFlags.HasFlag(...)</c>，
+    /// 對 <c>OwnerNode</c> <b>零 null 檢查</b>。按鈕還沒建構完成（或已被遊戲拆掉）時
+    /// <c>OwnerNode</c> 是 null，直接讀 <c>IsEnabled</c> 會丟 AccessViolationException。
+    /// AVE 在 .NET Core 是 corrupted-state exception，<b><c>try/catch</c> 攔不到</b>，
+    /// 結果是整個遊戲當場崩潰。
+    /// </para>
+    /// <para>
+    /// ⚠️ <c>AtkComponentBase</c> 有<b>兩個</b>指標欄位：<c>AtkResNode</c>(0xA0) 與 <c>OwnerNode</c>(0xA8)。
+    /// <c>IsEnabled</c> 解的是 <c>OwnerNode</c>，所以檢查 <c>AtkResNode</c> <b>不算守衛</b>。
+    /// </para>
+    /// </summary>
+    public static bool? GetButtonEnabled(AtkComponentButton* button)
+    {
+        if(button == null) return null;
+        if(button->AtkComponentBase.OwnerNode == null) return null;
+        return button->IsEnabled;
+    }
+
+    /// <summary>
+    /// <see cref="GetButtonEnabled"/> 的自動化用版本：按鈕還沒準備好時一律視為「不可按」，
+    /// 讓呼叫端走既有的等待／重試路徑，而不是中止整條任務佇列。
+    /// </summary>
+    public static bool IsButtonEnabled(AtkComponentButton* button) => GetButtonEnabled(button) == true;
+
     public static int FrameDelay => 10 + C.ExtraFrameDelay;
     // TC(台服)客戶端在 Dalamud 13.0.0.16 之後回報 ClientLanguage 7(TraditionalChinese),
     // 舊版回報 4(ChineseSimplified)。用數值比較才能同時相容 CI 釘的 13.0.0.6(列舉沒有 7 這個名字)與執行期新版。

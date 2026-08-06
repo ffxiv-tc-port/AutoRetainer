@@ -266,7 +266,7 @@ internal static unsafe class VoyageScheduler
         if(TryGetAddonByName<AtkUnitBase>("AirShipExplorationResult", out var addon) && IsAddonReady(addon))
         {
             var button = addon->UldManager.NodeList[3]->GetAsAtkComponentButton();
-            if(!button->IsEnabled)
+            if(!Utils.IsButtonEnabled(button))
             {
                 EzThrottler.Throttle("Voyage.Redeploy", 500, true);
                 return false;
