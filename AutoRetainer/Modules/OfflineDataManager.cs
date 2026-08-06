@@ -148,6 +148,9 @@ internal static unsafe class OfflineDataManager
                     Gil = ret.Gil,
                     RetainerID = ret.RetainerID,
                     MBItems = ret.MarkerItemCount,
+                    // 僱員自己的背包佔用格數。跟上面的 Gil／MBItems 來自同一份僱員清單資料，
+                    // 所以不需要開過該僱員就有值；沒被寫過的舊資料會停在 -1 = 「不知道」。
+                    ItemCount = ret.ItemCount,
                 });
             }
         }

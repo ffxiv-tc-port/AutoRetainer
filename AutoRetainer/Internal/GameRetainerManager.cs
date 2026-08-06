@@ -38,6 +38,8 @@ public static unsafe class GameRetainerManager
         public uint Gil => Handle.Gil;
         public uint VentureCompleteTimeStamp => Handle.VentureComplete;
         public int MarkerItemCount => Handle.MarketItemCount;
+        /// <summary>僱員背包裡佔用的格數（0x2B）。不含寄售中的道具，那是 <see cref="MarkerItemCount"/>（0x31）。</summary>
+        public int ItemCount => Handle.ItemCount;
         public uint MarketExpire => Handle.MarketExpire;
         public int Level => Handle.Level;
         public uint ClassJob => Handle.ClassJob;

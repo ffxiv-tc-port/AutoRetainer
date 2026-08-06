@@ -9,11 +9,12 @@ public static unsafe class RetainerTable
 {
     public static void Draw(OfflineCharacterData data, List<OfflineRetainerData> retainerData, Dictionary<string, (Vector2 start, Vector2 end)> bars)
     {
-        if(ImGui.BeginTable("##retainertable", 4, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders))
+        if(ImGui.BeginTable("##retainertable", 5, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders))
         {
             ImGui.TableSetupColumn(Loc.T("Name"), ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableSetupColumn(Loc.T("Job"));
             ImGui.TableSetupColumn(Loc.T("Venture"));
+            ImGui.TableSetupColumn(Loc.T("Slots"));
             ImGui.TableSetupColumn("");
             ImGui.TableHeadersRow();
             var retainers = P.GetSelectedRetainers(data.CID);
@@ -141,6 +142,9 @@ public static unsafe class RetainerTable
                 ImGuiEx.Text($"{(!ret.HasVenture ? Loc.T("No Venture") : Utils.ToTimeString(ret.GetVentureSecondsRemaining(C.TimerAllowNegative)))}");
                 ImGui.TableNextColumn();
                 ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
+                DrawInventorySlots(ret);
+                ImGui.TableNextColumn();
+                ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
                 var n = $"{data.CID} {ret.Name} settings";
                 if(ImGuiEx.IconButton(FontAwesomeIcon.Cogs, $"{data.CID} {ret.Name}"))
                 {
@@ -159,5 +163,40 @@ public static unsafe class RetainerTable
             }
             ImGui.EndTable();
         }
+    }
+
+    /// <summary>
+    /// 僱員背包固定是 7 頁 × 25 格，遊戲沒有提供擴充的手段，所以這是常數。
+    /// 真的哪天變了，下面的 clamp 會讓顯示停在 0 而不是跑出負數或超過上限。
+    /// </summary>
+    private const int RetainerInventoryCapacity = 7 * 25;
+
+    /// <summary>
+    /// 畫出這個僱員自己的背包剩餘格數，對應角色列右邊那個彙總的 <c>I:</c>。
+    /// <br></br>
+    /// 🔑 「沒有資料」跟「0 格」必須在列上就分得出來：
+    /// <see cref="OfflineRetainerData.ItemCount"/> 是 -1 時畫灰色的 <c>?</c>，
+    /// <b>絕不畫成 0</b> —— 把未知畫成 0 等於告訴使用者「這個僱員塞滿了」。
+    /// 「為什麼不知道」「數字有多舊」這種長文字放 tooltip，但「不知道」本身留在列上。
+    /// </summary>
+    private static void DrawInventorySlots(OfflineRetainerData ret)
+    {
+        if(ret.ItemCount < 0)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudGrey, "?");
+            ImGuiEx.Tooltip(Loc.T("No inventory data has been recorded for this retainer yet.\nIt comes from the retainer list, so logging in on this character once is enough - you do not need to open the retainer."));
+            return;
+        }
+
+        var used = Math.Clamp(ret.ItemCount, 0, RetainerInventoryCapacity);
+        var free = RetainerInventoryCapacity - used;
+        Vector4? color = null;
+        if(free == 0) color = ImGuiColors.DalamudRed;
+        else if(free < C.UIWarningRetSlotNum) color = ImGuiColors.DalamudOrange;
+        ImGuiEx.Text(color, free.ToString());
+        ImGuiEx.Tooltip($"{Loc.T("Free inventory slots")}: {free}/{RetainerInventoryCapacity}\n" +
+            $"{Loc.T("Items held")}: {ret.ItemCount}\n" +
+            $"{Loc.T("Listed on market board")}: {ret.MBItems}\n\n" +
+            Loc.T("Snapshot taken the last time this character was logged in."));
     }
 }
