@@ -350,6 +350,7 @@ public class IPC_PluginState
             // The window closing also covers switching retainers - you cannot swap without closing it -
             // so anything we fired at the previous one is meaningless now.
             ClearRetrieveTracking();
+            ReportRetainerWindowClosed(nameof(RetrieveRetainerItemSlotById));
             return RetrieveResultRetainerUnavailable;
         }
         DropRetrieveTrackingIfRetainerChanged();
@@ -452,7 +453,11 @@ public class IPC_PluginState
     public unsafe int GetOpenRetainerItemQuantity(uint itemId, bool hqOnly, bool includeCrystals)
     {
         if(itemId == 0) return 0;
-        if(!InventorySpaceManager.IsRetainerInventoryLoaded()) return RetrieveResultRetainerUnavailable;
+        if(!InventorySpaceManager.IsRetainerInventoryLoaded())
+        {
+            ReportRetainerWindowClosed(nameof(GetOpenRetainerItemQuantity));
+            return RetrieveResultRetainerUnavailable;
+        }
 
         var total = 0;
         var unreadable = false;
@@ -500,6 +505,19 @@ public class IPC_PluginState
     /// is the state that makes "does this retainer have item X" unanswerable. Information level because that
     /// is the level users actually run at, and this is exactly the kind of thing that otherwise shows up only
     /// as "the direct retrieve never does anything and it silently uses the slow path forever".</summary>
+    /// <summary>Says out loud that there is no open retainer inventory at all, which is the single condition
+    /// that makes every query in this region answer "unavailable". Information level because that is the
+    /// level users run at, and because this early return was previously silent: a caller that asked at the
+    /// wrong moment looked exactly like a retainer that had nothing, and the only visible symptom was the
+    /// caller quietly achieving nothing. Throttled, since callers poll these.</summary>
+    private static void ReportRetainerWindowClosed(string caller)
+    {
+        if(EzThrottler.Throttle($"ARDirectRetrieveWindowClosed{caller}", 10000))
+        {
+            PluginLog.Information($"[{caller}] No retainer inventory is open, so the retainer's storage cannot be read or retrieved from. Callers are told \"unavailable\" (-1), which is deliberately not the same answer as \"the retainer does not have that item\" (0).");
+        }
+    }
+
     private static void ReportUnreadableRetainerContainer(InventoryType type)
     {
         if(EzThrottler.Throttle($"ARDirectRetrieveUnreadableContainer{type}", 30000))
