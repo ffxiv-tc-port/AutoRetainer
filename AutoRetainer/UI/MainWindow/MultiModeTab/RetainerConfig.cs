@@ -47,16 +47,24 @@ public static unsafe class RetainerConfig
             }
             if(ImGui.Selectable(Loc.T("To all other retainers without entrust plan of this character")))
             {
+                // 🔴 計數器與通知都要在迴圈外：放在迴圈內的話 cnt 每圈重設，
+                // 而且每個僱員各彈一次「已變更 1 位僱員」。
+                var cnt = 0;
                 foreach(var x in data.RetainerData)
                 {
-                    var cnt = 0;
-                    if(!C.EntrustPlans.Any(s => s.Guid == adata.EntrustPlan))
+                    // 🔴 「沒有存入計畫」判斷的是**目標**僱員，不是來源僱員：
+                    // 原本比的是 adata.EntrustPlan（來源自己的計畫），那個值在整個迴圈裡是常數，
+                    // 條件因此退化成「全部套用」或「一個都不套用」。
+                    // 這裡改成與下面「所有角色」那一段同一種寫法：先取目標的 additional data，
+                    // 再看它指到的計畫還存不存在（Guid.Empty 或指向已刪除的計畫都算「沒有計畫」）。
+                    var a = Utils.GetAdditionalData(data.CID, x.Name);
+                    if(!C.EntrustPlans.Any(s => s.Guid == a.EntrustPlan))
                     {
-                        Utils.GetAdditionalData(data.CID, x.Name).EntrustPlan = adata.EntrustPlan;
+                        a.EntrustPlan = adata.EntrustPlan;
                         cnt++;
                     }
-                    Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
                 }
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
             }
             if(ImGui.Selectable(Loc.T("To all other retainers of ALL characters")))
             {
@@ -78,7 +86,10 @@ public static unsafe class RetainerConfig
                 {
                     foreach(var x in offlineData.RetainerData)
                     {
-                        var a = Utils.GetAdditionalData(data.CID, x.Name);
+                        // 🔴 這裡的 CID 必須跟著外圈的 offlineData 走：原本寫成 data.CID（目前這個角色），
+                        // 等於拿「別的角色的僱員名字」去查／建目前角色的 additional data，
+                        // 判斷與寫入都落在錯的角色上——上面「所有角色」那一段用的就是 offlineData.CID。
+                        var a = Utils.GetAdditionalData(offlineData.CID, x.Name);
                         if(!C.EntrustPlans.Any(s => s.Guid == a.EntrustPlan))
                         {
                             a.EntrustPlan = adata.EntrustPlan;
