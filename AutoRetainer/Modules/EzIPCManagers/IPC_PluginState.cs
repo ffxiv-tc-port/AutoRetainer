@@ -3,6 +3,7 @@ using AutoRetainer.Internal.InventoryManagement;
 using AutoRetainer.Modules.Voyage;
 using ECommons.EzIpcManager;
 using ECommons.ExcelServices;
+using ECommons.Throttlers;
 using FFXIVClientStructs.FFXIV.Client.Game;
 
 namespace AutoRetainer.Modules.EzIPCManagers;
@@ -281,4 +282,231 @@ public class IPC_PluginState
             PendingRetrievesRetainerId = id;
         }
     }
+
+    #region Retrieve a specific item
+
+    /// <summary>The retainer's containers cannot be walked right now, so nothing at all can be concluded -
+    /// in particular this is <b>not</b> "the retainer does not have that item". Retainer inventory is only
+    /// populated once the window has actually been opened, so a caller that has just switched retainers will
+    /// see this until the data lands. Retry, or fall back to driving the UI.</summary>
+    private const int RetrieveResultRetainerUnavailable = -1;
+
+    /// <summary>Every matching slot already has a retrieve command in flight that has not been observed
+    /// landing yet. The item <b>is</b> there - let it settle and call again, do not treat this as done.</summary>
+    private const int RetrieveResultCommandInFlight = -2;
+
+    /// <summary>The player's own bags are at or below AutoRetainer's configured reserve
+    /// (<see cref="Config.MultiMinInventorySlots"/>), so nothing was retrieved.</summary>
+    private const int RetrieveResultInventoryFull = -3;
+
+    /// <summary>Found, but it is a unique item the player already owns a copy of somewhere (bags, armoury or
+    /// equipped). The game refuses these silently and forever, so no command was sent.</summary>
+    private const int RetrieveResultBlockedUnique = -4;
+
+    /// <summary>Found, but only in the crystal container, and the caller did not ask for crystals. Distinct
+    /// from "not present" on purpose - reporting 0 here would tell the caller the retainer is out of an item
+    /// it is actually holding.</summary>
+    private const int RetrieveResultInCrystals = -5;
+
+    /// <summary>The retainer's containers were readable end to end and hold no such item.</summary>
+    private const int RetrieveResultNotPresent = 0;
+
+    /// <summary>Version of the specific-item retrieve surface below
+    /// (<see cref="RetrieveRetainerItemSlotById"/> / <see cref="GetOpenRetainerItemQuantity"/>). Present from
+    /// version 1 onwards; consumers should treat "the IPC call itself throws" as "not supported, use the UI
+    /// path" and only rely on the methods below once this returns a version they understand.</summary>
+    [EzIPC]
+    public int GetRetainerItemRetrieveApiVersion() => 1;
+
+    /// <summary>Fires one retrieve-from-retainer command at the first slot of the currently open retainer
+    /// that holds <paramref name="itemId"/>, into the player's own bags. Same command path, same pacing
+    /// characteristics and the same in-flight tracking as <see cref="RetrieveNextRetainerItemSlot"/> - the
+    /// only difference is which slot gets picked. Call <see cref="ResetRetainerRetrieveTracking"/> when
+    /// starting a fresh sweep.
+    ///
+    /// <para>The underlying command has no "retrieve N" form that does not go through the game's own quantity
+    /// dialog, so this always takes the <b>whole slot</b>. The return value says how many that was, which is
+    /// how a caller that wanted fewer finds out it got more.</para></summary>
+    /// <param name="itemId">Item to look for.</param>
+    /// <param name="hqOnly">Only match high-quality stacks. False matches either quality, which is what a
+    /// caller restocking crafting materials wants.</param>
+    /// <param name="includeCrystals">Whether the crystal container may be retrieved from. Off by default for
+    /// callers because crystals are the one category the game is known to always ask a quantity for when
+    /// entrusting, and an unanswered quantity dialog would stall the caller's loop; whether retrieving
+    /// behaves the same has not been confirmed on this client.</param>
+    /// <returns>The quantity the fired command was aimed at (always >= 1) when a command was sent, otherwise
+    /// one of <see cref="RetrieveResultNotPresent"/> (0),
+    /// <see cref="RetrieveResultRetainerUnavailable"/> (-1), <see cref="RetrieveResultCommandInFlight"/> (-2),
+    /// <see cref="RetrieveResultInventoryFull"/> (-3), <see cref="RetrieveResultBlockedUnique"/> (-4) or
+    /// <see cref="RetrieveResultInCrystals"/> (-5). 🔴 0 and -1 are deliberately different values: 0 means
+    /// "proved absent", -1 means "could not look". Collapsing them into one falsey answer is how a caller
+    /// ends up silently skipping a retainer that was merely still loading.</returns>
+    [EzIPC]
+    public unsafe int RetrieveRetainerItemSlotById(uint itemId, bool hqOnly, bool includeCrystals)
+    {
+        if(itemId == 0) return RetrieveResultNotPresent;
+        if(!InventorySpaceManager.IsRetainerInventoryLoaded())
+        {
+            // The window closing also covers switching retainers - you cannot swap without closing it -
+            // so anything we fired at the previous one is meaningless now.
+            ClearRetrieveTracking();
+            return RetrieveResultRetainerUnavailable;
+        }
+        DropRetrieveTrackingIfRetainerChanged();
+        if(Utils.GetInventoryFreeSlotCount() <= C.MultiMinInventorySlots) return RetrieveResultInventoryFull;
+
+        var now = Environment.TickCount64;
+        // Every "why not" below is remembered rather than returned straight away, because a later container
+        // may still hold a slot we can actually fire at; only once the whole walk comes up empty do these
+        // decide what the caller is told.
+        var unreadable = false;
+        var inFlight = false;
+        var blockedUnique = false;
+        var inCrystals = false;
+
+        foreach(var type in Utils.RetainerInventoriesWithCrystals)
+        {
+            var inv = TryGetReadableContainer(type);
+            if(inv == null)
+            {
+                unreadable = true;
+                ReportUnreadableRetainerContainer(type);
+                continue;
+            }
+            for(var i = 0; i < inv->Size; i++)
+            {
+                var item = inv->GetInventorySlot(i);
+                if(item == null)
+                {
+                    unreadable = true;
+                    continue;
+                }
+                if(item->ItemId == 0 || item->Quantity <= 0)
+                {
+                    // Emptied - if we had fired at it, that command landed.
+                    PendingRetrieves.Remove((type, i));
+                    continue;
+                }
+                if(item->ItemId != itemId) continue;
+                if(hqOnly && !item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality)) continue;
+                if(type == InventoryType.RetainerCrystals && !includeCrystals)
+                {
+                    inCrystals = true;
+                    continue;
+                }
+
+                if(PendingRetrieves.TryGetValue((type, i), out var pending))
+                {
+                    if(pending.ItemId == item->ItemId && pending.Quantity == item->Quantity)
+                    {
+                        // Nothing observable has happened to this slot since we fired at it, so the command
+                        // is still in flight - do not fire again. Unless it has gone stale, in which case
+                        // assume the server refused it and offer the slot once more.
+                        if(now - pending.SentAt < PendingRetrieveStaleMs)
+                        {
+                            PendingRetrievesSkipped++;
+                            inFlight = true;
+                            continue;
+                        }
+                        PendingRetrievesRetried++;
+                    }
+                    PendingRetrieves.Remove((type, i));
+                }
+
+                // Unique items the player already owns one of can never be retrieved; the game silently
+                // rejects it every single time, so firing would just get the caller stuck on this slot.
+                var data = ExcelItemHelper.Get(item->ItemId);
+                if(data != null && data.Value.IsUnique && Utils.GetItemCount(Utils.PlayerEntireInventory, item->ItemId) > 0)
+                {
+                    blockedUnique = true;
+                    continue;
+                }
+
+                // Snapshot before firing: the detour must be the last thing that touches this slot, and the
+                // item pointer must not be read again afterwards.
+                var quantity = item->Quantity;
+                var pendingEntry = new PendingRetrieve(item->ItemId, item->Quantity, now);
+                P.Memory.RetainerItemCommandDetour(InventorySpaceManager.AgentRetainerItemCommandModule, (uint)i, type, 0, RetainerItemCommand.RetrieveFromRetainer);
+                PendingRetrieves[(type, i)] = pendingEntry;
+                PendingRetrievesFired++;
+                return quantity;
+            }
+        }
+
+        if(inFlight) return RetrieveResultCommandInFlight;
+        if(blockedUnique) return RetrieveResultBlockedUnique;
+        if(inCrystals) return RetrieveResultInCrystals;
+        // 🔴 Must come last and must not be folded into "not present": a container we could not walk cannot
+        // be used to prove the item is absent.
+        if(unreadable) return RetrieveResultRetainerUnavailable;
+        return RetrieveResultNotPresent;
+    }
+
+    /// <summary>How many of <paramref name="itemId"/> the currently open retainer is holding, for callers
+    /// that need to know when to stop asking.</summary>
+    /// <returns>The total quantity (0 meaning "proved absent"), or
+    /// <see cref="RetrieveResultRetainerUnavailable"/> (-1) when any part of the retainer's storage could not
+    /// be walked. ⚠️ -1 is "unknown", not "none" - a partial total is deliberately not returned, because a
+    /// number that is silently too low would make a caller finish early and leave items behind.</returns>
+    [EzIPC]
+    public unsafe int GetOpenRetainerItemQuantity(uint itemId, bool hqOnly, bool includeCrystals)
+    {
+        if(itemId == 0) return 0;
+        if(!InventorySpaceManager.IsRetainerInventoryLoaded()) return RetrieveResultRetainerUnavailable;
+
+        var total = 0;
+        var unreadable = false;
+        foreach(var type in Utils.RetainerInventoriesWithCrystals)
+        {
+            if(type == InventoryType.RetainerCrystals && !includeCrystals) continue;
+            var inv = TryGetReadableContainer(type);
+            if(inv == null)
+            {
+                unreadable = true;
+                ReportUnreadableRetainerContainer(type);
+                continue;
+            }
+            for(var i = 0; i < inv->Size; i++)
+            {
+                var item = inv->GetInventorySlot(i);
+                if(item == null)
+                {
+                    unreadable = true;
+                    continue;
+                }
+                if(item->ItemId != itemId) continue;
+                if(hqOnly && !item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality)) continue;
+                total += item->Quantity;
+            }
+        }
+        if(unreadable) return RetrieveResultRetainerUnavailable;
+        return total;
+    }
+
+    /// <summary>The container only when it can actually be walked.</summary>
+    /// <remarks>🔴 A container whose <c>Items</c> array has not been allocated is not safe to index:
+    /// <c>GetInventorySlot(i)</c> returns a small-offset fake pointer rather than null, so the read succeeds
+    /// and hands back arbitrary memory as an <c>ItemId</c>. Acting on that would fire a retrieve at a slot
+    /// chosen from garbage. ⚠️ Dereferencing null is a corrupted-state exception in .NET Core, so try/catch
+    /// is not an alternative to checking first.</remarks>
+    private static unsafe InventoryContainer* TryGetReadableContainer(InventoryType type)
+    {
+        var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+        if(inv == null || inv->Items == null) return null;
+        return inv;
+    }
+
+    /// <summary>Says out loud that the retainer window is open yet part of its storage is unreadable, which
+    /// is the state that makes "does this retainer have item X" unanswerable. Information level because that
+    /// is the level users actually run at, and this is exactly the kind of thing that otherwise shows up only
+    /// as "the direct retrieve never does anything and it silently uses the slow path forever".</summary>
+    private static void ReportUnreadableRetainerContainer(InventoryType type)
+    {
+        if(EzThrottler.Throttle($"ARDirectRetrieveUnreadableContainer{type}", 30000))
+        {
+            PluginLog.Information($"[RetrieveRetainerItemSlotById] Retainer inventory window is open but container {type} could not be walked. Absence of an item cannot be proven while that is true, so callers are being told \"unavailable\" rather than \"not present\".");
+        }
+    }
+
+    #endregion
 }
