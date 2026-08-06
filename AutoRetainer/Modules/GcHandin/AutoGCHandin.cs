@@ -137,10 +137,12 @@ internal static unsafe class AutoGCHandin
     // 走到這裡代表獎勵視窗已經關掉（伺服器確認繳交），代理人卻遲遲不能收事件。
     // 舊值 5000 太長：這種情況下退回「等遊戲自己重建」本來就會成功，不需要空等五秒。
     //
-    // ⚠️ 這道保險絲同時是「AddonId != 0 這個新閘門萬一在台服不成立」的成本上限。
-    // 那個前提是從反組譯推出來的、還沒有實機資料佐證；如果它永遠是 0，每一件都會
-    // 走到這裡。獎勵視窗關掉之後遊戲自己重建約 0.42 秒，1000ms 留了 2 倍餘裕，
-    // 把最壞情況壓在「比現在慢約 3 倍」而不是「慢 6 倍」，而且 log 會直接指名 AddonId。
+    // ⚠️ 這道保險絲同時是「AddonId != 0 這個閘門萬一在台服不成立」的成本上限。
+    // ✅ 該前提已有二進位佐證：開清單視窗的 0x140E57570 在 OpenAddon(0xBD) 之後於
+    //    0x140E579DB 寫 agent->AddonId；而開獎勵視窗的 0x140E57A60 是把 OpenAddon(0xBE)
+    //    的結果寫進 agent+0x80、完全不動 AddonId。所以 AddonId != 0 確實代表「綁的是清單視窗」。
+    // ⚠️ 但餘裕沒有註解原本寫的那麼寬：實機 2196 件量到的最大閘門等待是 656ms，
+    //    1000ms 是 1.5 倍不是 2 倍（一次都沒燒斷）。機器更慢時會退回「等遊戲自己重建」。
     private const int RefreshTimeoutMs = 1000;
 
     private const int MinListTimeoutMs = 300;
@@ -546,7 +548,16 @@ internal static unsafe class AutoGCHandin
                                 {
                                     throw new GCHandinInterruptedException($"Item {itemName} was not found in inventory");
                                 }
-                                // 🔴 索引上下界都要驗：越界的 index 會讓遊戲照著算出去。
+                                // 🔴🔴 這道檢查是承重牆，不是防禦性裝飾，**不要拿掉也不要降成 assert**。
+                                //    2026-08-06 離線反組譯直證：AgentGrandCompanySupply::ReceiveEvent
+                                //    的選列路徑（0x140E55BED）會先把**原始**索引寫進 agent+0x8C，
+                                //    只有在解析命中時才於 0x140E55CC0 覆寫；而下游的
+                                //    0x141B7B8C0 只有 `cmp r13w, 0xB` 這個**下界**分岔，
+                                //    對稀有品 vector 的長度完全沒有上界檢查，且索引被截成 16 bit
+                                //    —— idx >= 11 直接算 [this+0x778] - 0x738 + idx*0xA8 後複製整筆
+                                //    （含 Utf8String，第二層解參考）。越界＝AccessViolation，
+                                //    那是 corrupted-state exception，try/catch 攔不到。
+                                //    reader.NumItems 正好是正確的界。
                                 if(nextItem.Value.Index < 0 || nextItem.Value.Index >= reader.NumItems)
                                 {
                                     throw new GCHandinInterruptedException($"Item index {nextItem.Value.Index} out of range (0..{reader.NumItems})");
