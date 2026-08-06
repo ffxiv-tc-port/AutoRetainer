@@ -215,7 +215,7 @@ public class IPC_PluginState
         var now = Environment.TickCount64;
         foreach(var type in Utils.RetainerInventoriesWithCrystals)
         {
-            var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            var inv = TryGetReadableContainer(type);
             if(inv == null) continue;
             for(var i = 0; i < inv->Size; i++)
             {
