@@ -175,6 +175,20 @@ internal static unsafe class AutoGCHandin
     /// <summary>獎勵視窗剛消失那一刻，各個閘門的快照。</summary>
     private static string CycleGateAtRewardGone = "";
 
+    // ── 「等刷新閘門」那半秒是誰欠的 ──────────────────────────────────────
+    // 2026-08-06 實機 2190 件的量測：獎勵視窗一消失，清單視窗就**不存在**，代理人的
+    // 清單陣列與 AddonId 也都是 0 —— 2190/2190 全部如此。也就是說刷新事件在那一刻
+    // 根本沒有對象可送，所謂「提早送出」只能發生在遊戲已經把視窗重建回來之後。
+    // 底下三個時刻分開記，才分得出「視窗回來」「代理人清單回來」「代理人重新綁定」
+    // 是同一件事還是三件事 —— 如果視窗明顯比綁定早回來，那半秒就還有得談；
+    // 如果三者一起翻，這就是遊戲自己的下限，這條路走到頭了。
+    /// <summary>清單視窗第一次重新存在的時刻。</summary>
+    private static long CycleAddonBackAt;
+    /// <summary>代理人的清單陣列第一次重新可用的時刻。</summary>
+    private static long CycleAgentListBackAt;
+    /// <summary>代理人第一次重新綁上視窗（AddonId != 0）的時刻。</summary>
+    private static long CycleAddonBoundAt;
+
     // 一整輪（一次自動繳交）的統計，用來算提早送出的成功率與淨效益。
     private static int StatCycles;
     private static int StatEarlyOk;
@@ -200,7 +214,31 @@ internal static unsafe class AutoGCHandin
         CycleSentEarly = false;
         CycleAddonReadyAt = 0;
         CycleGateAtRewardGone = "";
+        CycleAddonBackAt = CycleAgentListBackAt = CycleAddonBoundAt = 0;
     }
+
+    /// <summary>
+    /// 取樣「獎勵視窗關掉之後，清單重建到哪一步了」，每個子條件各記第一次成立的時刻。
+    /// <para/>
+    /// 回傳值與 <see cref="IsSupplyListAddonReady"/> 相同（送出刷新事件前的就緒狀態），
+    /// 順便讓這一幀只查一次視窗而不是兩次。
+    /// <para/>
+    /// 🔴 取得的原生指標只在這一幀內使用，不保存。
+    /// </summary>
+    private static bool SampleRebuildGates()
+    {
+        var now = NowMs;
+        var hasAddon = TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var list);
+        if(hasAddon && CycleAddonBackAt == 0) CycleAddonBackAt = now;
+        GCSupplyRefresh.SampleAgentGates(out var listArrayBack, out var addonBound);
+        if(listArrayBack && CycleAgentListBackAt == 0) CycleAgentListBackAt = now;
+        if(addonBound && CycleAddonBoundAt == 0) CycleAddonBoundAt = now;
+        return hasAddon && IsAddonReady(list);
+    }
+
+    /// <summary>把重建過程的某個時刻換算成「獎勵視窗關掉之後幾毫秒」，量不到時回 -1。</summary>
+    private static long SinceRewardGone(long at)
+        => at == 0 || CycleRewardGoneAt == 0 ? -1 : at - CycleRewardGoneAt;
 
     /// <summary>
     /// 軍需品清單 addon 是否處於舊版閘門要求的「完全就緒」狀態。
@@ -268,6 +306,13 @@ internal static unsafe class AutoGCHandin
             // 它接近 0 代表刷新事件本身讓視窗提早就緒（真的有省）；它仍是一兩百毫秒代表視窗就緒
             // 是獨立於刷新的過程，提早送出只是把等待換了個位置。
             $"刷新→視窗就緒 {(CycleRefreshedAt == 0 || CycleAddonReadyAt == 0 ? -1 : CycleAddonReadyAt - CycleRefreshedAt)}ms | " +
+            // 「等刷新閘門」那段時間的拆解：三者都相對於獎勵視窗消失那一刻。
+            // 若三個數字幾乎相同，代表遊戲是一口氣把視窗與代理人一起帶回來的，
+            // 那段等待就是遊戲自己的下限；若「視窗回來」明顯早於「重新綁定」，
+            // 差額才是還有機會省下來的部分。
+            $"重建(相對視窗關閉) 視窗回來 {SinceRewardGone(CycleAddonBackAt)}ms / " +
+            $"代理人清單 {SinceRewardGone(CycleAgentListBackAt)}ms / " +
+            $"重新綁定 {SinceRewardGone(CycleAddonBoundAt)}ms | " +
             $"閘門@視窗關閉 {CycleGateAtRewardGone}");
         CycleStartedAt = CycleDeliveredAt = CycleRewardGoneAt = CycleRefreshedAt = 0;
     }
@@ -368,7 +413,8 @@ internal static unsafe class AutoGCHandin
                     // DailyRoutines 的泛用閘門，不是這條路徑的前提。細節見 GCSupplyRefresh。
                     // ⚠️ 必須在送出「之前」取樣：RefreshAddon 是同步的，送完再問就可能問到
                     // 被這次刷新改過的狀態，把「提早送出」誤記成「等就緒後送出」。
-                    var addonReadyBeforeSend = IsSupplyListAddonReady();
+                    // 取樣三個重建子條件的第一次成立時刻，順便拿到送出前的就緒狀態。
+                    var addonReadyBeforeSend = SampleRebuildGates();
                     if(GCSupplyRefresh.RequestExpertDeliveryRefresh())
                     {
                         CycleSentEarly = !addonReadyBeforeSend;

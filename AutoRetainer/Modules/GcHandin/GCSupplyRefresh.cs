@@ -77,6 +77,27 @@ internal static unsafe class GCSupplyRefresh
     }
 
     /// <summary>
+    /// 取樣代理人這一側的兩個閘門條件。<see cref="RequestExpertDeliveryRefresh"/> 要兩者同時成立才送得出去，
+    /// 但它們**不必同時發生** —— 分開取樣才能回答「獎勵視窗關掉之後那半秒是誰欠的」。
+    /// <para/>
+    /// 🔴 每次都重新取得代理人，絕不跨幀保存原生指標。
+    /// </summary>
+    /// <param name="listArrayBack">代理人的清單陣列已經重建。</param>
+    /// <param name="addonBound">代理人已經重新綁上一個視窗（RefreshAddon 找得到對象）。</param>
+    internal static void SampleAgentGates(out bool listArrayBack, out bool addonBound)
+    {
+        var agent = GetAgent();
+        if(agent == null)
+        {
+            listArrayBack = false;
+            addonBound = false;
+            return;
+        }
+        listArrayBack = agent->ItemArray != null;
+        addonBound = agent->AgentInterface.AddonId != 0;
+    }
+
+    /// <summary>
     /// 診斷字串：代理人這一側的三個條件現在各是什麼狀態。
     /// 用來回答「等刷新閘門那段時間到底是 addon 擋的還是代理人擋的」。
     /// </summary>
