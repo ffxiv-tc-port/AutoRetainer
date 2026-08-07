@@ -60,9 +60,25 @@ public static unsafe class TaskDiscardItems
 
     private static string _discardVerb;
 
+    /// <summary>
+    /// 本輪已經試過但沒成功的格位。⚠️ 沒有這個的話會出現一種很難查的卡死：
+    /// 送出 DiscardItem 之後確認框始終沒出現（遊戲基於我們沒預期到的理由拒絕），
+    /// 時間窗一過就又挑到同一件，於是每 5 秒重試一次、整整空轉 10 分鐘的時限。
+    /// 放棄的是「這一輪的這一格」，使用者再按一次按鈕就會重新嘗試。
+    /// </summary>
+    private static readonly HashSet<(InventoryType Type, uint Slot)> FailedThisRun = [];
+
+    private static (InventoryType Type, uint Slot) LastAttempt;
+    private static int LastAttemptCount;
+
+    private const int MaxAttemptsPerSlot = 3;
+
     public static void Enqueue()
     {
         ConfirmWindowUntil = 0;
+        FailedThisRun.Clear();
+        LastAttempt = default;
+        LastAttemptCount = 0;
         P.TaskManager.Enqueue(DiscardNextItem, new(timeLimitMS: 10 * 60 * 1000, abortOnTimeout: false));
         P.TaskManager.Enqueue(() => !Svc.Condition[ConditionFlag.Occupied39]);
     }
@@ -137,6 +153,27 @@ public static unsafe class TaskDiscardItems
             return false;
         }
 
+        // ── 同一格連續試不成就本輪放棄，避免確認框始終不出現時空轉到時限 ──
+        if(LastAttempt == (type, slot))
+        {
+            LastAttemptCount++;
+            if(LastAttemptCount > MaxAttemptsPerSlot)
+            {
+                // 這行刻意是 Information：使用者跑 LogLevel 2，Debug/Verbose 收不到，
+                // 而「為什麼有東西沒被丟掉」正是最需要使用者回報的資訊。
+                PluginLog.Information($"Giving up on {ExcelItemHelper.GetName(itemId)} [{type}#{slot}] after {MaxAttemptsPerSlot} attempts (no confirmation dialog appeared). Press the button again to retry.");
+                FailedThisRun.Add((type, slot));
+                LastAttempt = default;
+                LastAttemptCount = 0;
+                return false;
+            }
+        }
+        else
+        {
+            LastAttempt = (type, slot);
+            LastAttemptCount = 1;
+        }
+
         PluginLog.Information($"Discarding {ExcelItemHelper.GetName(item->ItemId)}x{item->Quantity} [Container={type},Slot={slot}]");
         // 第 4 引數 addonId＝0：不綁定任何擁有者 addon（我們不是從背包 UI 的右鍵選單發起的）。
         // 第 5 引數 position 是 YesNoPosition，-1＝讓遊戲用預設位置；明寫出來不靠預設值，
@@ -166,6 +203,7 @@ public static unsafe class TaskDiscardItems
                 var item = cont->GetInventorySlot(i);
                 if(item == null) continue;
                 if(item->ItemId == 0) continue;
+                if(FailedThisRun.Contains((invType, (uint)i))) continue;
                 if(!IsDiscardable(item->ItemId)) continue;
                 type = invType;
                 slot = (uint)i;
