@@ -861,5 +861,14 @@
   "Free inventory slots": "背包剩餘空格",
   "Items held": "持有道具格數",
   "Listed on market board": "寄售中",
-  "Snapshot taken the last time this character was logged in.": "這是該角色最後一次登入時的數值。"
+  "Snapshot taken the last time this character was logged in.": "這是該角色最後一次登入時的數值。",
+  "Inventory Cleanup/Discard List": "背包清理/丟棄清單",
+  "Discarding is permanent: discarded items can NOT be bought back or recovered. This list is deliberately separate from the sell lists, and is only ever processed when you press the button manually.": "丟棄無法復原：丟棄掉的物品不能買回，也救不回來。這份清單刻意與出售清單分開，而且只有在你手動按下按鈕時才會被處理。",
+  "These items will be discarded when you manually press \"Discard now\". Items on the Protection List are never discarded, even if they are also listed here.": "當你手動按下「立即丟棄」時，這些物品將被丟棄。保護清單中的物品永遠不會被丟棄，即使它們同時也在這份清單裡。",
+  "Enable discarding items": "啟用丟棄物品",
+  "Permanently destroys items on the Discard List. Discarded items can NOT be bought back. This is never triggered automatically: you must press \"Discard now\" yourself every time.": "永久銷毀丟棄清單中的物品。丟棄掉的物品無法買回。這項功能永遠不會自動觸發：每一次都必須由你自己按下「立即丟棄」。",
+  "Discard now": "立即丟棄",
+  "Hold CTRL and click. Items on the Discard List will be permanently destroyed. Turn on \"Demo mode\" first to print what would be discarded without destroying anything.": "按住 CTRL 並點擊。丟棄清單中的物品將被永久銷毀。建議先開啟「演示模式」，它只會印出將會丟棄的內容，不會真的銷毀任何東西。",
+  "{0} item(s) match": "符合 {0} 件",
+  "nothing matches": "沒有符合的物品"
 }
