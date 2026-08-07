@@ -314,13 +314,21 @@ internal static unsafe class VoyageMain
                                         var plan = VoyageUtils.GetSubmarinePointPlanByGuid(adata.SelectedPointPlan);
                                         if(plan != null && plan.Points.Count >= 1 && plan.Points.Count <= 5)
                                         {
+                                            // 「上次跑的和計畫一樣就直接重新派遣」這個捷徑必須拿「裁切後」的清單來比，
+                                            // 否則啟用裁切的計畫會永遠比不中而每趟都重走一次完整的選點流程。
+                                            // 沒啟用裁切時 GetEffectivePoints 回傳的就是 plan.Points 本身，行為完全不變。
+                                            var effectivePoints = PointPlanRange.GetEffectivePoints(plan, log: false);
                                             var current = CurrentSubmarine.Get()->CurrentExplorationPoints.ToArray().Select(x => (uint)x).Where(x => x != 0);
-                                            if(!current.SequenceEqual(plan.Points))
+                                            if(!current.SequenceEqual(effectivePoints))
                                             {
                                                 TaskDeployOnPointPlan.Enqueue(next, type, plan);
                                             }
                                             else
                                             {
+                                                if(PointPlanRange.IsTrimEnabled(plan) && effectivePoints.Count != plan.Points.Count)
+                                                {
+                                                    PluginLog.Information($"[PointPlanRange] 上次航行的 {effectivePoints.Count} 個點與本次裁切結果相同（計畫原有 {plan.Points.Count} 點），改用重新派遣");
+                                                }
                                                 TaskRedeployVessel.Enqueue(next, type);
                                             }
                                         }

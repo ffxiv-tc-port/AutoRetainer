@@ -91,6 +91,13 @@ internal unsafe class Config
     public bool HideAirships = false;
     public int DisableRetainerVesselReturn = 0;
     public List<SubmarinePointPlan> SubmarinePointPlans = [];
+    /// <summary>
+    /// 這些 GUID 的點計畫在出航前會先算航行距離，跑不到的點從清單尾端往前砍掉。
+    /// 🔴 刻意用「新增鍵 + 預設空集合」而不是在 SubmarinePointPlan 上改預設值：
+    /// EzConfig 反序列化是 ObjectCreationHandling.Replace，既有使用者的 JSON 只要有那個鍵就會
+    /// 覆蓋欄位初始值，所以「改預設值」對既有使用者一律無效且無聲。空集合＝所有既有計畫維持原行為。
+    /// </summary>
+    public HashSet<string> SubmarinePointPlansTrimToRange = [];
     public int MultiMinInventorySlots = 2;
     public bool IgnoreEsc = false;
 
