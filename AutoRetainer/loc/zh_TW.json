@@ -483,7 +483,7 @@
   "Multi Mode/Region Lock": "多角色模式/區域鎖定",
   "Multi Mode/Retainers": "多角色模式/僱員設定",
   "MultiMode": "多角色模式",
-  "MultiMode controls this option. Hold CTRL to override.": "此選項由多角色模式控制。按住 CTRL 可覆蓋。",
+  "MultiMode also controls this option. You can always change it by hand and it takes effect immediately, but while MultiMode is running it will switch this back on by itself when it moves on to the next retainer or character - untick \"Multi\" as well if you want it to stay off.": "此選項多角色模式也會控制。你隨時都可以手動更改，且立即生效；但多角色模式執行中時，它在換下一個僱員或角色時會自己把這個選項重新打開——想讓它保持關閉，請一併取消勾選「多角色模式」。",
   "MultiMode enabled. \nLeft click - open AutoRetainer. \nRight click - disable Multi Mode.": "多角色模式已啟用。\n左鍵點擊 - 開啟 AutoRetainer。\n右鍵點擊 - 停用多角色模式。",
   "MultiMode enabled. \\nLeft click - open AutoRetainer. \\nRight click - disable Multi Mode.": "多角色模式已啟用\\\\n左鍵點擊 - 開啟 AutoRetainer\\\\n右鍵點擊 - 停用多角色模式。",
   "NOT": "非",

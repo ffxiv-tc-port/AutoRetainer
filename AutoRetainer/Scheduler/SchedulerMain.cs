@@ -56,6 +56,54 @@ internal static unsafe class SchedulerMain
         return true;
     }
 
+    /// <summary>使用者在 UI 上親手切換「啟用」核取方塊時的統一入口(主視窗與僱員列表懸浮列共用)。
+    ///
+    /// 這個核取方塊原本在多角模式執行中會被 <c>BeginDisabled</c> 鎖住，要按住 CTRL 才點得動。
+    /// 🔴 鎖的理由是真的：手動 <see cref="EnablePlugin"/> 會把 <see cref="Reason"/> 從
+    /// <see cref="PluginEnableReason.MultiMode"/> 覆蓋成 Auto/Manual，而 <see cref="Tick"/> 只有在
+    /// Reason 是 MultiMode 時才會在本角色收工後「關閉僱員列表 ＋ 停用外掛(＋開寶箱／分解)」。
+    /// 換成 Auto/Manual 之後改走 <c>C.TaskCompletedBehavior*</c>，其預設值是
+    /// <see cref="TaskCompletedBehavior.Stay_in_retainer_list_and_keep_plugin_enabled"/>：
+    /// 角色會一直站在傳喚鈴前，<c>IsOccupied()</c> 恆真，<see cref="MultiMode.Tick"/> 的每一條動作分支
+    /// 都被擋住 ＝ 多角模式停在原地不換角，而且開寶箱／分解被靜默跳過。
+    ///
+    /// 使用者裁定「永遠可介入」，所以鎖已經拿掉。為了讓介入不會把排程器留在上面那個狀態，
+    /// 多角模式執行中手動啟用時**沿用 MultiMode 這個理由**——使用者拿到的仍然是「按下去就生效」，
+    /// 只是收工後的收尾行為與多角模式自己啟用時一致。主視窗標題會顯示 <c>[MultiMode]</c>，
+    /// 所以這件事在列上看得見，不是只藏在 log 裡。
+    ///
+    /// ⚠️ 停用方向**不會**連帶關掉多角模式(那是使用者沒要求的行為改動，而且旁邊就有獨立的
+    /// 「Multi」核取方塊)。多角模式仍在跑時它會在下一輪自己把外掛重新打開，這一點寫進了
+    /// 說明圖示與這裡的 Information log。停用也**不會**中止已經排進 TaskManager 的工作。</summary>
+    internal static void SetEnabledByUser(bool enable, PluginEnableReason manualReason)
+    {
+        if(enable)
+        {
+            var reason = MultiMode.Active ? PluginEnableReason.MultiMode : manualReason;
+            if(reason != manualReason)
+            {
+                PluginLog.Information($"[UserToggle] Plugin enabled by user while MultiMode is active - using reason {reason} instead of {manualReason}, so MultiMode's completion path (close retainer list, disable plugin, coffers/desynthesis) still runs and MultiMode does not stall at the bell.");
+            }
+            else
+            {
+                PluginLog.Information($"[UserToggle] Plugin enabled by user, reason: {reason}.");
+            }
+            EnablePlugin(reason);
+        }
+        else
+        {
+            DisablePlugin();
+            if(MultiMode.Active)
+            {
+                PluginLog.Information("[UserToggle] Plugin disabled by user while MultiMode is active. MultiMode itself stays on and will enable the plugin again when it moves on to the next retainer or character - untick \"Multi\" as well if you want it to stay off. Tasks already queued are not aborted.");
+            }
+            else
+            {
+                PluginLog.Information("[UserToggle] Plugin disabled by user.");
+            }
+        }
+    }
+
     internal static void Tick()
     {
         if(PluginEnabled)
