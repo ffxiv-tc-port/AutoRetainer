@@ -870,5 +870,22 @@
   "Discard now": "立即丟棄",
   "Hold CTRL and click. Items on the Discard List will be permanently destroyed. Turn on \"Demo mode\" first to print what would be discarded without destroying anything.": "按住 CTRL 並點擊。丟棄清單中的物品將被永久銷毀。建議先開啟「演示模式」，它只會印出將會丟棄的內容，不會真的銷毀任何東西。",
   "{0} item(s) match": "符合 {0} 件",
-  "nothing matches": "沒有符合的物品"
+  "nothing matches": "沒有符合的物品",
+  "(unbound - disabled)": "(未綁定 - 已停用)",
+  "(keybind unbound - button disabled)": "(快捷鍵未綁定 - 按鈕已停用)",
+  "{0} - add to Quick Venture Sell List": "{0} - 添加至快速僱員販售清單",
+  "{0} - add to Unconditional Sell List": "{0} - 添加至無條件出售清單",
+  "{0} - delete from either list": "{0} - 從任一清單中刪除",
+  "{0} - add to entrust plan": "{0} - 加入存放計畫",
+  "{0} - delete from entrust plan": "{0} - 從存放計畫移除",
+  "Hold {0} and click. Items on the Discard List will be permanently destroyed. Turn on \"Demo mode\" first to print what would be discarded without destroying anything.": "按住 {0} 並點擊。丟棄清單中的物品將被永久銷毀。建議先開啟「演示模式」，它只會印出將會丟棄的內容，不會真的銷毀任何東西。",
+  "This button is disabled because its keybind is set to None. Bind a key under Keybinds to re-enable it. Items on the Discard List are permanently destroyed and can NOT be bought back.": "這個按鈕已停用，因為它的快捷鍵設為 None。請到「快捷鍵設定」綁定一個按鍵來重新啟用。丟棄清單中的物品會被永久銷毀，而且無法買回。",
+  "Inventory list editing keybinds": "背包清單編輯快捷鍵",
+  "Hover item: add to Quick Venture Sell List / entrust plan": "懸停物品：加入快速僱員販售清單／存放計畫",
+  "Hover item: add to Unconditional Sell List": "懸停物品：加入無條件出售清單",
+  "Hover item: remove from list": "懸停物品：從清單移除",
+  "Used by both Inventory Cleanup -> Fast Addition and Removal, and Entrust Manager -> Fast addition/removal. Set to None to disable the action entirely.": "「背包清理/快速添加和移除」與「委託管理 → 快速新增/移除」共用這個按鍵。設為 None 即完全停用該動作。",
+  "Used by Inventory Cleanup -> Fast Addition and Removal. Set to None to disable the action entirely.": "「背包清理/快速添加和移除」使用這個按鍵。設為 None 即完全停用該動作。",
+  "\"Discard now\" button confirmation": "「立即丟棄」按鈕的確認鍵",
+  "Hold this key to make the \"Discard now\" button clickable. Set to None to disable that button completely - discarded items can NOT be bought back, so it never becomes a one-click action.": "按住這個鍵，「立即丟棄」按鈕才點得下去。設為 None 會完全停用該按鈕——丟棄的物品無法買回，所以它永遠不會變成一鍵操作。"
 }

@@ -18,5 +18,15 @@ public class Keybinds : NeoUIEntry
         .Widget(Loc.T("Sell Item"), (x) => UIUtils.QRA(x, ref C.SellKey))
         .Widget(Loc.T("Entrust Item"), (x) => UIUtils.QRA(x, ref C.EntrustKey))
         .Widget(Loc.T("Retrieve Item"), (x) => UIUtils.QRA(x, ref C.RetrieveKey))
-        .Widget(Loc.T("Put up For Sale"), (x) => UIUtils.QRA(x, ref C.SellMarketKey));
+        .Widget(Loc.T("Put up For Sale"), (x) => UIUtils.QRA(x, ref C.SellMarketKey))
+
+        .Section(Loc.T("Inventory list editing keybinds"))
+        .Widget(Loc.T("Hover item: add to Quick Venture Sell List / entrust plan"), (x) => UIUtils.DrawKeybind(x, ref C.FastListAddKey),
+            Loc.T("Used by both Inventory Cleanup -> Fast Addition and Removal, and Entrust Manager -> Fast addition/removal. Set to None to disable the action entirely."))
+        .Widget(Loc.T("Hover item: add to Unconditional Sell List"), (x) => UIUtils.DrawKeybind(x, ref C.FastListAddHardKey),
+            Loc.T("Used by Inventory Cleanup -> Fast Addition and Removal. Set to None to disable the action entirely."))
+        .Widget(Loc.T("Hover item: remove from list"), (x) => UIUtils.DrawKeybind(x, ref C.FastListRemoveKey),
+            Loc.T("Used by both Inventory Cleanup -> Fast Addition and Removal, and Entrust Manager -> Fast addition/removal. Set to None to disable the action entirely."))
+        .Widget(Loc.T("\"Discard now\" button confirmation"), (x) => UIUtils.DrawKeybind(x, ref C.DiscardNowKey),
+            Loc.T("Hold this key to make the \"Discard now\" button clickable. Set to None to disable that button completely - discarded items can NOT be bought back, so it never becomes a one-click action."));
 }

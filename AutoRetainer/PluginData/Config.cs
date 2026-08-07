@@ -169,6 +169,19 @@ internal unsafe class Config
     public LimitedKeys RetrieveKey = LimitedKeys.None;
     public LimitedKeys SellMarketKey = LimitedKeys.None;
 
+    // 「hover 道具 ＋ 按住修飾鍵 ＝ 立刻改清單」的快捷鍵。背包清理(FastAddition)與存放管理(EntrustManager)共用，
+    // 兩者不會同時被繪製，而這兩個功能的觸發條件本來就包含「該區塊正在顯示」。
+    // 🔴 預設值＝改成可設定之前的硬編值(Shift/Ctrl/Alt)，升級的使用者不會感覺到差別。
+    // 🔴 None ＝ 停用該動作，不是「不按任何鍵就觸發」——後者會變成 hover 到就進清單。
+    //    語意由 UIUtils.IsHotkeyHeld 保證(它對 None 一律回 false)。
+    public LimitedKeys FastListAddKey = LimitedKeys.LeftShiftKey;
+    public LimitedKeys FastListAddHardKey = LimitedKeys.LeftControlKey;
+    public LimitedKeys FastListRemoveKey = LimitedKeys.LeftAltKey;
+
+    // 「立即丟棄」按鈕的第二道確認鍵(原本硬編 CTRL)。
+    // 🔴 None ＝ 停用該按鈕。破壞性且不可買回的操作不允許退化成「不按任何鍵就能一鍵按下」。
+    public LimitedKeys DiscardNowKey = LimitedKeys.LeftControlKey;
+
     public bool NotifyEnableOverlay = false;
     public bool NotifyCombatDutyNoDisplay = true;
     public bool NotifyIncludeAllChara = true;
