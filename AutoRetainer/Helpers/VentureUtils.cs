@@ -73,6 +73,16 @@ internal static unsafe class VentureUtils
                 next = adj;
             }
         }
+        // next 的兩個來源都不可信：①委託計畫存在設定檔裡(可跨版本殘留、可從剪貼簿貼入)
+        // ②IPC 的 SetVenture 讓任何外掛塞進任意 uint。底下四處 GetVentureById(next) 都是裸
+        // GetRow，查無此列時 Lumina 擲 ArgumentOutOfRangeException，而本函式位在
+        // Svc.Framework.Update -> SchedulerMain.Tick 的每幀路徑上 => 會每幀洗版並把排程打斷。
+        // 在這裡一次擋掉，比在四個呼叫點各補一次可靠。
+        if(!Svc.Data.GetExcelSheet<RetainerTask>().TryGetRow(next, out _))
+        {
+            PluginLog.Information($"[AutoRetainer] 委託 ID {next} 不存在於本地 RetainerTask 資料表，略過本次委託指派。請檢查委託計畫是否來自其他服務版本。");
+            return;
+        }
         DebugLog($"Not completed or restarting");
         if(ret.VentureID != 0)
         {
@@ -434,7 +444,10 @@ internal static unsafe class VentureUtils
 
     internal static string GetVentureName(uint id)
     {
-        return GetVentureName(Svc.Data.GetExcelSheet<RetainerTask>().GetRow(id));
+        // GetRowOrDefault 而非 GetRow：這個多載的呼叫端包含 IPC.SetVenture(任意 uint)，
+        // 裸 GetRow 會在別的外掛呼叫我們的 IPC 時把例外丟回對方。下面的 RetainerTask? 多載
+        // 本來就處理 null(回 null),所以這裡改法零漣漪。
+        return GetVentureName(Svc.Data.GetExcelSheet<RetainerTask>().GetRowOrDefault(id));
     }
 
     internal static string GetVentureName(this RetainerTask task)

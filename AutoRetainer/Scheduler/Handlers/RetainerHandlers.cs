@@ -464,7 +464,12 @@ internal static unsafe class RetainerHandlers
     {
         if(TryGetAddonByName<AtkUnitBase>("RetainerTaskList", out var addon) && IsAddonReady(addon))
         {
-            var ventureData = Svc.Data.GetExcelSheet<RetainerTask>().GetRow(VentureID);
+            // GetRowOrDefault 而非 GetRow：VentureID 來自委託計畫(設定檔)或 IPC 覆寫。
+            // 這個方法是排進 P.TaskManager 的工作,裡面擲例外會被 TaskManager 當成失敗而
+            // Abort() 整條佇列(預設 abortOnError),不是只掉這一步。查無此列時
+            // GetVentureName 回 null,下面的 Contains(null) 為 false,直接落到既有的
+            // Error 分支印出「找不到這個委託」—— 失敗仍然看得見,只是不再炸掉佇列。
+            var ventureData = Svc.Data.GetExcelSheet<RetainerTask>().GetRowOrDefault(VentureID);
             var ventureName = ventureData.GetVentureName();
             if(Utils.GenericThrottle && EzThrottler.Throttle("AssignSpecificVenture", 1000))
             {

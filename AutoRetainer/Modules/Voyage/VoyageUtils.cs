@@ -214,7 +214,13 @@ internal static unsafe class VoyageUtils
         if(plan == null) return "No or unknown plan selected";
         if(plan.Name.Length > 0) return plan.Name;
         if(plan.Points.Count == 0) return $"Plan {plan.GUID}";
-        return $"{plan.GetMap()?.Name}: {plan.Points.Select(x => Svc.Data.GetExcelSheet<SubmarineExploration>(ClientLanguage.Japanese).GetRow(x).Location.ToString()).Join("→")}";
+        // plan.Points 可以由使用者從剪貼簿貼進來(SubmarinePointPlanUI 的 Paste plan settings,
+        // 走 JsonConvert 反序列化,沒有任何範圍驗證),所以點位 ID 不可信。而本方法被多個
+        // ImGui.BeginCombo / Selectable 每幀呼叫 —— Dalamud 的 UiBuilder 攔到 Draw 例外後會
+        // 把 this.Draw 設成 null,整個外掛的視窗在重開遊戲前都不會再畫出來。
+        // 查無此列時顯示 "?<id>" 而不是靜默略過:讓「這個計畫有壞點位」在列上直接看得見。
+        var sheet = Svc.Data.GetExcelSheet<SubmarineExploration>(ClientLanguage.Japanese);
+        return $"{plan.GetMap()?.Name}: {plan.Points.Select(x => sheet.TryGetRow(x, out var row) ? row.Location.ToString() : $"?{x}").Join("→")}";
     }
 
     internal static uint GetMapId(this SubmarinePointPlan plan)

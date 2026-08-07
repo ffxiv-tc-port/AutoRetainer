@@ -252,7 +252,11 @@ internal unsafe class SubmarineUnlockPlanUI : Window
                 }
                 if(ImGui.CollapsingHeader(Loc.T("Display current point exploration order")))
                 {
-                    ImGuiEx.Text(SelectedPlan.GetPrioritizedPointList().Select(x => $"{Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(x.point).Destination} ({x.justification})").Join("\n"));
+                    // 點位 ID 來自解鎖計畫,而計畫可以整份從剪貼簿貼入(本檔 Paste plan settings)。
+                    // 裸 GetRow 查無此列會擲例外,而這裡在 Draw 裡 —— Dalamud 攔到之後會把整個
+                    // 外掛的 Draw 委派設為 null。未知點位畫成 "?<id>" 讓問題在列上看得見。
+                    var explorationSheet = Svc.Data.GetExcelSheet<SubmarineExploration>();
+                    ImGuiEx.Text(SelectedPlan.GetPrioritizedPointList().Select(x => $"{(explorationSheet.TryGetRow(x.point, out var row) ? row.Destination.ToString() : $"?{x.point}")} ({x.justification})").Join("\n"));
                 }
             }
             ImGui.EndChild();
