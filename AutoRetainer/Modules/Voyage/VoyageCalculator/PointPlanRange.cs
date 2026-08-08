@@ -15,8 +15,11 @@ namespace AutoRetainer.Modules.Voyage.VoyageCalculator;
 /// 1. 預設關閉。啟用與否依「計畫 GUID 是否在 C.SubmarinePointPlansTrimToRange 裡」決定，
 ///    該集合預設是空的，所以既有使用者行為完全不變（ECommons EzConfig 會把既有鍵的值
 ///    原樣寫回，改既有鍵的預設值對既有使用者無效，因此這裡刻意用「新增鍵」）。
-/// 2. 砍點順序＝使用者在計畫裡排的順序，從尾端往前砍。使用者把優先想要的點排在前面。
-///    「要哪些點」由使用者決定；「按什麼順序跑」由 Voyage.CalculateDistance 求最短路徑決定。
+/// 2. 「要哪些點」由使用者決定；「按什麼順序跑」由 Voyage.CalculateDistance 求最短路徑決定。
+///    計畫清單的順序＝使用者的優先順序，最想跑的排在最上面。
+///    🔴 2026-08-08 修正：初版只評估「清單前綴」（byRank.Take(n)），所以永遠產生不出
+///    「跳過中間某個點」的子集。改成枚舉全部非空子集取「航距內點數最多」者，
+///    同點數時才回頭用使用者的排列順序決定。細節見 <see cref="PickBest"/>。
 /// 3. 🔴 任何一步算不出來，一律回傳「原始清單」＝完全維持現狀，絕不砍成只剩一點。
 ///    這涵蓋：讀不到潛水艇、等級/零件查表失敗、距離計算失敗、連第一個點都跑不到。
 ///    理由是砍錯點會讓潛艇跑一趟錯的航線（12 小時），而維持現狀最多是回到今天的行為。
@@ -27,7 +30,11 @@ internal static unsafe class PointPlanRange
     /// 目前工房面板上選中的那艘潛水艇的能力值快照。
     /// 🔴 這裡刻意只存「值」不存原生指標 —— 指標不跨幀保存。
     /// </summary>
-    internal record struct SubmarineInfo(string Name, int Rank, int SheetRange, int NativeRange)
+    /// <param name="PartsRange">四個零件的 Range 加總（不含 Rank 加成）。只拿來記 log。</param>
+    /// <param name="RankRangeBonus">SubmarineRank[Rank].RangeBonus。台服 7.20 實測 Rank 52 起才非零、Rank 90 是 60。</param>
+    /// <param name="BuildIdentifier">零件組合代號（例如 WSUC++）。⚠️ 工房面板列表上顯示的代號會把「+」拿掉，
+    /// 所以使用者看到的「WSUC」有可能其實是全改造的 WSUC++（兩者航距差 20）—— log 這裡刻意保留「+」。</param>
+    internal record struct SubmarineInfo(string Name, int Rank, int SheetRange, int NativeRange, int PartsRange, int RankRangeBonus, string BuildIdentifier)
     {
         /// <summary>
         /// 用來下判斷的航行距離。採用 Excel 表算出來的值，因為 Calculator.FindBestPath 早就
@@ -87,10 +94,15 @@ internal static unsafe class PointPlanRange
             if(rank < 1) return false;
 
             int sheetRange;
+            int rankBonus;
+            string identifier;
             try
             {
                 var build = new Build.SubmarineBuild(rank, hull, stern, bow, bridge);
                 sheetRange = build.Range;
+                // Build.Range ＝ Bonus.RangeBonus ＋ 四個零件的 Range，所以零件那半用減的還原。
+                rankBonus = build.Bonus.RangeBonus;
+                identifier = build.FullIdentifier();
             }
             catch(Exception e)
             {
@@ -98,7 +110,7 @@ internal static unsafe class PointPlanRange
                 return false;
             }
 
-            info = new SubmarineInfo(name, rank, sheetRange, nativeRange);
+            info = new SubmarineInfo(name, rank, sheetRange, nativeRange, sheetRange - rankBonus, rankBonus, identifier);
             return true;
         }
         catch(Exception e)
@@ -160,8 +172,10 @@ internal static unsafe class PointPlanRange
         if(!IsTrimEnabled(plan)) return original;
         try
         {
-            var trimmed = Compute(plan, out var report);
+            var trimmed = Compute(plan, out var report, out var detail);
             if(log && report != null) PluginLog.Information($"[PointPlanRange] {report}");
+            // 子集表格另起一行：決策那行要能單獨看懂，這行是「為什麼不是別的組合」的證據。
+            if(log && detail != null) PluginLog.Information($"[PointPlanRange] {detail}");
             return trimmed ?? original;
         }
         catch(Exception e)
@@ -177,46 +191,226 @@ internal static unsafe class PointPlanRange
         return points.Select(x => VoyageUtils.GetSubmarineExploration(x)?.Location.ToString() ?? $"?{x}").Join("→");
     }
 
-    private static List<uint> Compute(SubmarinePointPlan plan, out string report)
+    /// <summary>
+    /// 子集表格用的緊湊寫法。⚠️ 刻意留 "-" 當分隔符而不是直接把字母接起來 ——
+    /// 溺沒海有 AA~AD 這種兩個字母的點位，接起來會變成看不出斷點的字串。
+    /// </summary>
+    private static string DescribeCompact(IEnumerable<uint> points)
     {
-        var original = plan.Points;
-        var planName = plan.Name.Length > 0 ? plan.Name : plan.GUID;
-        var head = $"計畫「{planName}」";
+        return points.Select(x => VoyageUtils.GetSubmarineExploration(x)?.Location.ToString() ?? $"?{x}").Join("-");
+    }
 
+    /// <summary>一個候選子集的評估結果。Indices 是它在「使用者排的清單」裡的位置（遞增）。</summary>
+    private record struct Candidate(int Count, int Distance, List<uint> Order, int[] Indices, string Name);
+
+    /// <summary>
+    /// 把計畫解析成「同一張航海圖上的點位列 ＋ 出發點」。
+    /// 失敗時 reason 是接在 head 後面的說明（呼叫端組成完整訊息）。
+    /// </summary>
+    private static bool TryResolvePlan(SubmarinePointPlan plan, out SubmarineExploration start, out List<SubmarineExploration> rows, out string reason)
+    {
+        start = default;
+        rows = null;
+        reason = null;
+
+        var original = plan.Points;
         if(original.Count is < 1 or > 5)
         {
-            report = $"{head}的點位數是 {original.Count}（合法範圍 1~5），不做裁切";
-            return null;
+            reason = $"的點位數是 {original.Count}（合法範圍 1~5），不做裁切";
+            return false;
         }
         if(original.Distinct().Count() != original.Count)
         {
-            report = $"{head}裡有重複的點位，不做裁切";
-            return null;
+            reason = "裡有重複的點位，不做裁切";
+            return false;
         }
 
-        var rows = new List<SubmarineExploration>(original.Count);
+        var list = new List<SubmarineExploration>(original.Count);
         foreach(var id in original)
         {
             var row = VoyageUtils.GetSubmarineExploration(id);
             if(row == null)
             {
-                report = $"{head}含有查不到的點位 id={id}，不做裁切";
-                return null;
+                reason = $"含有查不到的點位 id={id}，不做裁切";
+                return false;
             }
-            rows.Add(row.Value);
+            list.Add(row.Value);
         }
 
-        var mapId = rows[0].Map.RowId;
-        if(rows.Any(x => x.Map.RowId != mapId))
+        var mapId = list[0].Map.RowId;
+        if(list.Any(x => x.Map.RowId != mapId))
         {
-            report = $"{head}的點位跨越多張航海圖，不做裁切";
-            return null;
+            reason = "的點位跨越多張航海圖，不做裁切";
+            return false;
         }
 
-        var start = GetStartPoint(mapId);
-        if(start == null)
+        var startRow = GetStartPoint(mapId);
+        if(startRow == null)
         {
-            report = $"{head}找不到航海圖 {mapId} 的出發點，不做裁切";
+            reason = $"找不到航海圖 {mapId} 的出發點，不做裁切";
+            return false;
+        }
+
+        start = startRow.Value;
+        rows = list;
+        return true;
+    }
+
+    /// <summary>
+    /// 等級不足的點在遊戲裡本來就選不起來（VoyageUtils.SelectRoutePointSafe 會靜默跳過），
+    /// 把它們算進距離會造成過度裁切，所以先濾掉再算。回傳的清單保留使用者排的相對順序。
+    /// </summary>
+    private static List<SubmarineExploration> FilterByRank(List<SubmarineExploration> rows, int rank, out List<uint> dropped)
+    {
+        var kept = new List<SubmarineExploration>(rows.Count);
+        dropped = [];
+        foreach(var row in rows)
+        {
+            if(row.RankReq <= rank) kept.Add(row);
+            else dropped.Add(row.RowId);
+        }
+        return kept;
+    }
+
+    /// <summary>
+    /// 枚舉 byRank 的全部非空子集並各算一次最短路徑。
+    /// 點數上限是 5（遊戲限制），所以最多 2^5-1 = 31 個子集，每個跑一次完全可行。
+    ///
+    /// 🔴 保守哲學照舊：只要有任何一個子集算不出距離就整批放棄（回傳 false），
+    /// 呼叫端要維持原始清單。這與初版「任何一步算不出來就回傳原樣」是同一個約定，
+    /// 只是評估的範圍從 5 個前綴變成 31 個子集。
+    /// </summary>
+    private static bool TryEvaluateAllSubsets(SubmarineExploration start, List<SubmarineExploration> byRank, out List<Candidate> all, out string failed)
+    {
+        all = [];
+        failed = null;
+        var combinations = 1 << byRank.Count;
+        for(var mask = 1; mask < combinations; mask++)
+        {
+            var subset = new List<SubmarineExploration>(byRank.Count);
+            var indices = new List<int>(byRank.Count);
+            for(var i = 0; i < byRank.Count; i++)
+            {
+                if((mask & (1 << i)) == 0) continue;
+                subset.Add(byRank[i]);
+                indices.Add(i);
+            }
+
+            var distance = CalculateRouteDistance(start, subset, out var optimizedOrder);
+            if(distance == null)
+            {
+                failed = DescribeCompact(subset.Select(x => x.RowId));
+                all = null;
+                return false;
+            }
+
+            var order = optimizedOrder ?? subset.Select(x => x.RowId).ToList();
+            all.Add(new Candidate(subset.Count, distance.Value, order, indices.ToArray(), DescribeCompact(order)));
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// 從「航距內跑得完」的候選裡挑一個。
+    ///
+    /// 主判準＝點數最多。這是使用者要的：同樣一趟 12 小時，能多探一個點就多探一個。
+    ///
+    /// 同點數時的取捨＝**使用者在計畫裡排的順序**：比較兩個子集的索引向量，逐位取小者
+    /// （例如清單是 M,R,O,J,Z 而三點候選有 MRO(0,1,2)／MOJ(0,2,3)／ROJ(1,2,3) 時取 MRO）。
+    /// 這是設計約束 2「最想跑的排在最上面」的直接推廣，前綴法是它的退化情形。
+    /// ⚠️ 刻意不用預估收益／經驗當排序依據 —— 那會在使用者沒要求的情況下蓋掉他自己排的優先序，
+    /// 而收益模型本身在台服沒有可離線驗證的資料來源。被略過的同點數候選一律寫進 log，
+    /// 使用者看得到自己可以怎麼調整排序。
+    ///
+    /// 📌 索引互異 ⇒ 等長索引向量的逐位比較是**全序**，不會平手；
+    /// 所以這裡不需要、也不該再串第三個 tiebreak（那會是永遠走不到的死碼）。
+    /// </summary>
+    private static Candidate PickBest(List<Candidate> feasible)
+    {
+        var best = feasible[0];
+        foreach(var candidate in feasible)
+        {
+            if(candidate.Count > best.Count || candidate.Count == best.Count && IsEarlierPriority(candidate.Indices, best.Indices))
+            {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    private static bool IsEarlierPriority(int[] a, int[] b)
+    {
+        for(var i = 0; i < a.Length && i < b.Length; i++)
+        {
+            if(a[i] != b[i]) return a[i] < b[i];
+        }
+        return false;
+    }
+
+    private static bool SameIndices(int[] a, int[] b)
+    {
+        if(a.Length != b.Length) return false;
+        for(var i = 0; i < a.Length; i++)
+        {
+            if(a[i] != b[i]) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// 所有評估過的子集與各自的距離，讓使用者從 log 直接看出「為什麼不是那個組合」。
+    /// ✓＝這艘船跑得完。
+    /// </summary>
+    private static string BuildSubsetTable(List<Candidate> all, int range)
+    {
+        var ordered = all.OrderByDescending(x => x.Count).ThenBy(x => x.Distance);
+        return $"評估過的 {all.Count} 個子集（航行距離 {range}，✓＝跑得完）："
+            + ordered.Select(x => $"{(x.Distance <= range ? "✓" : "✗")}{x.Name}={x.Distance}").Join(" ");
+    }
+
+    /// <summary>
+    /// UI 用的預覽：這份計畫套在「目前工房面板選中的那艘潛水艇」上實際會跑到哪幾個點。
+    /// 🔴 刻意呼叫與出航時同一套選擇邏輯 —— UI 若自己另算一份，演算法一改兩邊就會不一致，
+    /// 而且不一致是靜默的（使用者看到 2 點、實際跑 3 點，沒有任何訊息說明）。
+    /// 回傳 false＝算不出來，呼叫端要畫「?」不要畫 0。
+    /// </summary>
+    internal static bool TryGetTrimPreview(SubmarinePointPlan plan, SubmarineInfo sub, out List<uint> kept, out int distance)
+    {
+        kept = null;
+        distance = 0;
+        if(plan == null || sub.Range <= 0) return false;
+        try
+        {
+            if(!TryResolvePlan(plan, out var start, out var rows, out _)) return false;
+            var byRank = FilterByRank(rows, sub.Rank, out _);
+            if(byRank.Count == 0) return false;
+            if(!TryEvaluateAllSubsets(start, byRank, out var all, out _)) return false;
+            var feasible = all.Where(x => x.Distance <= sub.Range).ToList();
+            if(feasible.Count == 0) return false;
+            var best = PickBest(feasible);
+            kept = best.Order;
+            distance = best.Distance;
+            return true;
+        }
+        catch(Exception e)
+        {
+            // 這個方法會在 ImGui 的 Draw 裡被呼叫；Dalamud 攔到 Draw 例外會把整個外掛的視窗
+            // 關掉到重開遊戲為止，所以一定要把例外吃掉，讓 UI 顯示成「?」就好。
+            PluginLog.Information($"[PointPlanRange] 預覽計算失敗: {e.Message}");
+            return false;
+        }
+    }
+
+    private static List<uint> Compute(SubmarinePointPlan plan, out string report, out string detail)
+    {
+        var original = plan.Points;
+        var planName = plan.Name.Length > 0 ? plan.Name : plan.GUID;
+        var head = $"計畫「{planName}」";
+        detail = null;
+
+        if(!TryResolvePlan(plan, out var start, out var rows, out var reason))
+        {
+            report = head + reason;
             return null;
         }
 
@@ -233,19 +427,16 @@ internal static unsafe class PointPlanRange
             return null;
         }
 
+        // 航距分項寫進 log：使用者最容易誤判的就是「Rank 加成有沒有算進去」。
+        // 台服 7.20 實測 Rank 52 起 RangeBonus 才非零、Rank 90 是 60。
+        var rangeText = $"{range}（零件 {sub.PartsRange} ＋ Rank {sub.Rank} 加成 {sub.RankRangeBonus}）";
+        var buildText = sub.BuildIdentifier.IsNullOrEmpty() ? "" : $"，零件組合 {sub.BuildIdentifier}";
+
         var mismatch = sub.RangeMismatch
             ? $"；⚠️ 表算航行距離 {sub.SheetRange} 與遊戲結構讀到的 {sub.NativeRange} 不一致（採用表算值）"
             : "";
 
-        // 等級不足的點在遊戲裡本來就選不起來（VoyageUtils.SelectRoutePointSafe 會靜默跳過），
-        // 把它們算進距離會造成過度裁切，所以先濾掉再算。
-        var byRank = new List<SubmarineExploration>(rows.Count);
-        var rankDropped = new List<uint>();
-        foreach(var row in rows)
-        {
-            if(row.RankReq <= sub.Rank) byRank.Add(row);
-            else rankDropped.Add(row.RowId);
-        }
+        var byRank = FilterByRank(rows, sub.Rank, out var rankDropped);
         var rankNote = rankDropped.Count > 0 ? $"；等級不足略過 {Describe(rankDropped)}（本艇 Rank {sub.Rank}）" : "";
 
         if(byRank.Count == 0)
@@ -254,28 +445,33 @@ internal static unsafe class PointPlanRange
             return null;
         }
 
-        for(var n = byRank.Count; n >= 1; n--)
+        if(!TryEvaluateAllSubsets(start, byRank, out var all, out var failedSubset))
         {
-            var subset = byRank.Take(n).ToList();
-            var distance = CalculateRouteDistance(start.Value, subset, out var optimizedOrder);
-            if(distance == null)
-            {
-                report = $"{head}：{n} 個點的距離算不出來，不做裁切（維持原樣點滿 {original.Count} 點）{mismatch}";
-                return null;
-            }
-            if(distance.Value <= range)
-            {
-                var kept = optimizedOrder ?? subset.Select(x => x.RowId).ToList();
-                report = $"{head}：潛水艇 {sub.Name}（Rank {sub.Rank}，航行距離 {range}）"
-                    + $"原本 {original.Count} 點 {Describe(original)} → 實際 {kept.Count} 點 {Describe(kept)}"
-                    + $"，估算探索距離 {distance.Value} / 航行距離 {range}{rankNote}{mismatch}";
-                return kept;
-            }
+            report = $"{head}：子集 {failedSubset} 的距離算不出來，不做裁切（維持原樣點滿 {original.Count} 點）{mismatch}";
+            return null;
         }
 
-        report = $"{head}：潛水艇 {sub.Name}（Rank {sub.Rank}，航行距離 {range}）連第一個點都跑不到，"
-            + $"不做裁切，交給遊戲自己判斷{rankNote}{mismatch}";
-        return null;
+        var subHead = $"潛水艇 {sub.Name}（Rank {sub.Rank}{buildText}，航行距離 {rangeText}）";
+        var feasible = all.Where(x => x.Distance <= range).ToList();
+        if(feasible.Count == 0)
+        {
+            report = $"{head}：{subHead}連第一個點都跑不到，不做裁切，交給遊戲自己判斷{rankNote}{mismatch}";
+            detail = BuildSubsetTable(all, range);
+            return null;
+        }
+
+        var best = PickBest(feasible);
+        var alternatives = feasible.Where(x => x.Count == best.Count && !SameIndices(x.Indices, best.Indices)).ToList();
+        var altNote = alternatives.Count > 0
+            ? $"；同樣是 {best.Count} 點的其他候選 {alternatives.OrderBy(x => x.Distance).Select(x => $"{x.Name}={x.Distance}").Join("、")}"
+                + "（依計畫的排列順序取用了前者；想換的話把想要的點位在計畫裡往上移）"
+            : "";
+
+        report = $"{head}：{subHead}"
+            + $"原本 {original.Count} 點 {Describe(original)} → 實際 {best.Count} 點 {Describe(best.Order)}"
+            + $"，估算探索距離 {best.Distance} / 航行距離 {range}{altNote}{rankNote}{mismatch}";
+        detail = BuildSubsetTable(all, range);
+        return best.Order;
     }
 
     #region UI 用的預估距離階梯（純計畫屬性，與是哪一艘潛水艇無關）
