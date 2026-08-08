@@ -72,7 +72,7 @@ internal unsafe class Memory : IDisposable
 
     private nint ReceiveRetainerVentureListUpdateDetour(nint a1, int a2, nint a3)
     {
-        var ret = ReceiveRetainerVentureListUpdateHook.Original(a1, a2, a3);
+        var ret = ReceiveRetainerVentureListUpdateHook.OriginalDisposeSafe(a1, a2, a3);
         PluginLog.Debug($"{a1:X16}, {a2:X8}, {a3:X16}");
         P.ListUpdateFrame = CSFramework.Instance()->FrameCounter;
         return ret;
@@ -80,7 +80,7 @@ internal unsafe class Memory : IDisposable
 
     private nint AddonItemSearchResult_OnRequestedUpdateDelegateDetour(nint a1, nint data)
     {
-        var ret = OnReceiveMarketPricePacketHook.Original(a1, data);
+        var ret = OnReceiveMarketPricePacketHook.OriginalDisposeSafe(a1, data);
         P.MarketCooldownOverlay.UnlockAt = Environment.TickCount64 + 2000;
         return ret;
     }
