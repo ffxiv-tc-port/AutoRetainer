@@ -131,12 +131,22 @@ public static unsafe class RetainerTable
                 ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
                 if(ret.VentureID != 0 && C.ShowAdditionalInfo)
                 {
-                    var parts = VentureUtils.GetVentureById(ret.VentureID).GetFancyVentureNameParts(data, ret, out _);
-                    if(!parts.Name.IsNullOrEmpty())
+                    var venture = VentureUtils.GetVentureById(ret.VentureID);
+                    if(venture == null)
                     {
-                        var c = parts.YieldRate == 4 ? ImGuiColors.ParsedGreen : ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
-                        ImGuiEx.Text(c, $"{(parts.Level != 0 ? $"{Lang.CharLevel}{parts.Level} " : "")}{parts.Name}");
+                        // 委託 ID 查不到對應資料列時把 ID 直接顯示出來，不要讓 Draw 擲例外。
+                        ImGuiEx.Text($"?{ret.VentureID}");
                         ImGui.SameLine();
+                    }
+                    else
+                    {
+                        var parts = venture.Value.GetFancyVentureNameParts(data, ret, out _);
+                        if(!parts.Name.IsNullOrEmpty())
+                        {
+                            var c = parts.YieldRate == 4 ? ImGuiColors.ParsedGreen : ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
+                            ImGuiEx.Text(c, $"{(parts.Level != 0 ? $"{Lang.CharLevel}{parts.Level} " : "")}{parts.Name}");
+                            ImGui.SameLine();
+                        }
                     }
                 }
                 ImGuiEx.Text($"{(!ret.HasVenture ? Loc.T("No Venture") : Utils.ToTimeString(ret.GetVentureSecondsRemaining(C.TimerAllowNegative)))}");

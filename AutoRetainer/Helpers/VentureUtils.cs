@@ -78,7 +78,7 @@ internal static unsafe class VentureUtils
         // GetRow，查無此列時 Lumina 擲 ArgumentOutOfRangeException，而本函式位在
         // Svc.Framework.Update -> SchedulerMain.Tick 的每幀路徑上 => 會每幀洗版並把排程打斷。
         // 在這裡一次擋掉，比在四個呼叫點各補一次可靠。
-        if(!Svc.Data.GetExcelSheet<RetainerTask>().TryGetRow(next, out _))
+        if(!Svc.Data.GetExcelSheet<RetainerTask>().TryGetRow(next, out var nextTask))
         {
             PluginLog.Information($"[AutoRetainer] 委託 ID {next} 不存在於本地 RetainerTask 資料表，略過本次委託指派。請檢查委託計畫是否來自其他服務版本。");
             return;
@@ -96,12 +96,12 @@ internal static unsafe class VentureUtils
             {
                 DebugLog($"Collecting");
                 TaskCollectVenture.Enqueue();
-                if(VentureUtils.GetVentureById(next).IsFieldExploration())
+                if(nextTask.IsFieldExploration())
                 {
                     DebugLog($"Assigning field exploration: {next}");
                     TaskAssignFieldExploration.Enqueue(next);
                 }
-                else if(VentureUtils.GetVentureById(next).IsQuickExploration())
+                else if(nextTask.IsQuickExploration())
                 {
                     DebugLog($"Assigning quick: {next}");
                     TaskAssignQuickVenture.Enqueue();
@@ -116,12 +116,12 @@ internal static unsafe class VentureUtils
         else
         {
             DebugLog($"Venture not assigned");
-            if(VentureUtils.GetVentureById(next).IsFieldExploration())
+            if(nextTask.IsFieldExploration())
             {
                 DebugLog($"Assigning field exploration: {next}");
                 TaskAssignFieldExploration.Enqueue(next);
             }
-            else if(VentureUtils.GetVentureById(next).IsQuickExploration())
+            else if(nextTask.IsQuickExploration())
             {
                 DebugLog($"Assigning quick: {next}");
                 TaskAssignQuickVenture.Enqueue();
@@ -136,7 +136,14 @@ internal static unsafe class VentureUtils
 
     internal static int GetVentureItemAmount(uint Task, OfflineCharacterData data, OfflineRetainerData retainer, out int index)
     {
-        return GetVentureById(Task).GetVentureItemAmount(data, retainer, out index);
+        var task = GetVentureById(Task);
+        if(task == null)
+        {
+            // 委託 ID 不存在於本地資料表：回 0 而不是讓 Lumina 擲例外。
+            index = 0;
+            return 0;
+        }
+        return task.Value.GetVentureItemAmount(data, retainer, out index);
     }
 
     internal static int GetVentureItemAmount(this RetainerTask task, OfflineCharacterData data, OfflineRetainerData retainer, out int index)
@@ -239,7 +246,15 @@ internal static unsafe class VentureUtils
 
     internal static string GetFancyVentureName(uint Task, OfflineCharacterData data, OfflineRetainerData retainer, out bool Available)
     {
-        return GetVentureById(Task).GetFancyVentureName(data, retainer, out Available);
+        var task = GetVentureById(Task);
+        if(task == null)
+        {
+            // 委託計畫存在設定檔裡，可能跨版本殘留或從剪貼簿貼入無效 ID。
+            // 這裡位在 Draw 路徑上，擲例外會讓整個外掛視窗消失，改成把不明 ID 直接顯示出來。
+            Available = false;
+            return $"?{Task}";
+        }
+        return task.Value.GetFancyVentureName(data, retainer, out Available);
     }
 
     internal static string GetFancyVentureName(this RetainerTask Task, OfflineCharacterData data, OfflineRetainerData retainer, out bool Available)
@@ -408,9 +423,14 @@ internal static unsafe class VentureUtils
         return Svc.Data.GetExcelSheet<GatheringItem>().AsNullable().FirstOrDefault(x => x?.Item.RowId == itemID)?.RowId ?? 0;
     }
 
-    internal static RetainerTask GetVentureById(uint id)
+    /// <summary>
+    /// 委託 ID 的來源(設定檔內的委託計畫、剪貼簿貼入、IPC)都不保證存在於本地資料表，
+    /// 因此一律走 GetRowOrDefault：查無此列時回 null，由呼叫端決定顯示什麼，
+    /// 不要讓 Lumina 在 Draw / 每幀路徑上擲例外。
+    /// </summary>
+    internal static RetainerTask? GetVentureById(uint id)
     {
-        return Svc.Data.GetExcelSheet<RetainerTask>().GetRow(id);
+        return Svc.Data.GetExcelSheet<RetainerTask>().GetRowOrDefault(id);
     }
 
     internal static IEnumerable<RetainerTask> GetFieldExplorations(uint ClassJob)
