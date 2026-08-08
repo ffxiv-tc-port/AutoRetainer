@@ -15,6 +15,24 @@ using Lumina.Excel.Sheets;
 
 namespace AutoRetainer.Modules.Voyage;
 
+/// <summary>
+/// <see cref="VoyageUtils.SelectRoutePointSafe(string, out uint)"/> 的結果。
+/// ⚠️ 零值刻意是 <see cref="Unknown"/> 而不是 <see cref="Selected"/> ——
+/// 讓 default 落在樂觀值上，任何漏填的路徑都會靜默變成「成功」。
+/// </summary>
+internal enum RoutePointPickResult
+{
+    Unknown,
+    /// <summary>真的按下去了。</summary>
+    Selected,
+    /// <summary>面板上找得到這個點，但遊戲判定不可選（航行距離不足、未解鎖、等級不足…）。</summary>
+    NotSelectable,
+    /// <summary>面板上根本沒有這個名字的點位（多半是海圖選錯，或計畫來自別的服務版本）。</summary>
+    NotFound,
+    /// <summary>航線面板當下不在或還沒 ready。</summary>
+    PanelUnavailable,
+}
+
 internal static unsafe class VoyageUtils
 {
     internal static bool DontReassign => (C.TempCollectB != LimitedKeys.None && IsKeyPressed(C.TempCollectB) && !CSFramework.Instance()->WindowInactive);
@@ -718,8 +736,21 @@ internal static unsafe class VoyageUtils
         return null;
     }
 
-    internal static void SelectRoutePointSafe(string FullOrShortName)
+    /// <summary>
+    /// 依名稱點選航線上的一個點位。
+    ///
+    /// 🔴 這個方法對「找不到」與「遊戲判定不可選」兩種情形都是**靜默跳過**的，
+    /// 呼叫端必須看回傳值，不能假設呼叫完就一定選上了。
+    /// （2026-08-08 實機證據：點位計畫要求 O→J→M→R→Z 五點，M/R/Z 三點的 StatusFlag=3
+    /// 被靜默略過，整趟照樣出航，使用者看到的是「設了 MROJZ 卻跑了 OJ」——
+    /// 而 Debug 以外的等級一行訊息都沒有，只能靠猜。）
+    ///
+    /// 🔴 行為刻意維持原樣（跳過、繼續往下走），這裡只補回傳值讓呼叫端能記 log。
+    /// </summary>
+    /// <param name="statusFlag">遊戲給這個點位的狀態旗標；面板上找不到該點位時是 <see cref="uint.MaxValue"/>。</param>
+    internal static RoutePointPickResult SelectRoutePointSafe(string FullOrShortName, out uint statusFlag)
     {
+        statusFlag = uint.MaxValue;
         Log($"Requested selection of {FullOrShortName} point.");
         if(TryGetAddonByName<AtkUnitBase>("AirShipExploration", out var addon) && IsAddonReady(addon))
         {
@@ -731,22 +762,30 @@ internal static unsafe class VoyageUtils
                 Log($"  Comparing {i} {dest} with {FullOrShortName}");
                 if(FullOrShortName.EqualsIgnoreCaseAny(dest.NameFull, dest.NameShort))
                 {
+                    statusFlag = dest.StatusFlag;
                     Log($"    Found {FullOrShortName}, CanBeSelected = {dest.CanBeSelected}");
                     if(dest.CanBeSelected)
                     {
-                        SelectRoutePointSafe(i);
+                        return SelectRoutePointSafe(i) ? RoutePointPickResult.Selected : RoutePointPickResult.NotSelectable;
                     }
-                    return;
+                    return RoutePointPickResult.NotSelectable;
                 }
                 else
                 {
                     Log($"    Negative comparison result");
                 }
             }
+            return RoutePointPickResult.NotFound;
         }
+        return RoutePointPickResult.PanelUnavailable;
     }
 
-    internal static void SelectRoutePointSafe(int which)
+    /// <summary>
+    /// 依索引點選航線上的一個點位。回傳值＝「有沒有真的送出選取」。
+    /// ⚠️ 這裡會**重讀一次** reader 再判一次 CanBeSelected，所以呼叫端在上一幀讀到的
+    /// 「可選」不保證這裡也成立 —— 兩者不一致時以這裡的回傳值為準。
+    /// </summary>
+    internal static bool SelectRoutePointSafe(int which)
     {
         Log($"Requested selection of point by ID={which}.");
         if(TryGetAddonByName<AtkUnitBase>("AirShipExploration", out var addon) && IsAddonReady(addon))
@@ -760,11 +799,13 @@ internal static unsafe class VoyageUtils
             {
                 VoyageUtils.Log($"  Selecting {dest.NameFull} / {which}");
                 P.Memory.SelectRoutePointUnsafe(which);
+                return true;
             }
             else
             {
                 VoyageUtils.Log($"  Can't select {dest.NameFull} / {which}, skipping");
             }
         }
+        return false;
     }
 }

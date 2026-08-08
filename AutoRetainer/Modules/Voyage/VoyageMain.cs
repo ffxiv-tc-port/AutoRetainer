@@ -232,6 +232,38 @@ internal static unsafe class VoyageMain
         }
     }
 
+    /// <summary>
+    /// 把「這艘船的航線會從哪裡來」講成一句人看得懂的話，給自動派出的診斷 log 用。
+    /// ⚠️ Use_plan 讀的是點位計畫、Unlock 讀的是解鎖計畫，兩個欄位各自獨立、都可能是
+    /// Guid.Empty 或指向已刪掉的計畫，所以必須按行為挑欄位讀，不能只印其中一個。
+    /// 🔴 只讀不寫：這個方法不得有任何副作用，它純粹是為了讓 log 說得清楚。
+    /// </summary>
+    private static string DescribeBehaviorSource(AdditionalVesselData adata)
+    {
+        try
+        {
+            if(adata.VesselBehavior == VesselBehavior.Use_plan)
+            {
+                var plan = VoyageUtils.GetSubmarinePointPlanByGuid(adata.SelectedPointPlan);
+                if(plan == null) return $"點位計畫＝找不到（GUID {adata.SelectedPointPlan}）";
+                var trim = PointPlanRange.IsTrimEnabled(plan) ? "已啟用" : "未啟用";
+                return $"點位計畫＝「{plan.GetPointPlanName()}」（{plan.Points.Count} 點，航距不足自動裁點：{trim}）";
+            }
+            if(adata.VesselBehavior == VesselBehavior.Unlock)
+            {
+                var plan = VoyageUtils.GetSubmarineUnlockPlanByGuid(adata.SelectedUnlockPlan) ?? VoyageUtils.GetDefaultSubmarineUnlockPlan(false);
+                return $"解鎖計畫＝「{plan?.Name ?? "（無）"}」，解鎖模式＝{adata.UnlockMode}";
+            }
+            if(adata.VesselBehavior == VesselBehavior.LevelUp) return "航線來源＝最佳經驗演算法自選";
+            if(adata.VesselBehavior == VesselBehavior.Redeploy) return "航線來源＝沿用上一趟的點位";
+            return "航線來源＝不派出";
+        }
+        catch(Exception e)
+        {
+            return $"（航線來源判讀失敗：{e.Message}）";
+        }
+    }
+
     private static void ScheduleResend(VoyageType type)
     {
         var next = VoyageUtils.GetNextCompletedVessel(type);
@@ -270,6 +302,9 @@ internal static unsafe class VoyageMain
                                 P.TaskManager.BeginStack();
                                 try
                                 {
+                                    // 📌 「面板上設了 A、實際走了 B」這類路由問題，沒有這行就只能靠猜。
+                                    // 印的是**實際拿來分派的那一筆** per-vessel 設定，不是 UI 另外讀的一份。
+                                    PluginLog.Information($"[Voyage] 準備自動派出 {next}（{type}）：船隻行為＝{adata.VesselBehavior}，{DescribeBehaviorSource(adata)}");
                                     foreach(var x in C.SubmarineUnlockPlans)
                                     {
                                         if(x.EnforcePlan)
@@ -277,7 +312,8 @@ internal static unsafe class VoyageMain
                                             PluginLog.Information($"Unlock plan {x.Name} is set as enforced");
                                             if(TaskDeployOnUnlockRoute.GetUnlockPointsFromPlan(x, UnlockMode.SpamOne).TryGetFirst(out var unlockPoint) && !x.ExcludedRoutes.Any(s => s == unlockPoint.point))
                                             {
-                                                PluginLog.Information($"Enforcing plan {x.Name} on current submarine");
+                                                // ⚠️ 這條路徑會蓋掉上面印的船隻行為 —— 兩行都留著才看得出是被誰蓋掉的。
+                                                PluginLog.Information($"Enforcing plan {x.Name} on current submarine ({next})：強制解鎖計畫蓋過原本的船隻行為 {adata.VesselBehavior}");
                                                 TaskDeployOnUnlockRoute.Enqueue(next, type, x, UnlockMode.SpamOne);
                                                 goto EndTask;
                                             }

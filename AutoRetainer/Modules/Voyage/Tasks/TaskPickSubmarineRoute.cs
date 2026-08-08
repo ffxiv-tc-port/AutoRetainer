@@ -34,15 +34,52 @@ internal static unsafe class TaskPickSubmarineRoute
         return names;
     }
 
+    /// <summary>
+    /// 這趟航線「要求了但沒選上」的點位。
+    /// ⚠️ 只在 framework 執行緒的 task 裡讀寫（任務是循序執行的，不會有兩趟航線交錯）。
+    /// </summary>
+    private static readonly List<string> NotPicked = [];
+    private static string[] RequestedNames = [];
+
+    private static bool? BeginSelectionReport(string[] names)
+    {
+        NotPicked.Clear();
+        RequestedNames = names;
+        return true;
+    }
+
+    /// <summary>
+    /// 把「這趟實際點到了哪幾個點」寫進 log。
+    /// 📌 刻意用 Information 而不是 Debug：使用者跑 LogLevel 2，Debug 收不到，
+    /// 而「設了 A 卻跑了 B」正是他唯一會來回報的那件事。
+    /// 🔴 只記錄、不改變流程 —— 沒選滿照樣出航，維持既有行為。
+    /// </summary>
+    private static bool? EndSelectionReport()
+    {
+        if(NotPicked.Count == 0)
+        {
+            PluginLog.Information($"[Voyage] 航線選點完成：要求的 {RequestedNames.Length} 個點位（{RequestedNames.Join("→")}）全部選上");
+        }
+        else
+        {
+            PluginLog.Information($"[Voyage] ⚠️ 航線選點不完整：要求 {RequestedNames.Length} 點（{RequestedNames.Join("→")}）"
+                + $"，其中 {NotPicked.Count} 點沒選上（{NotPicked.Join("、")}）。這趟會用剩下的點出航。"
+                + $"最常見的原因是這艘潛水艇的航行距離跑不完整份計畫（可在點位計畫裡開啟「航距不足時自動裁點」），其次是點位尚未解鎖或等級不足。");
+        }
+        return true;
+    }
+
     internal static void Enqueue(uint map, params uint[] points)
     {
         VoyageUtils.Log($"Task enqueued: {nameof(TaskPickSubmarineRoute)}, map={map}, points={points.Print()}");
         var names = ResolvePointNames(map, points);
+        P.TaskManager.Enqueue(() => BeginSelectionReport(names), "BeginRouteSelectionReport");
         P.TaskManager.Enqueue(() => PickMap(map), $"PickMap({map})");
         foreach(var name in names)
         {
             P.TaskManager.Enqueue(() => PickPoint(name), $"PickPoint({name})");
         }
+        P.TaskManager.Enqueue(() => EndSelectionReport(), "EndRouteSelectionReport");
     }
 
     internal static void EnqueueImmediate(uint map, params uint[] points)
@@ -52,11 +89,13 @@ internal static unsafe class TaskPickSubmarineRoute
         {
             VoyageUtils.Log($"Task enqueued (immediate): {nameof(TaskPickSubmarineRoute)}, map={map}, points={points.Print()}");
             var names = ResolvePointNames(map, points);
+            P.TaskManager.Enqueue(() => BeginSelectionReport(names), "BeginRouteSelectionReport");
             P.TaskManager.Enqueue(() => PickMap(map), $"PickMap({map})");
             foreach(var name in names)
             {
                 P.TaskManager.Enqueue(() => PickPoint(name), $"PickPoint({name})");
             }
+            P.TaskManager.Enqueue(() => EndSelectionReport(), "EndRouteSelectionReport");
         }
         catch(Exception e) { e.Log(); }
         P.TaskManager.InsertStack();
@@ -86,13 +125,32 @@ internal static unsafe class TaskPickSubmarineRoute
         return false;
     }
 
+    private static string Explain(RoutePointPickResult result)
+    {
+        return result switch
+        {
+            RoutePointPickResult.NotSelectable => "遊戲判定不可選（航行距離不足／未解鎖／等級不足）",
+            RoutePointPickResult.NotFound => "這張海圖的點位列表裡沒有這個名字",
+            RoutePointPickResult.PanelUnavailable => "航線面板當下不可用",
+            _ => $"{result}",
+        };
+    }
+
     internal static bool? PickPoint(string name)
     {
         if(TryGetAddonByName<AtkUnitBase>("AirShipExploration", out var addon) && IsAddonReady(addon))
         {
             if(Utils.GenericThrottle)
             {
-                VoyageUtils.SelectRoutePointSafe(name);
+                // 🔴 這個 task 過去無論有沒有選到都回 true，所以「計畫的點被吃掉」在
+                // NeoTaskManager 的 log 上看起來與成功完全一樣。行為維持不變（照樣往下走），
+                // 但沒選上一定要留下 Information 級的痕跡。
+                var result = VoyageUtils.SelectRoutePointSafe(name, out var statusFlag);
+                if(result != RoutePointPickResult.Selected)
+                {
+                    NotPicked.Add(name);
+                    PluginLog.Information($"[Voyage] 點位「{name}」沒有被選上：{Explain(result)}（StatusFlag={statusFlag}）—— 本趟航線會少這個點");
+                }
                 return true;
             }
         }
