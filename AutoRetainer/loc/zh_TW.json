@@ -894,5 +894,6 @@
   "Used by both Inventory Cleanup -> Fast Addition and Removal, and Entrust Manager -> Fast addition/removal. Set to None to disable the action entirely.": "「背包清理/快速添加和移除」與「委託管理 → 快速新增/移除」共用這個按鍵。設為 None 即完全停用該動作。",
   "Used by Inventory Cleanup -> Fast Addition and Removal. Set to None to disable the action entirely.": "「背包清理/快速添加和移除」使用這個按鍵。設為 None 即完全停用該動作。",
   "\"Discard now\" button confirmation": "「立即丟棄」按鈕的確認鍵",
-  "Hold this key to make the \"Discard now\" button clickable. Set to None to disable that button completely - discarded items can NOT be bought back, so it never becomes a one-click action.": "按住這個鍵，「立即丟棄」按鈕才點得下去。設為 None 會完全停用該按鈕——丟棄的物品無法買回，所以它永遠不會變成一鍵操作。"
+  "Hold this key to make the \"Discard now\" button clickable. Set to None to disable that button completely - discarded items can NOT be bought back, so it never becomes a one-click action.": "按住這個鍵，「立即丟棄」按鈕才點得下去。設為 None 會完全停用該按鈕——丟棄的物品無法買回，所以它永遠不會變成一鍵操作。",
+  "Carrying exactly 0 counts as deliberately going without fuel and never triggers a purchase - refuelling only fires between 1 and this threshold. This keeps temporarily stashing your tanks elsewhere from starting a purchase. Use \"Buy now\" below to refuel from zero.": "身上恰為 0 時視為刻意未攜帶燃料，不會自動購買；補充僅在 1 到門檻值之間觸發。這樣在把桶裝青磷水暫時放到別處時就不會被拉去購買。想從 0 開始補充，請用下方的「立即購買」。"
 }

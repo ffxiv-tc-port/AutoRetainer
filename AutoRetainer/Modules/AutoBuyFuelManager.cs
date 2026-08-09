@@ -51,7 +51,18 @@ internal static class AutoBuyFuelManager
         if(!C.AutoBuyFuelEnabled) return;
         if(!Player.Available) return;
         if(!VoyageUtils.Workshops.Contains(Svc.ClientState.TerritoryType)) return;
-        if(Data == null || Data.Ceruleum >= C.AutoBuyFuelThreshold) return;
+        if(Data == null) return;
+        // 🔴 恰為 0 ＝「刻意沒帶」，不是「快用完了」。使用者會在 NPC 旁整理背包時把桶裝青磷水
+        // 暫時放到別處（雇員、部隊寶物庫、市場委託），那一瞬間身上就是 0，而舊的「低於門檻值就補」
+        // 連 0 都涵蓋，於是整理到一半就被拉去買一整批。補充只在 1 ~ 門檻值-1 之間觸發。
+        //
+        // ⚠️ 這與 IsFuelReservedForAutoBuy 是**互補**的兩件事，不能互相取代：
+        // 那邊擋的是**自動**把燃料搬進雇員的路徑，這裡擋的是**手動**暫存造成的誤判。
+        //
+        // 📌 想從 0 開始補的人有出口：設定頁的「立即購買」按鈕，以及工坊懸浮列的遞迴購買，
+        // 兩者都是手動觸發、不看這個門檻。
+        if(Data.Ceruleum <= 0) return;
+        if(Data.Ceruleum >= C.AutoBuyFuelThreshold) return;
         if(P.TaskManager.IsBusy) return;
         if(DateTimeOffset.Now.ToUnixTimeMilliseconds() - C.AutoBuyFuelCheckTimes.SafeSelect(Player.CID) < 60_000) return;
         if(!EzThrottler.Throttle("AutoBuyFuel.Trigger", 5000)) return;
