@@ -204,11 +204,25 @@ internal static unsafe class OfflineDataManager
         if(saveConfig) EzConfig.Save();
     }
 
+    /// <remarks>
+    /// 🔴 這四個值全部無條件覆寫，而它們的來源在容器讀不到的時候一律**靜默回 0**：
+    /// <c>GetInventoryItemCount</c> 與 <see cref="Utils.GetInventoryFreeSlotCount"/> 都是「讀不到就跳過、
+    /// 繼續累加」，所以「還沒載入」與「真的是 0」在呼叫端完全同形。而換區、登入初期、多角模式換角當下
+    /// 都會踩到這個窗口，偏偏這個函式正是在那些時機被呼叫的（登入、ConditionChange）。
+    ///
+    /// 寫進去的 0 不是只影響顯示：它會存進設定檔，並在角色離線時被當成真值使用——
+    /// 自動購買燃料的觸發條件讀的就是 <c>Data.Ceruleum</c>，多角模式的排程讀 <c>Ventures</c> 與
+    /// <c>InventorySpace</c>。一個假的 0 會讓「該買」「該跑」的判斷全部歪掉，而且沒有任何徵兆。
+    ///
+    /// 所以讀不到就整組不覆寫，維持上一次讀到的舊值——與同檔上面部隊金幣（<c>gil &gt;= 0</c> 才採用）
+    /// 是同一個保守策略。舊值只是過期，假的 0 是錯的；下一次讀得到時自然會補上。
+    /// </remarks>
     internal static void WriteOfflineInventoryData(this OfflineCharacterData data)
     {
+        if(!Utils.IsInventoryStateReadable()) return;
         data.Ventures = Utils.GetVenturesAmount();
         data.InventorySpace = (uint)Utils.GetInventoryFreeSlotCount();
-        data.Ceruleum = InventoryManager.Instance()->GetInventoryItemCount(10155);
+        data.Ceruleum = InventoryManager.Instance()->GetInventoryItemCount(AutoBuyFuelManager.FuelItemId);
         data.RepairKits = InventoryManager.Instance()->GetInventoryItemCount(10373);
     }
 

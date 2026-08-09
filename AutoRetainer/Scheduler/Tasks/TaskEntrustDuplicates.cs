@@ -264,6 +264,20 @@ internal static unsafe class TaskEntrustDuplicates
                         }
                     }
                 }
+                // 🔴 燃料的硬排除。itemList 是上面三條建立路徑（EntrustItems、EntrustCategories、
+                // multistack duplicates）的共同出口，也是底下「無條件存入」迴圈唯一的依據，所以在這裡
+                // 拔掉一次就同時蓋住三條路，日後新增的來源也會自動被蓋到。
+                // ⚠️ 但這**不包括**下面 !DuplicatesMultiStack 的那條 duplicates 迴圈：它的條件是
+                // `!itemList.ContainsKey(...)`，從 itemList 拿掉反而會讓它開始處理燃料，所以那裡另外
+                // 有一個明確的跳過。理由見 AutoBuyFuelManager.IsFuelReservedForAutoBuy。
+                // ContainsKey 先問，是為了讓那條 Information 只在真的排除掉東西時才出現：
+                // 計畫根本沒涵蓋燃料的人不需要看到它。
+                if(itemList.ContainsKey(AutoBuyFuelManager.FuelItemId)
+                    && AutoBuyFuelManager.IsFuelReservedForAutoBuy(AutoBuyFuelManager.FuelItemId))
+                {
+                    itemList.Remove(AutoBuyFuelManager.FuelItemId);
+                }
+
                 // How many of each item the player is holding across the allowed containers. Built once
                 // per tick instead of calling Utils.GetItemCount inside the slot loop below, which
                 // rescanned every allowed container for every occupied slot - quadratic in slot count,
@@ -343,6 +357,9 @@ internal static unsafe class TaskEntrustDuplicates
                             var item = inv->GetInventorySlot(i);
                             if(item == null) continue;
                             if(plan.ExcludeProtected && s.IMProtectList.Contains(item->ItemId)) continue;
+                            // 見上面 itemList.Remove 那段：這條路徑的條件是「不在 itemList 裡」，
+                            // 所以從 itemList 拔掉燃料對它是反效果，必須在這裡明確跳過。
+                            if(AutoBuyFuelManager.IsFuelReservedForAutoBuy(item->ItemId)) continue;
                             if(item->ItemId != 0 && !itemList.ContainsKey(item->ItemId))
                             {
                                 var data = ExcelItemHelper.Get(item->ItemId);

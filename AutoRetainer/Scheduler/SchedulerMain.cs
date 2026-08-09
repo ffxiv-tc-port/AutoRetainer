@@ -583,6 +583,9 @@ internal static unsafe class SchedulerMain
                 if(item == null) continue;
                 if(item->ItemId == 0 || item->Quantity == 0) continue;
                 if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
+                // 存入那一側會拒絕搬燃料，這裡就不能因為背包裡有燃料而回報「有工作」——
+                // 否則雇員會被開起來、發現沒東西可搬、再關掉，正是本檔要修掉的那個空開。
+                if(AutoBuyFuelManager.IsFuelReservedForAutoBuy(item->ItemId)) continue;
 
                 int? toKeep = null;
                 if(plan.EntrustItems.Contains(item->ItemId))
@@ -642,6 +645,8 @@ internal static unsafe class SchedulerMain
                 if(item == null) continue;
                 if(item->ItemId == 0) continue;
                 if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
+                // 同上：燃料不會被存入，所以雇員身上的燃料不構成「有工作」。
+                if(AutoBuyFuelManager.IsFuelReservedForAutoBuy(item->ItemId)) continue;
 
                 if(plan.DuplicatesMultiStack)
                 {
