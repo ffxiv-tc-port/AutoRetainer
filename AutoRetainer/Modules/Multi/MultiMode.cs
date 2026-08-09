@@ -66,6 +66,9 @@ internal static unsafe class MultiMode
             }
             LastLogin = MultiMode.Enabled && !C.MultiWaitOnLoginScreen ? Svc.ClientState.LocalContentId : 0;
             Interactions.Clear();
+            // 登出那側也清了一次；這裡是第二道，涵蓋「登出事件沒送到」與「外掛在已登入狀態下載入」。
+            // 剛登入時不可能有進行中的雇員行程，所以無條件清空是安全的。
+            SchedulerMain.ClearPendingEntrustVendorPass("login");
             if(CanHET)
             {
                 DebugLog($"ProperOnLogin: {Svc.ClientState.LocalPlayer}, residential area, scheduling HET");

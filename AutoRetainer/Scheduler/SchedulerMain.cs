@@ -36,8 +36,27 @@ internal static unsafe class SchedulerMain
     internal static ImmutableList<string> CharacterPostprocess = Array.Empty<string>().ToImmutableList();
 
     /// <summary>Retainers (this character, this automation cycle) still waiting for their deferred
-    /// entrust-duplicates/auto-vendor batch pass, run once every retainer's venture business is settled.</summary>
-    internal static List<string> PendingEntrustVendorPostprocess = [];
+    /// entrust-duplicates/auto-vendor batch pass, run once every retainer's venture business is settled.
+    ///
+    /// <para><c>HasDuplicatesWork</c> records whether the retainer was queued for work that is
+    /// <b>its own</b> (entrust-duplicates: matching what sits in this retainer's bags against the player's),
+    /// as opposed to work read purely off the player's shared inventory (auto-vendor and unconditional
+    /// entrust). The shared half is re-checked at drain time; the per-retainer half cannot be, because
+    /// the retainer's inventory is only readable while that retainer is open. See
+    /// <see cref="TryDrainEntrustVendorPass"/>.</para></summary>
+    internal static List<(string Retainer, bool HasDuplicatesWork)> PendingEntrustVendorPostprocess = [];
+
+    /// <summary>Drops the deferred entrust/vendor queue. It holds retainer <b>names</b> belonging to one
+    /// specific character, and nothing else in the queue identifies which character that was, so a leftover
+    /// entry would be matched by name against the next character's retainers. Nothing ever emptied it on a
+    /// character change before - it only drained down naturally, so an interrupted cycle (logout mid-run,
+    /// plugin disabled, retainer list closed by hand) left entries behind.</summary>
+    internal static void ClearPendingEntrustVendorPass(string reason)
+    {
+        if(PendingEntrustVendorPostprocess.Count == 0) return;
+        PluginLog.Information($"[EntrustVendorPass] Dropping {PendingEntrustVendorPostprocess.Count} pending retainer(s) [{PendingEntrustVendorPostprocess.Select(x => x.Retainer).Print()}]: {reason}");
+        PendingEntrustVendorPostprocess.Clear();
+    }
 
     internal static PluginEnableReason Reason { get; set; }
 
@@ -221,9 +240,14 @@ internal static unsafe class SchedulerMain
                                     // something to do - this retainer's own inventory is already loaded right now
                                     // (we're mid-visit), so it's checked live instead of just "is this enabled".
                                     var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
-                                    if(RetainerHasEntrustOrVendorWork(selectedPlan) && !PendingEntrustVendorPostprocess.Contains(retainer))
+                                    // Both halves are evaluated - deliberately not short-circuited. The duplicates
+                                    // answer is only obtainable right now (this retainer's inventory is open), so
+                                    // it has to be recorded even when the shared half already said "yes".
+                                    var hasSharedWork = HasSharedEntrustVendorWork(selectedPlan);
+                                    var hasDuplicatesWork = RetainerHasDuplicatesWork(selectedPlan);
+                                    if((hasSharedWork || hasDuplicatesWork) && !PendingEntrustVendorPostprocess.Any(x => x.Retainer == retainer))
                                     {
-                                        PendingEntrustVendorPostprocess.Add(retainer);
+                                        PendingEntrustVendorPostprocess.Add((retainer, hasDuplicatesWork));
                                     }
 
                                     //withdraw gil
@@ -435,18 +459,40 @@ internal static unsafe class SchedulerMain
     /// Both steps only ever move items OUT of the player's inventory (entrust hands them to the
     /// retainer, auto-vendor sells them), so this is safe - and useful - to run while the inventory
     /// is too full to collect ventures.</summary>
+    /// <remarks>
+    /// 🔴 入列時算出來的「有工作」會過期。auto-vendor 與無條件存入讀的都是**玩家背包**，那是所有雇員
+    /// 共用的一份 —— 佇列裡第一個雇員把該賣的賣掉、該存的存完之後，後面的雇員讀到的是同一個已經被清空的
+    /// 背包，卻照樣被開起來、什麼都沒做、再關掉（使用者看到的「問完馬上關」）。所以這裡在
+    /// <see cref="RetainerListHandlers.SelectRetainerByName"/> **之前**重驗共用的那一半。
+    ///
+    /// 逐雇員的那一半（entrust-duplicates）驗不了：那要讀雇員自己的背包，而雇員沒開起來就讀不到。
+    /// 入列時記下來的旗標因此是「當時有」，不是「現在還有」。
+    ///
+    /// 失敗方向鎖在安全側：只有在「確定讀得到玩家背包」**且**「共用部分確定已清空」**且**「沒有逐雇員
+    /// 工作」三者同時成立時才跳過。讀不到、拿不到設定、有任何一絲不確定 ⇒ 照舊開啟（＝這個修改之前的
+    /// 行為）。少開一次會漏掉真正該做的搬運，多開一次只是浪費幾秒。
+    /// </remarks>
     private static bool TryDrainEntrustVendorPass()
     {
         while(PendingEntrustVendorPostprocess.Count > 0)
         {
-            var next = PendingEntrustVendorPostprocess[0];
+            var (next, hasDuplicatesWork) = PendingEntrustVendorPostprocess[0];
             PendingEntrustVendorPostprocess.RemoveAt(0);
             if(!Utils.TryGetRetainerByName(next, out _)) continue;
 
             var adata = Utils.GetAdditionalData(Svc.ClientState.LocalContentId, next);
+            var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
+
+            // Data null 或背包讀不到 ⇒ 不重驗，維持舊行為把雇員開起來。
+            var canRevalidate = Data != null && Utils.IsInventoryStateReadable();
+            if(!hasDuplicatesWork && canRevalidate && !HasSharedEntrustVendorWork(selectedPlan))
+            {
+                PluginLog.Information($"[EntrustVendorPass] Skipping {next}: the shared inventory work it was queued for has already been done by an earlier retainer in this batch, and it has no entrust-duplicates work of its own.");
+                continue;
+            }
+
             P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(next));
 
-            var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
             if(C.EnableEntrustManager && selectedPlan != null)
             {
                 TaskEntrustDuplicates.EnqueueNew(selectedPlan);
@@ -482,19 +528,20 @@ internal static unsafe class SchedulerMain
         catch(Exception e) { e.Log(); }
     }
 
-    /// <summary>Whether the deferred entrust/vendor batch pass would actually find anything to do for
-    /// the retainer whose inventory is currently loaded (called mid-visit, right after venture business),
-    /// so this retainer isn't reopened later for nothing. Vendor only ever needs the player's own
-    /// inventory; entrust's "unconditional" items/categories are checked against the player's carried
-    /// counts, and duplicates are checked against this retainer's live inventory since it's already
-    /// open right now - none of this is guessable without the retainer being open.</summary>
+    /// <summary>The half of the deferred entrust/vendor work that is read entirely off the <b>player's</b>
+    /// inventory: auto-vendor, and entrust's "unconditional" items/categories checked against the player's
+    /// carried counts. That inventory is shared by every retainer, so this answer is not specific to any
+    /// one of them - and it goes stale the moment an earlier retainer in the batch consumes it, which is
+    /// why <see cref="TryDrainEntrustVendorPass"/> asks again instead of trusting the queued answer.
+    ///
+    /// <para>The plan is still per-retainer (each retainer may point at a different
+    /// <see cref="EntrustPlan"/>), so this is evaluated with that retainer's plan against the live shared
+    /// inventory.</para></summary>
     /// <remarks>
-    /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少報工作、不可能多報**。回傳值只用來決定
-    /// 「要不要把這個雇員排進待辦」，少報＝這一輪不重開他，下一輪重新評估時就會補回來；
-    /// 多報才是有代價的（白開一次雇員），而跳過永遠不會造成多報。
+    /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少報工作、不可能多報**。
     /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
     /// </remarks>
-    private static unsafe bool RetainerHasEntrustOrVendorWork(EntrustPlan? plan)
+    private static unsafe bool HasSharedEntrustVendorWork(EntrustPlan? plan)
     {
         var vs = Data.GetIMSettings();
 
@@ -558,46 +605,68 @@ internal static unsafe class SchedulerMain
             }
         }
 
-        //duplicates: this retainer's own inventory is loaded right now (mid-visit), so it's safe to check
-        if(plan.Duplicates)
-        {
-            foreach(var type in Utils.RetainerInventoriesWithCrystals)
-            {
-                if(type.EqualsAny(InventoryType.Crystals, InventoryType.RetainerCrystals)) continue;
-                var inv = InventoryManager.Instance()->GetInventoryContainer(type);
-                if(inv == null) continue;
-                for(var i = 0; i < inv->Size; i++)
-                {
-                    var item = inv->GetInventorySlot(i);
-                    if(item == null) continue;
-                    if(item->ItemId == 0) continue;
-                    if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
+        return false;
+    }
 
-                    if(plan.DuplicatesMultiStack)
+    /// <summary>The half of the deferred entrust/vendor work that belongs to <b>this specific retainer</b>:
+    /// entrust-duplicates, which matches what sits in this retainer's own bags against what the player is
+    /// carrying.
+    ///
+    /// <para>🔴 Only answerable while this retainer is open - the retainer containers are not mapped
+    /// otherwise. That is the whole reason the queue carries the answer as a flag instead of recomputing
+    /// it at drain time, and therefore also the reason the flag can be stale: an earlier retainer in the
+    /// batch may have taken the player-side items this one was matched against. Staleness here costs one
+    /// needless retainer visit, never a skipped move.</para></summary>
+    /// <remarks>
+    /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少報工作、不可能多報**。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
+    private static unsafe bool RetainerHasDuplicatesWork(EntrustPlan? plan)
+    {
+        if(!C.EnableEntrustManager || plan == null || !plan.Duplicates)
+        {
+            return false;
+        }
+
+        var vs = Data.GetIMSettings();
+        var allowedPlayerInventories = plan.GetAllowedInventories();
+
+        foreach(var type in Utils.RetainerInventoriesWithCrystals)
+        {
+            if(type.EqualsAny(InventoryType.Crystals, InventoryType.RetainerCrystals)) continue;
+            var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) continue;
+            for(var i = 0; i < inv->Size; i++)
+            {
+                var item = inv->GetInventorySlot(i);
+                if(item == null) continue;
+                if(item->ItemId == 0) continue;
+                if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
+
+                if(plan.DuplicatesMultiStack)
+                {
+                    if(Utils.GetItemCount(allowedPlayerInventories, item->ItemId) > 0)
                     {
-                        if(Utils.GetItemCount(allowedPlayerInventories, item->ItemId) > 0)
+                        return true;
+                    }
+                    continue;
+                }
+
+                var data = ExcelItemHelper.Get(item->ItemId);
+                if(data == null || data.Value.IsUnique) continue;
+                if(data.Value.StackSize - item->Quantity <= 0) continue;
+
+                foreach(var playerType in allowedPlayerInventories)
+                {
+                    var playerInv = InventoryManager.Instance()->GetInventoryContainer(playerType);
+                    if(playerInv == null) continue;
+                    for(var q = 0; q < playerInv->Size; q++)
+                    {
+                        var playerItem = playerInv->GetInventorySlot(q);
+                        if(playerItem == null) continue;
+                        if(playerItem->ItemId == item->ItemId && playerItem->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality) == item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality))
                         {
                             return true;
-                        }
-                        continue;
-                    }
-
-                    var data = ExcelItemHelper.Get(item->ItemId);
-                    if(data == null || data.Value.IsUnique) continue;
-                    if(data.Value.StackSize - item->Quantity <= 0) continue;
-
-                    foreach(var playerType in allowedPlayerInventories)
-                    {
-                        var playerInv = InventoryManager.Instance()->GetInventoryContainer(playerType);
-                        if(playerInv == null) continue;
-                        for(var q = 0; q < playerInv->Size; q++)
-                        {
-                            var playerItem = playerInv->GetInventorySlot(q);
-                            if(playerItem == null) continue;
-                            if(playerItem->ItemId == item->ItemId && playerItem->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality) == item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality))
-                            {
-                                return true;
-                            }
                         }
                     }
                 }

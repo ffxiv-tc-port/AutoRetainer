@@ -817,6 +817,10 @@ public unsafe class AutoRetainer : IDalamudPlugin
     {
         SchedulerMain.DisablePlugin();
 
+        // 這個佇列裝的是「雇員名字」，而雇員名字只在該角色底下唯一。多角模式換角是走登出的，
+        // 沒清乾淨的殘留項目會在下一個角色被按名字比對到（同名雇員在不同角色底下是可能的）。
+        SchedulerMain.ClearPendingEntrustVendorPass("logout");
+
         if(!P.TaskManager.IsBusy)
         {
             MultiMode.LastLogin = 0;
