@@ -38,13 +38,19 @@ internal static unsafe class SchedulerMain
     /// <summary>Retainers (this character, this automation cycle) still waiting for their deferred
     /// entrust-duplicates/auto-vendor batch pass, run once every retainer's venture business is settled.
     ///
-    /// <para><c>HasDuplicatesWork</c> records whether the retainer was queued for work that is
-    /// <b>its own</b> (entrust-duplicates: matching what sits in this retainer's bags against the player's),
-    /// as opposed to work read purely off the player's shared inventory (auto-vendor and unconditional
-    /// entrust). The shared half is re-checked at drain time; the per-retainer half cannot be, because
-    /// the retainer's inventory is only readable while that retainer is open. See
-    /// <see cref="TryDrainEntrustVendorPass"/>.</para></summary>
-    internal static List<(string Retainer, bool HasDuplicatesWork)> PendingEntrustVendorPostprocess = [];
+    /// <para><c>DuplicatesCandidates</c> is the retainer half of the answer, kept in a form that survives
+    /// until drain time. The retainer's own inventory is only readable while that retainer is open, so it
+    /// is captured once - as the set of item ids in its bags that pass the <b>retainer-side</b> filters of
+    /// the duplicates rule (see <see cref="CollectDuplicatesCandidates"/>). The player-side half of that
+    /// rule is then asked live at drain time by <see cref="PlayerHoldsAnyOf"/>.</para>
+    ///
+    /// <para>🔑 Deliberately NOT "the ids that were duplicate work at scan time": the player <b>gains</b>
+    /// items during this phase (every venture collected between now and the drain lands in their bags), so
+    /// a set frozen against the player's inventory would miss work that only came into existence
+    /// afterwards. The retainer side is the half that cannot change while unvisited, so that is the half
+    /// worth freezing - and "player holds none of these ids" is then a genuine necessary condition for
+    /// "this retainer has no duplicates work", in both the multi-stack and the partial-stack variants.</para></summary>
+    internal static List<(string Retainer, HashSet<uint> DuplicatesCandidates)> PendingEntrustVendorPostprocess = [];
 
     /// <summary>Drops the deferred entrust/vendor queue. It holds retainer <b>names</b> belonging to one
     /// specific character, and nothing else in the queue identifies which character that was, so a leftover
@@ -240,14 +246,16 @@ internal static unsafe class SchedulerMain
                                     // something to do - this retainer's own inventory is already loaded right now
                                     // (we're mid-visit), so it's checked live instead of just "is this enabled".
                                     var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
-                                    // Both halves are evaluated - deliberately not short-circuited. The duplicates
-                                    // answer is only obtainable right now (this retainer's inventory is open), so
-                                    // it has to be recorded even when the shared half already said "yes".
+                                    // Both halves are evaluated - deliberately not short-circuited. The retainer
+                                    // side of the duplicates rule is only obtainable right now (this retainer's
+                                    // inventory is open), so it has to be captured even when the shared half
+                                    // already said "yes".
                                     var hasSharedWork = HasSharedEntrustVendorWork(selectedPlan);
-                                    var hasDuplicatesWork = RetainerHasDuplicatesWork(selectedPlan);
-                                    if((hasSharedWork || hasDuplicatesWork) && !PendingEntrustVendorPostprocess.Any(x => x.Retainer == retainer))
+                                    var duplicatesCandidates = CollectDuplicatesCandidates(selectedPlan);
+                                    if((hasSharedWork || PlayerHoldsAnyOf(selectedPlan, duplicatesCandidates))
+                                        && !PendingEntrustVendorPostprocess.Any(x => x.Retainer == retainer))
                                     {
-                                        PendingEntrustVendorPostprocess.Add((retainer, hasDuplicatesWork));
+                                        PendingEntrustVendorPostprocess.Add((retainer, duplicatesCandidates));
                                     }
 
                                     //withdraw gil
@@ -476,7 +484,7 @@ internal static unsafe class SchedulerMain
     {
         while(PendingEntrustVendorPostprocess.Count > 0)
         {
-            var (next, hasDuplicatesWork) = PendingEntrustVendorPostprocess[0];
+            var (next, duplicatesCandidates) = PendingEntrustVendorPostprocess[0];
             PendingEntrustVendorPostprocess.RemoveAt(0);
             if(!Utils.TryGetRetainerByName(next, out _)) continue;
 
@@ -485,9 +493,11 @@ internal static unsafe class SchedulerMain
 
             // Data null 或背包讀不到 ⇒ 不重驗，維持舊行為把雇員開起來。
             var canRevalidate = Data != null && Utils.IsInventoryStateReadable();
-            if(!hasDuplicatesWork && canRevalidate && !HasSharedEntrustVendorWork(selectedPlan))
+            if(canRevalidate
+                && !PlayerHoldsAnyOf(selectedPlan, duplicatesCandidates)
+                && !HasSharedEntrustVendorWork(selectedPlan))
             {
-                PluginLog.Information($"[EntrustVendorPass] Skipping {next}: the shared inventory work it was queued for has already been done by an earlier retainer in this batch, and it has no entrust-duplicates work of its own.");
+                PluginLog.Information($"[EntrustVendorPass] Skipping {next}: the shared inventory work it was queued for has already been done by an earlier retainer in this batch, and the player no longer carries any of the {duplicatesCandidates.Count} item(s) this retainer could have taken as duplicates.");
                 continue;
             }
 
@@ -615,24 +625,31 @@ internal static unsafe class SchedulerMain
     /// entrust-duplicates, which matches what sits in this retainer's own bags against what the player is
     /// carrying.
     ///
-    /// <para>🔴 Only answerable while this retainer is open - the retainer containers are not mapped
-    /// otherwise. That is the whole reason the queue carries the answer as a flag instead of recomputing
-    /// it at drain time, and therefore also the reason the flag can be stale: an earlier retainer in the
-    /// batch may have taken the player-side items this one was matched against. Staleness here costs one
-    /// needless retainer visit, never a skipped move.</para></summary>
+    /// <para>🔴 Only collectable while this retainer is open - the retainer containers are not mapped
+    /// otherwise. This is the half of the duplicates rule that depends on the retainer, and the only half
+    /// that cannot change while it is left alone, so it is what the queue carries;
+    /// <see cref="PlayerHoldsAnyOf"/> supplies the other half live at drain time.</para>
+    ///
+    /// <para>Both variants of the rule require the player to be holding the same item id that the retainer
+    /// holds - multi-stack wants any amount of it, partial-stack wants a matching-quality stack to top up
+    /// an incomplete one. So an id being absent from this set, or present but no longer carried by the
+    /// player, both mean "no duplicates work for that id". The set therefore only ever needs the
+    /// retainer-side conditions applied: not protected, not fuel, and (partial-stack only) a real,
+    /// non-unique item whose stack here still has room.</para></summary>
     /// <remarks>
-    /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少報工作、不可能多報**。
+    /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少收候選、不可能多收**。少收＝可能少開一次雇員，
+    /// 所以這裡刻意收得寬：品質(HQ)不納入比對、multi-stack 不預判數量，一律把判斷留給 drain 時的實際掃描。
     /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
     /// </remarks>
-    private static unsafe bool RetainerHasDuplicatesWork(EntrustPlan? plan)
+    private static unsafe HashSet<uint> CollectDuplicatesCandidates(EntrustPlan? plan)
     {
+        HashSet<uint> candidates = [];
         if(!C.EnableEntrustManager || plan == null || !plan.Duplicates)
         {
-            return false;
+            return candidates;
         }
 
         var vs = Data.GetIMSettings();
-        var allowedPlayerInventories = plan.GetAllowedInventories();
 
         foreach(var type in Utils.RetainerInventoriesWithCrystals)
         {
@@ -650,31 +667,43 @@ internal static unsafe class SchedulerMain
 
                 if(plan.DuplicatesMultiStack)
                 {
-                    if(Utils.GetItemCount(allowedPlayerInventories, item->ItemId) > 0)
-                    {
-                        return true;
-                    }
+                    candidates.Add(item->ItemId);
                     continue;
                 }
 
+                // 只有這個變體多一個雇員側的前提：這裡的堆疊要還有空間可以補。
                 var data = ExcelItemHelper.Get(item->ItemId);
                 if(data == null || data.Value.IsUnique) continue;
                 if(data.Value.StackSize - item->Quantity <= 0) continue;
+                candidates.Add(item->ItemId);
+            }
+        }
 
-                foreach(var playerType in allowedPlayerInventories)
-                {
-                    var playerInv = InventoryManager.Instance()->GetInventoryContainer(playerType);
-                    if(playerInv == null) continue;
-                    for(var q = 0; q < playerInv->Size; q++)
-                    {
-                        var playerItem = playerInv->GetInventorySlot(q);
-                        if(playerItem == null) continue;
-                        if(playerItem->ItemId == item->ItemId && playerItem->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality) == item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality))
-                        {
-                            return true;
-                        }
-                    }
-                }
+        return candidates;
+    }
+
+    /// <summary>Whether the player is currently carrying any of <paramref name="itemIds"/> in the
+    /// containers this plan is allowed to take from. This is the live, player-side half of the duplicates
+    /// rule - see <see cref="CollectDuplicatesCandidates"/> for the frozen retainer-side half.</summary>
+    /// <remarks>
+    /// 刻意比 duplicates 的真正條件寬：不比對品質(HQ)、不看數量夠不夠、不管堆疊放不放得下。
+    /// 這是「有沒有可能有工作」的必要條件而非充分條件，回 <c>true</c> 只代表「還得開起來看」。
+    /// 寬 ⇒ 失敗方向是多開一次雇員，不是漏搬。
+    /// </remarks>
+    private static unsafe bool PlayerHoldsAnyOf(EntrustPlan? plan, HashSet<uint> itemIds)
+    {
+        if(plan == null || itemIds.Count == 0) return false;
+
+        foreach(var type in plan.GetAllowedInventories())
+        {
+            var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) continue;
+            for(var i = 0; i < inv->Size; i++)
+            {
+                var item = inv->GetInventorySlot(i);
+                if(item == null) continue;
+                if(item->ItemId == 0 || item->Quantity <= 0) continue;
+                if(itemIds.Contains(item->ItemId)) return true;
             }
         }
 

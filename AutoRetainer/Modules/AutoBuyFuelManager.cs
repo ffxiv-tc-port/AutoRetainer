@@ -27,7 +27,14 @@ internal static class AutoBuyFuelManager
     /// 完全不生效（<c>AutoBuyFuelEnabled</c> 預設就是 false），開著的時候使用者要的本來就是
     /// 「身上維持一定量的燃料」，那與「把燃料存進雇員」直接互斥。</para>
     ///
-    /// <para>⚠️ 只擋存入雇員。自動賣出（IMAutoVendorHard）與任何手動操作都不受影響。</para></summary>
+    /// <para>⚠️ 只擋存入雇員。自動賣出（IMAutoVendorHard）與任何手動操作都不受影響。</para>
+    ///
+    /// <para>📌 **刻意不提供逃生口**（使用者裁決）。「一邊開著自動購買燃料、一邊要求把燃料自動存進
+    /// 雇員」這個組合本身就是上面那個重購迴圈，不是一個合法的使用情境——兩邊要的東西直接互斥。
+    /// 所以這裡沒有設定開關可以放行，也刻意**不**把這個排除移到保護清單
+    /// （IMProtectList／ExcludeProtected）之後、讓使用者拿保護清單當反悔的手段：那會是行為變更，
+    /// 而它要服務的情境並不存在。真的想把燃料放在雇員身上的人，關掉自動購買燃料，
+    /// 或自己手動存放（手動不經過這裡）。</para></summary>
     internal static bool IsFuelReservedForAutoBuy(uint itemId)
     {
         if(itemId != FuelItemId) return false;
