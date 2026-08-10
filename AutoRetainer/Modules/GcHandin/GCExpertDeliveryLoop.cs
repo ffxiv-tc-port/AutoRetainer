@@ -42,6 +42,12 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>送出一個任務鏈之後,至少要等這麼久才准把「不忙」解讀成「做完了」。</summary>
     private const long EnqueueGraceMs = 500;
 
+    /// <summary>開鈴之後等雇員清單真的載入的上限。
+    /// 🔴 這段等待**不能**用「我們的任務佇列排空」當結論:排空只代表我們送出的動作做完了,
+    /// 遊戲還要自己把視窗開起來、把雇員資料填進去。.52 就是拿排空當結論,在互動後 526 毫秒
+    /// 就判定「清單沒載入」而停止。</summary>
+    private const long RetainerListLoadTimeoutMs = 20000;
+
     /// <summary>取回指令之間的最小間隔。伺服器實測每格約 0.13 秒。</summary>
     private const int RetrieveIntervalMs = 150;
 
@@ -258,6 +264,13 @@ internal static unsafe class GCExpertDeliveryLoop
         DuoLog.Warning(reason);
         PluginLog.Information($"[ExpertDeliveryLoop] Refused to start: {reason}");
     }
+
+    /// <summary>雇員清單是不是真的可以用了。
+    /// 🔴 <c>GameRetainerManager.Ready</c> 只讀 <c>RetainerManager.IsReady</c> 這個旗標,**不保證
+    /// 雇員陣列已經填好** —— Ready 為 true 而 Count 為 0 是真實會出現的狀態(剛換區、剛開鈴的
+    /// 那一小段)。而 <c>TryGetRetainerByName</c> 在那個狀態下對每個名字都回 false,與「這個雇員
+    /// 真的不存在」完全不可分。所以「存在性」這種結論只准在這個閘門為 true 時做。</summary>
+    internal static bool RetainerListLoaded => GameRetainerManager.Ready && GameRetainerManager.Count > 0;
 
     internal static int EffectiveReservedSlots => Math.Max(C.ExpertDeliveryLoopReservedSlots, C.MultiMinInventorySlots);
 
@@ -558,7 +571,7 @@ internal static unsafe class GCExpertDeliveryLoop
         if(Utils.IsBusy) return;
 
         // 已經在雇員清單裡就不用再點鈴一次。
-        if(GameRetainerManager.Ready && TryGetAddonByName<AtkUnitBase>("RetainerList", out var list) && IsAddonReady(list))
+        if(RetainerListLoaded && TryGetAddonByName<AtkUnitBase>("RetainerList", out var list) && IsAddonReady(list))
         {
             SetPhase(Phase.SelectRetainer);
             return;
@@ -571,17 +584,19 @@ internal static unsafe class GCExpertDeliveryLoop
 
     private static void TickOpenBellWait()
     {
-        if(!ChainFinished) return;
-
-        // 🔴 雇員管理器要真的載入了才算開好。.50 沒等這一步:那次登入還沒開過鈴時,
-        //    遊戲的雇員清單是空的,而當時用它去比對名字,三個雇員全部被判成「已經不存在」,
-        //    於是一件都沒取就直接跑去繳交 —— 「還不知道」被當成了「沒有」。
-        if(!GameRetainerManager.Ready)
+        // 閘門是「清單真的載入了」,不是「佇列排空了」。兩者差了整整一段遊戲自己的載入時間。
+        if(RetainerListLoaded)
         {
-            Stop(Loc.T("Stopped: the retainer list did not load after using the summoning bell."));
+            SetPhase(Phase.SelectRetainer);
             return;
         }
-        SetPhase(Phase.SelectRetainer);
+
+        if(TimeInPhase > RetainerListLoadTimeoutMs)
+        {
+            // ⚠️ 走到這裡只說明清單沒載入,**不代表任何一個雇員不存在**。
+            //    這條路徑刻意不產生任何「已經不存在」的訊息 —— 那會把載入問題講成資料問題。
+            Stop(Loc.T("Stopped: the retainer list did not load after using the summoning bell."));
+        }
     }
 
     #endregion
@@ -662,8 +677,20 @@ internal static unsafe class GCExpertDeliveryLoop
             return;
         }
 
+        // 🔴 存在性判斷的前置條件要在**每一次**判斷之前重驗,不能只靠「進這個階段之前驗過一次」。
+        //    清單會在換區、關鈴、繳交來回之後失效,而失效狀態下 TryGetRetainerByName 對每個名字
+        //    都回 false —— .52 就是在第二輪回鈴時把三個雇員全判成「已經不存在」。
+        if(!RetainerListLoaded)
+        {
+            if(TimeInPhase > RetainerListLoadTimeoutMs)
+            {
+                Stop(Loc.T("Stopped: the retainer list is not loaded, so it cannot be told whether the retainers are still there."));
+            }
+            return;
+        }
+
         var name = Retainers[RetainerIndex];
-        // 這裡才可以用遊戲的雇員管理器:鈴已經開過,資料是載入好的。
+        // 只有在上面那道閘門為 true 時,這個 false 才真的代表「這個雇員不存在」。
         if(!Utils.TryGetRetainerByName(name, out _))
         {
             DuoLog.Warning(string.Format(Loc.T("Retainer \"{0}\" no longer exists, skipping."), name));

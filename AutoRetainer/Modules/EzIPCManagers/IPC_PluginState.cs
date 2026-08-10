@@ -247,7 +247,15 @@ public class IPC_PluginState
             PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Refused for {retainerName}: AutoRetainer is already busy.");
             return false;
         }
-        if(!Utils.TryGetRetainerByName(retainerName, out _))
+        // 🔴 清單還沒載入時 TryGetRetainerByName 對每個名字都回 false,與「這個雇員真的不存在」
+        //    完全不可分。兩種情況要講成兩件事 —— 呼叫端看到「不存在」會去改設定,
+        //    看到「還沒載入」才會知道再開一次鈴就好。
+        //    ⚠️ 清單沒載入時**不擋**:這個門本來就會去開鈴,開完自然就載入了。
+        if(!GCExpertDeliveryLoop.RetainerListLoaded)
+        {
+            PluginLog.Information($"[EnqueueOpenRetainerItemStorage] The game's retainer list is not loaded yet, so {retainerName} cannot be verified up front - the chain opens the bell, which loads it.");
+        }
+        else if(!Utils.TryGetRetainerByName(retainerName, out _))
         {
             PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Refused: {retainerName} is not a retainer of the current character.");
             return false;
