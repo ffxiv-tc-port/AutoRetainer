@@ -982,5 +982,6 @@
   "Stopped: the retainer list is not loaded, so it cannot be told whether the retainers are still there.": "已停止：雇員清單沒有載入，因此無法判斷雇員還在不在。請重新執行一次。",
   "Returning to the summoning bell": "返回傳喚鈴",
   "Back at the summoning bell.": "已回到傳喚鈴。",
-  "Could not return to a summoning bell.": "無法回到傳喚鈴，角色停在原地。"
+  "Could not return to a summoning bell.": "無法回到傳喚鈴，角色停在原地。",
+  "Stopped: the game will not allow the Priority Seal Allowance to be used right now (status {0}).": "已停止：遊戲目前不允許使用軍票預支單（狀態碼 {0}）。可能是在戰鬥中、詠唱中，或所在地點不允許使用道具。"
 }

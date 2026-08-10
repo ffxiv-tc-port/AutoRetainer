@@ -34,6 +34,9 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>用掉軍票預支單之後,等這麼久還沒看到加成就不等了。</summary>
     private const long SealBuffWaitMs = 6000;
 
+    /// <summary>遊戲一直不肯讓道具被使用時,等這麼久就放棄。</summary>
+    private const long SealUsableWaitMs = 5000;
+
     /// <summary>送出使用道具之後,等這麼久背包數量還沒少就當作「這次根本沒送出去」。
     /// 🔴 這是 .50 的教訓:道具欄沒開的時候 UseItem 是**靜默無效**的,而當時只驗「加成有沒有出現」,
     /// 於是把「道具沒被使用」誤報成「加成沒生效」,使用者完全看不出真正的原因。</summary>
@@ -396,12 +399,36 @@ internal static unsafe class GCExpertDeliveryLoop
 
         // 動畫鎖住的時候送出去也是白送。
         if(Player.IsAnimationLocked) return;
+
+        // 🔴 走「使用能力」而不是「背包右鍵使用」。後者(AgentInventoryContext.UseItem)需要道具欄
+        //    開著才有效,關著時**靜默失敗** —— 單參數版與四參數版都試過,兩次都在道具欄關著時失敗。
+        //    這裡照抄 Artisan 吃食物/藥水/工程手冊的路徑,那條每天在跑而且不需要任何視窗。
+        //    ⚠️ extraParam 65535 對道具是必要的,不是可以省略的預設值。
+        //    ⚠️ HQ 道具的能力 id 要 +1000000(數量查詢則是用原 id 加 isHq 旗標);軍票預支單沒有
+        //       HQ 版本,所以這裡直接用原 id。
+        var status = ActionManager.Instance()->GetActionStatus(ActionType.Item, SealAllowanceItemId);
+        if(status != 0)
+        {
+            // 0 以外都是遊戲說「現在不能用」(戰鬥中、詠唱中、地圖限制…)。等一下再試,
+            // 但不要無限等 —— 一直不能用就照設定決定要停還是不帶加成繼續。
+            if(TimeInPhase <= SealUsableWaitMs) return;
+
+            var blocked = string.Format(Loc.T("Stopped: the game will not allow the Priority Seal Allowance to be used right now (status {0})."), status);
+            PluginLog.Information($"[ExpertDeliveryLoop] GetActionStatus(Item, {SealAllowanceItemId}) = {status} for {TimeInPhase}ms, giving up on the seal bonus.");
+            if(C.ExpertDeliveryLoopStopWithoutSealBonus)
+            {
+                Stop(blocked);
+                return;
+            }
+            DuoLog.Warning(blocked);
+            SetPhase(Phase.EnsureBell);
+            return;
+        }
+
         if(!EzThrottler.Throttle("ExpertDeliveryLoopUseAllowance", 2000)) return;
 
         SealAllowanceCountAtUse = GetSealAllowanceCount();
-        // 🔴 四個參數的版本才是外掛裡已經證實可用的呼叫形式(見 TaskOpenAllCoffers)。
-        //    單參數版在道具欄沒開的時候是靜默無效的 —— .50 就是這樣白白等了六秒。
-        AgentInventoryContext.Instance()->UseItem(SealAllowanceItemId, (InventoryType)0x270F, 0, 0);
+        ActionManager.Instance()->UseAction(ActionType.Item, SealAllowanceItemId, extraParam: 65535);
         PluginLog.Information($"[ExpertDeliveryLoop] Sent use-item for Priority Seal Allowance ({SealAllowanceCountAtUse} held before use).");
         SetPhase(Phase.SealBonusWait);
     }
