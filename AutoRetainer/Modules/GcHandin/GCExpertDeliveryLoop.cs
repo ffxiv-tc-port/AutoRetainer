@@ -1,11 +1,15 @@
-﻿using AutoRetainer.Internal.InventoryManagement;
+using AutoRetainer.Internal;
+using AutoRetainer.Internal.InventoryManagement;
 using AutoRetainer.Scheduler.Handlers;
 using AutoRetainer.Scheduler.Tasks;
+using Dalamud.Game.ClientState.Objects.Enums;
+using Dalamud.Game.ClientState.Objects.Types;
 using ECommons.ExcelServices;
 using ECommons.GameHelpers;
 using ECommons.Throttlers;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace AutoRetainer.Modules.GcHandin;
 
@@ -17,16 +21,11 @@ namespace AutoRetainer.Modules.GcHandin;
 ///
 /// <para>整條流程沒有一步是自己操作 addon 的:走到鈴前、選雇員、開道具管理、去大國防聯軍繳交,
 /// 全部委給外掛本來就在跑的任務鏈。這裡只負責決定「下一步做什麼」以及「什麼時候該停下來」。</para>
-///
-/// <para>⚠️ 停下來的理由一律說人話並寫進記錄(Information 級,因為使用者的記錄等級收不到 Debug)。
-/// 任何一步的狀態不如預期都是**停止**,不是重試 —— 這條流程會花掉軍票、會搬動裝備,
-/// 猜錯的代價比多停一次高。</para>
 /// </summary>
 internal static unsafe class GCExpertDeliveryLoop
 {
     /// <summary>軍票獲得量提升:1078 是道具版(軍票預支單),414 是部隊行動版。
-    /// 兩個都算「已經在加成中」—— 道具的說明明寫它會覆蓋效果相同的公會特效,
-    /// 所以部隊行動開著的時候再用一張,只是把它蓋掉並浪費一張。</summary>
+    /// 兩個都算「已經在加成中」—— 道具的說明明寫它會覆蓋效果相同的公會特效。</summary>
     private static readonly uint[] SealBonusStatusIds = [1078, 414];
 
     /// <summary>軍票預支單。</summary>
@@ -35,13 +34,33 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>用掉軍票預支單之後,等這麼久還沒看到加成就不等了。</summary>
     private const long SealBuffWaitMs = 6000;
 
-    /// <summary>送出一個任務鏈之後,至少要等這麼久才准把「不忙」解讀成「做完了」。
-    /// 🔴 沒有這段緩衝的話,排進佇列與佇列真的開始跑之間的那一兩幀會被誤讀成「瞬間完成」,
-    /// 整條流程會在什麼都沒發生的情況下一路衝到結束。</summary>
+    /// <summary>送出使用道具之後,等這麼久背包數量還沒少就當作「這次根本沒送出去」。
+    /// 🔴 這是 .50 的教訓:道具欄沒開的時候 UseItem 是**靜默無效**的,而當時只驗「加成有沒有出現」,
+    /// 於是把「道具沒被使用」誤報成「加成沒生效」,使用者完全看不出真正的原因。</summary>
+    private const long SealItemConsumeWaitMs = 2000;
+
+    /// <summary>送出一個任務鏈之後,至少要等這麼久才准把「不忙」解讀成「做完了」。</summary>
     private const long EnqueueGraceMs = 500;
 
-    /// <summary>取回指令之間的最小間隔。伺服器實測每格約 0.13 秒,這裡略高於它。</summary>
+    /// <summary>取回指令之間的最小間隔。伺服器實測每格約 0.13 秒。</summary>
     private const int RetrieveIntervalMs = 150;
+
+    /// <summary>一輪取回送完之後,等雇員格數安定的輪詢間隔與安靜門檻。
+    /// 抄 SND 巨集實測出來的節奏:送指令比伺服器消化快,固定秒數會嚴重低估進度。</summary>
+    private const int SettlePollMs = 250;
+    private const long SettleQuietMs = 750;
+    private const long SettleCapMs = 15000;
+
+    /// <summary>我們自己送出導航之後,這麼久之內的「不可用」一律當成過渡態。
+    /// 傳送詠唱、跨區載入、城內乙太網換圖都在這個窗裡,而且它們的長短差很多 ——
+    /// 與其列舉「哪些不可用可以忍」(漏一種就誤殺一次),不如用正向條件:
+    /// **是我們自己叫它移動的,那它不可用就是正常的**。</summary>
+    private const long NavigationGraceMs = 5 * 60 * 1000;
+
+    /// <summary>玩家「不可用」持續超過這麼久才算真的出事。
+    /// 🔴 傳送詠唱、換區、載入畫面期間玩家本來就不可用 —— .50 就是把這種合法過渡態當成致命,
+    /// 在 Lifestream 導航途中把自己停掉兩次。</summary>
+    private const long UnavailableGraceMs = 30000;
 
     private enum Phase
     {
@@ -50,11 +69,16 @@ internal static unsafe class GCExpertDeliveryLoop
         SealBonusWait,
         EnsureBell,
         EnsureBellWait,
-        OpenRetainer,
-        OpenRetainerWait,
+        OpenBell,
+        OpenBellWait,
+        SelectRetainer,
+        SelectRetainerWait,
         Retrieve,
-        CloseRetainer,
-        CloseRetainerWait,
+        RetrieveSettle,
+        LeaveRetainer,
+        LeaveRetainerWait,
+        CloseBell,
+        CloseBellWait,
         Handin,
         HandinWait,
     }
@@ -62,7 +86,7 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>這一輪取回停下來的理由,決定繳交完之後要不要再跑一輪。</summary>
     private enum RoundEnd
     {
-        /// <summary>清單上的雇員都看過了,一件裝備都沒有 —— 繳完就收工。</summary>
+        /// <summary>清單上的雇員都看過了,沒有裝備可拿 —— 繳完就收工。</summary>
         NoGearLeft,
         /// <summary>背包到保留下限,先去繳交 —— 繳完還要回來繼續取。</summary>
         ReserveReached,
@@ -73,14 +97,29 @@ internal static unsafe class GCExpertDeliveryLoop
     private static Phase CurrentPhase = Phase.Idle;
     private static long PhaseEnteredAt;
     private static RoundEnd RoundEndReason;
+    private static long UnavailableSince;
+
+    /// <summary>導航窗的結束時刻。送出任何會讓角色移動/換區的東西時往後推。</summary>
+    private static long NavigationDeadline;
 
     private static List<string> Retainers = [];
     private static int RetainerIndex;
     private static bool TravelledToBellThisRound;
 
-    /// <summary>這一輪已經略過的道具:重複的獨占道具、只在水晶欄的東西。
-    /// 沒有它的話同一件會被無限重掃。</summary>
+    /// <summary>這一輪永遠拿不到、不必再看的道具(重複的獨占道具等)。</summary>
     private static readonly HashSet<uint> SkippedItems = [];
+
+    /// <summary>這一趟已經送過指令、正在飛的道具。與 <see cref="SkippedItems"/> 不同:
+    /// 這些等落地之後還要再看一次。有它才能在等某一件落地的同時繼續對別的格子送指令 ——
+    /// .50 是一件一件等,遇到伺服器默默拒收的格子就整整空轉 10 秒(追蹤過期時間)。</summary>
+    private static readonly HashSet<uint> DeferredItems = [];
+
+    private static int PassFired;
+    private static long SettleLastChangeAt;
+    private static int SettleLastCount;
+
+    /// <summary>用掉軍票預支單那一刻的持有數,用來確認道具真的被消耗掉。</summary>
+    private static int SealAllowanceCountAtUse;
 
     // 給 UI 看的統計
     internal static int RetrievedTotal { get; private set; }
@@ -88,20 +127,24 @@ internal static unsafe class GCExpertDeliveryLoop
     internal static int HandinRounds { get; private set; }
     internal static string StatusText { get; private set; } = "";
 
-    /// <summary>UI 要顯示的階段名。停止之後保留最後的理由,不要洗掉。</summary>
     internal static string CurrentPhaseName => CurrentPhase switch
     {
         Phase.Idle => Loc.T("Idle"),
         Phase.SealBonus or Phase.SealBonusWait => Loc.T("Checking seal bonus"),
         Phase.EnsureBell or Phase.EnsureBellWait => Loc.T("Going to a summoning bell"),
-        Phase.OpenRetainer or Phase.OpenRetainerWait => Loc.T("Opening retainer"),
-        Phase.Retrieve => Loc.T("Retrieving gear"),
-        Phase.CloseRetainer or Phase.CloseRetainerWait => Loc.T("Closing retainer"),
+        Phase.OpenBell or Phase.OpenBellWait => Loc.T("Opening the summoning bell"),
+        Phase.SelectRetainer or Phase.SelectRetainerWait => Loc.T("Opening retainer"),
+        Phase.Retrieve or Phase.RetrieveSettle => Loc.T("Retrieving gear"),
+        Phase.LeaveRetainer or Phase.LeaveRetainerWait or Phase.CloseBell or Phase.CloseBellWait => Loc.T("Closing retainer"),
         Phase.Handin or Phase.HandinWait => Loc.T("Handing in at the Grand Company"),
         _ => "?",
     };
 
-    /// <summary>循環要處理的雇員。名單在**開始時**決定一次並沿用整趟,免得中途改設定讓流程自己變形。</summary>
+    #region 雇員名單
+
+    /// <summary>循環要處理的雇員。名單在**開始時**決定一次並沿用整趟。
+    /// ⚠️ 一律用 AutoRetainer 自己存的角色資料,不碰遊戲的雇員管理器 ——
+    /// 那個東西在這次登入還沒開過傳喚鈴之前是空的。</summary>
     internal static List<string> ResolveRetainers()
     {
         var result = new List<string>();
@@ -119,8 +162,7 @@ internal static unsafe class GCExpertDeliveryLoop
             return result;
         }
 
-        // 🔴 沒選計畫時回空清單而不是「全部」。「還沒設定」與「要對每個雇員做」是兩回事,
-        //    而這條流程會搬動裝備,預設值倒向「不做事」。
+        // 🔴 沒選計畫時回空清單而不是「全部」。「還沒設定」與「要對每個雇員做」是兩回事。
         if(C.ExpertDeliveryLoopEntrustPlan == Guid.Empty) return result;
 
         foreach(var retainer in data.RetainerData)
@@ -131,6 +173,10 @@ internal static unsafe class GCExpertDeliveryLoop
         }
         return result;
     }
+
+    #endregion
+
+    #region 開始/停止
 
     internal static void Start()
     {
@@ -172,8 +218,11 @@ internal static unsafe class GCExpertDeliveryLoop
         HandinRounds = 0;
         RetainerIndex = 0;
         TravelledToBellThisRound = false;
+        UnavailableSince = 0;
+        NavigationDeadline = 0;
         RoundEndReason = RoundEnd.NoGearLeft;
         SkippedItems.Clear();
+        DeferredItems.Clear();
         StatusText = "";
         SetPhase(Phase.SealBonus);
         PluginLog.Information($"[ExpertDeliveryLoop] Started. Retainers to visit: {Retainers.Print()}. Reserved slots: {EffectiveReservedSlots} (config {C.ExpertDeliveryLoopReservedSlots}, MultiMinInventorySlots {C.MultiMinInventorySlots}).");
@@ -185,7 +234,12 @@ internal static unsafe class GCExpertDeliveryLoop
         Running = false;
         CurrentPhase = Phase.Idle;
         StatusText = reason;
+        // 🔴 停止只停外層狀態機,已經排進 AutoRetainer/Lifestream 的任務鏈會自己跑完 ——
+        //    中途硬中斷互動鏈的風險比讓它跑完高。但那會造成「說停了卻還在繳交」的困惑,
+        //    所以當下如果還有東西在跑,訊息要明講。
+        var stillBusy = Utils.IsBusy;
         var summary = $"{reason} ({string.Format(Loc.T("retrieved {0}, handin rounds {1}"), RetrievedTotal, HandinRounds)})";
+        if(stillBusy) summary += " " + Loc.T("The loop has stopped, but work already queued in AutoRetainer will finish on its own.");
         if(success)
         {
             DuoLog.Information(summary);
@@ -195,10 +249,9 @@ internal static unsafe class GCExpertDeliveryLoop
         {
             DuoLog.Warning(summary);
         }
-        PluginLog.Information($"[ExpertDeliveryLoop] Stopped: {reason} | retrieved={RetrievedTotal} handinRounds={HandinRounds} success={success}");
+        PluginLog.Information($"[ExpertDeliveryLoop] Stopped: {reason} | retrieved={RetrievedTotal} handinRounds={HandinRounds} success={success} stillBusy={stillBusy}");
     }
 
-    /// <summary>還沒開始就被前置條件擋下來。不改任何狀態,只說明理由。</summary>
     private static void Fail(string reason)
     {
         StatusText = reason;
@@ -206,8 +259,6 @@ internal static unsafe class GCExpertDeliveryLoop
         PluginLog.Information($"[ExpertDeliveryLoop] Refused to start: {reason}");
     }
 
-    /// <summary>真正生效的保留格數。取回核心自己也擋在 <c>MultiMinInventorySlots</c>,
-    /// 所以低於它的設定值不會有效果 —— UI 上也是這樣說明的。</summary>
     internal static int EffectiveReservedSlots => Math.Max(C.ExpertDeliveryLoopReservedSlots, C.MultiMinInventorySlots);
 
     private static void SetPhase(Phase phase)
@@ -218,19 +269,14 @@ internal static unsafe class GCExpertDeliveryLoop
 
     private static long TimeInPhase => Environment.TickCount64 - PhaseEnteredAt;
 
-    /// <summary>任務鏈排進去之後,「不忙」才算數的判斷。緩衝期內一律當成還在跑。</summary>
     private static bool ChainFinished => !Utils.IsBusy && TimeInPhase > EnqueueGraceMs;
+
+    #endregion
 
     internal static void Tick()
     {
         if(!Running) return;
-
-        // 登出、進副本、被傳走 —— 任何一種都讓後面的假設不成立。
-        if(!Player.Available)
-        {
-            Stop(Loc.T("Stopped: the player became unavailable."));
-            return;
-        }
+        if(!CheckPlayerAvailability()) return;
 
         switch(CurrentPhase)
         {
@@ -238,14 +284,53 @@ internal static unsafe class GCExpertDeliveryLoop
             case Phase.SealBonusWait: TickSealBonusWait(); break;
             case Phase.EnsureBell: TickEnsureBell(); break;
             case Phase.EnsureBellWait: TickEnsureBellWait(); break;
-            case Phase.OpenRetainer: TickOpenRetainer(); break;
-            case Phase.OpenRetainerWait: TickOpenRetainerWait(); break;
+            case Phase.OpenBell: TickOpenBell(); break;
+            case Phase.OpenBellWait: TickOpenBellWait(); break;
+            case Phase.SelectRetainer: TickSelectRetainer(); break;
+            case Phase.SelectRetainerWait: TickSelectRetainerWait(); break;
             case Phase.Retrieve: TickRetrieve(); break;
-            case Phase.CloseRetainer: TickCloseRetainer(); break;
-            case Phase.CloseRetainerWait: TickCloseRetainerWait(); break;
+            case Phase.RetrieveSettle: TickRetrieveSettle(); break;
+            case Phase.LeaveRetainer: TickLeaveRetainer(); break;
+            case Phase.LeaveRetainerWait: TickLeaveRetainerWait(); break;
+            case Phase.CloseBell: TickCloseBell(); break;
+            case Phase.CloseBellWait: TickCloseBellWait(); break;
             case Phase.Handin: TickHandin(); break;
             case Phase.HandinWait: TickHandinWait(); break;
         }
+    }
+
+    /// <summary>玩家可用性守衛。
+    /// 🔴 「不可用」在這條流程裡**大多數時候是正常的**:傳送詠唱、跨區載入、城內乙太網換圖都會讓
+    /// <c>Player.Available</c> 變成 false,而這條流程本來就會移動好幾次。.50 直接把它當致命,
+    /// 在 Lifestream 導航途中把自己停掉三次(其中一次是使用者手動用城內水晶換圖)。
+    ///
+    /// <para>判準刻意寫成**正向條件**而不是「哪些不可用可以忍」的列舉:過渡態的種類列不完,
+    /// 漏掉一種就是又一次誤殺。只要①有任務鏈或 Lifestream 在動,或②還在我們自己送出的導航窗內,
+    /// 不可用就一律視為過渡。只有「沒有任何東西在進行、而且持續不可用超過寬限期」才停。</para></summary>
+    private static bool CheckPlayerAvailability()
+    {
+        if(Player.Available)
+        {
+            UnavailableSince = 0;
+            return true;
+        }
+
+        var now = Environment.TickCount64;
+        if(Utils.IsBusy || now < NavigationDeadline)
+        {
+            UnavailableSince = 0;
+            return false;
+        }
+
+        if(UnavailableSince == 0)
+        {
+            UnavailableSince = now;
+            return false;
+        }
+        if(now - UnavailableSince < UnavailableGraceMs) return false;
+
+        Stop(Loc.T("Stopped: the player stayed unavailable with nothing in progress."));
+        return false;
     }
 
     #region 軍票加成
@@ -283,10 +368,15 @@ internal static unsafe class GCExpertDeliveryLoop
             return;
         }
 
-        // 使用道具本身沒有回傳值可看,節流一次就好,能不能生效交給下一個階段用狀態判斷。
+        // 動畫鎖住的時候送出去也是白送。
+        if(Player.IsAnimationLocked) return;
         if(!EzThrottler.Throttle("ExpertDeliveryLoopUseAllowance", 2000)) return;
-        AgentInventoryContext.Instance()->UseItem(SealAllowanceItemId);
-        PluginLog.Information($"[ExpertDeliveryLoop] Used a Priority Seal Allowance ({GetSealAllowanceCount()} left before use).");
+
+        SealAllowanceCountAtUse = GetSealAllowanceCount();
+        // 🔴 四個參數的版本才是外掛裡已經證實可用的呼叫形式(見 TaskOpenAllCoffers)。
+        //    單參數版在道具欄沒開的時候是靜默無效的 —— .50 就是這樣白白等了六秒。
+        AgentInventoryContext.Instance()->UseItem(SealAllowanceItemId, (InventoryType)0x270F, 0, 0);
+        PluginLog.Information($"[ExpertDeliveryLoop] Sent use-item for Priority Seal Allowance ({SealAllowanceCountAtUse} held before use).");
         SetPhase(Phase.SealBonusWait);
     }
 
@@ -298,6 +388,23 @@ internal static unsafe class GCExpertDeliveryLoop
             SetPhase(Phase.EnsureBell);
             return;
         }
+
+        // 先驗「道具有沒有真的被消耗」,再談加成。兩者分開才講得出真正的原因。
+        if(TimeInPhase > SealItemConsumeWaitMs && GetSealAllowanceCount() == SealAllowanceCountAtUse
+            && !Player.IsAnimationLocked && !Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Casting])
+        {
+            var reason = Loc.T("Stopped: the Priority Seal Allowance was not consumed - the game refused the use-item.");
+            PluginLog.Information($"[ExpertDeliveryLoop] Use-item did not consume anything (still {GetSealAllowanceCount()} held after {TimeInPhase}ms).");
+            if(C.ExpertDeliveryLoopStopWithoutSealBonus)
+            {
+                Stop(reason);
+                return;
+            }
+            DuoLog.Warning(reason);
+            SetPhase(Phase.EnsureBell);
+            return;
+        }
+
         if(TimeInPhase <= SealBuffWaitMs) return;
 
         if(C.ExpertDeliveryLoopStopWithoutSealBonus)
@@ -305,7 +412,6 @@ internal static unsafe class GCExpertDeliveryLoop
             Stop(Loc.T("Stopped: the seal bonus did not appear after using a Priority Seal Allowance."));
             return;
         }
-        // 沒生效不一定是壞掉(可能在戰鬥中、可能剛好被打斷),但要講出來,不要靜靜地少賺軍票。
         DuoLog.Warning(Loc.T("The seal bonus did not appear after using a Priority Seal Allowance - continuing without it."));
         SetPhase(Phase.EnsureBell);
     }
@@ -314,23 +420,51 @@ internal static unsafe class GCExpertDeliveryLoop
 
     #region 到鈴邊
 
+    /// <summary>目前拿得到的傳喚鈴。設定了「指定的鈴」時,在多個都構得到的情況下挑離指定點最近的那個 ——
+    /// 純粹用「離玩家最近」在鈴擠在一起的地方會挑錯。</summary>
+    internal static IGameObject GetPreferredBell()
+    {
+        if(Player.Object is null) return null;
+
+        IGameObject best = null;
+        var bestScore = float.MaxValue;
+        var useSaved = C.ExpertDeliveryLoopUseSavedBell && C.ExpertDeliveryLoopBellTerritory == Svc.ClientState.TerritoryType;
+
+        foreach(var x in Svc.Objects)
+        {
+            if(x.ObjectKind != ObjectKind.Housing && x.ObjectKind != ObjectKind.EventObj) continue;
+            if(!x.Name.ToString().EqualsIgnoreCaseAny(Lang.BellName)) continue;
+            if(!x.IsTargetable) continue;
+            if(Vector3.Distance(x.Position, Player.Object.Position) >= Utils.GetValidInteractionDistance(x)) continue;
+
+            var score = useSaved
+                ? Vector3.Distance(x.Position, C.ExpertDeliveryLoopBellPosition)
+                : Vector3.Distance(x.Position, Player.Object.Position);
+            if(score < bestScore)
+            {
+                bestScore = score;
+                best = x;
+            }
+        }
+        return best;
+    }
+
     private static void TickEnsureBell()
     {
         if(Utils.IsBusy) return;
 
-        if(Utils.GetReachableRetainerBell(true) != null)
+        if(GetPreferredBell() != null)
         {
             TravelledToBellThisRound = false;
             RetainerIndex = 0;
             RetrievedThisRound = 0;
             RoundEndReason = RoundEnd.NoGearLeft;
-            SetPhase(Phase.OpenRetainer);
+            SetPhase(Phase.OpenBell);
             return;
         }
 
         if(TravelledToBellThisRound)
         {
-            // 已經照設定跑過一次導航還是沒有鈴 —— 再送一次也只會得到同樣的結果。
             Stop(Loc.T("Stopped: no summoning bell in reach after travelling."));
             return;
         }
@@ -351,6 +485,7 @@ internal static unsafe class GCExpertDeliveryLoop
 
         PluginLog.Information($"[ExpertDeliveryLoop] No bell in reach, sending Lifestream command \"{command}\".");
         S.LifestreamIPC.ExecuteCommand(command);
+        NavigationDeadline = Environment.TickCount64 + NavigationGraceMs;
         TravelledToBellThisRound = true;
         SetPhase(Phase.EnsureBellWait);
     }
@@ -359,6 +494,37 @@ internal static unsafe class GCExpertDeliveryLoop
     {
         if(!ChainFinished) return;
         SetPhase(Phase.EnsureBell);
+    }
+
+    private static void TickOpenBell()
+    {
+        if(Utils.IsBusy) return;
+
+        // 已經在雇員清單裡就不用再點鈴一次。
+        if(GameRetainerManager.Ready && TryGetAddonByName<AtkUnitBase>("RetainerList", out var list) && IsAddonReady(list))
+        {
+            SetPhase(Phase.SelectRetainer);
+            return;
+        }
+
+        PluginLog.Information($"[ExpertDeliveryLoop] Interacting with the summoning bell.");
+        TaskInteractWithNearestBell.Enqueue();
+        SetPhase(Phase.OpenBellWait);
+    }
+
+    private static void TickOpenBellWait()
+    {
+        if(!ChainFinished) return;
+
+        // 🔴 雇員管理器要真的載入了才算開好。.50 沒等這一步:那次登入還沒開過鈴時,
+        //    遊戲的雇員清單是空的,而當時用它去比對名字,三個雇員全部被判成「已經不存在」,
+        //    於是一件都沒取就直接跑去繳交 —— 「還不知道」被當成了「沒有」。
+        if(!GameRetainerManager.Ready)
+        {
+            Stop(Loc.T("Stopped: the retainer list did not load after using the summoning bell."));
+            return;
+        }
+        SetPhase(Phase.SelectRetainer);
     }
 
     #endregion
@@ -379,7 +545,7 @@ internal static unsafe class GCExpertDeliveryLoop
         return true;
     }
 
-    /// <summary>目前開著的雇員身上第一件可繳交裝備的道具 ID,沒有就是 0。</summary>
+    /// <summary>目前開著的雇員身上,這一趟還沒送過指令、也還沒被判定拿不到的第一件可繳交裝備。</summary>
     private static uint FindGearOnOpenRetainer()
     {
         foreach(var type in Utils.RetainerInventories)
@@ -392,6 +558,7 @@ internal static unsafe class GCExpertDeliveryLoop
                 if(item == null) continue;
                 if(item->ItemId == 0 || item->Quantity <= 0) continue;
                 if(SkippedItems.Contains(item->ItemId)) continue;
+                if(DeferredItems.Contains(item->ItemId)) continue;
                 if(!IsDeliverableGear(item->ItemId)) continue;
                 return item->ItemId;
             }
@@ -399,9 +566,27 @@ internal static unsafe class GCExpertDeliveryLoop
         return 0;
     }
 
+    /// <summary>雇員身上還剩幾格有東西,用來判斷「這一批指令落地了沒」。</summary>
+    private static int CountOccupiedRetainerSlots()
+    {
+        var used = 0;
+        foreach(var type in Utils.RetainerInventories)
+        {
+            var inv = RetainerRetrieve.TryGetReadableContainer(type);
+            if(inv == null) continue;
+            for(var i = 0; i < inv->Size; i++)
+            {
+                var item = inv->GetInventorySlot(i);
+                if(item == null) continue;
+                if(item->ItemId != 0 && item->Quantity > 0) used++;
+            }
+        }
+        return used;
+    }
+
     private static bool ReserveReached => Utils.GetInventoryFreeSlotCount() <= EffectiveReservedSlots;
 
-    private static void TickOpenRetainer()
+    private static void TickSelectRetainer()
     {
         if(Utils.IsBusy) return;
 
@@ -409,48 +594,49 @@ internal static unsafe class GCExpertDeliveryLoop
         {
             PluginLog.Information($"[ExpertDeliveryLoop] Inventory down to {Utils.GetInventoryFreeSlotCount()} free slots (reserve {EffectiveReservedSlots}), going to hand in.");
             RoundEndReason = RoundEnd.ReserveReached;
-            SetPhase(Phase.Handin);
+            SetPhase(Phase.CloseBell);
             return;
         }
 
         if(RetainerIndex >= Retainers.Count)
         {
             // 名單走完了。RoundEndReason 維持 NoGearLeft,繳完這批就收工。
-            SetPhase(Phase.Handin);
+            SetPhase(Phase.CloseBell);
             return;
         }
 
         var name = Retainers[RetainerIndex];
+        // 這裡才可以用遊戲的雇員管理器:鈴已經開過,資料是載入好的。
         if(!Utils.TryGetRetainerByName(name, out _))
         {
-            // 雇員被解雇/改名。跳過它繼續,不要整趟停掉。
             DuoLog.Warning(string.Format(Loc.T("Retainer \"{0}\" no longer exists, skipping."), name));
+            PluginLog.Information($"[ExpertDeliveryLoop] Retainer {name} is not in the game's retainer list, skipping.");
             RetainerIndex++;
             return;
         }
 
         PluginLog.Information($"[ExpertDeliveryLoop] Opening item storage of {name} ({RetainerIndex + 1}/{Retainers.Count}).");
-        TaskInteractWithNearestBell.Enqueue();
-        TaskSelectRetainer.Enqueue(name);
+        P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(name), $"SelectRetainerByName({name})");
+        P.TaskManager.Enqueue(() => Utils.TryGetCurrentRetainer(out _), $"WaitCurrentRetainer({name})");
         P.TaskManager.Enqueue(RetainerHandlers.SelectEntrustItems, $"SelectEntrustItems({name})");
         P.TaskManager.Enqueue(InventorySpaceManager.IsRetainerInventoryLoaded, $"WaitRetainerInventoryLoaded({name})");
-        SetPhase(Phase.OpenRetainerWait);
+        SetPhase(Phase.SelectRetainerWait);
     }
 
-    private static void TickOpenRetainerWait()
+    private static void TickSelectRetainerWait()
     {
         if(!ChainFinished) return;
 
         if(!InventorySpaceManager.IsRetainerInventoryLoaded())
         {
-            // 任務鏈跑完了但視窗沒開 —— 每一步都有自己的逾時,走到這裡代表其中一步放棄了。
-            // 再送一次多半只會重演,而且此時畫面上可能還開著半套的雇員 UI。
             Stop(string.Format(Loc.T("Stopped: could not open the item storage of \"{0}\"."), Retainers[RetainerIndex]));
             return;
         }
 
         RetainerRetrieve.ResetTracking();
         SkippedItems.Clear();
+        DeferredItems.Clear();
+        PassFired = 0;
         SetPhase(Phase.Retrieve);
     }
 
@@ -460,11 +646,10 @@ internal static unsafe class GCExpertDeliveryLoop
         {
             PluginLog.Information($"[ExpertDeliveryLoop] Reserve reached while retrieving ({Utils.GetInventoryFreeSlotCount()} free, reserve {EffectiveReservedSlots}).");
             RoundEndReason = RoundEnd.ReserveReached;
-            SetPhase(Phase.CloseRetainer);
+            SetPhase(Phase.LeaveRetainer);
             return;
         }
 
-        // 雇員視窗在兩次 tick 之間被關掉(使用者手動關、或哪裡出錯)——繼續掃只會讀到空的。
         if(!InventorySpaceManager.IsRetainerInventoryLoaded())
         {
             Stop(Loc.T("Stopped: the retainer's item storage closed unexpectedly."));
@@ -476,8 +661,19 @@ internal static unsafe class GCExpertDeliveryLoop
         var itemId = FindGearOnOpenRetainer();
         if(itemId == 0)
         {
+            // 這一趟沒有還能送指令的東西了。有送出過就等它們落地再看一次;
+            // 一次都沒送過就代表這個雇員真的沒有可取的裝備。
+            // 🔴 這條分支是 .50 卡住的地方之一:雇員背包有東西但全都不是稀有品時,
+            //    當時會走到一個永遠等不到的取回。
+            if(PassFired > 0)
+            {
+                SettleLastCount = CountOccupiedRetainerSlots();
+                SettleLastChangeAt = Environment.TickCount64;
+                SetPhase(Phase.RetrieveSettle);
+                return;
+            }
             PluginLog.Information($"[ExpertDeliveryLoop] {Retainers[RetainerIndex]} has no more deliverable gear.");
-            SetPhase(Phase.CloseRetainer);
+            SetPhase(Phase.LeaveRetainer);
             return;
         }
 
@@ -486,31 +682,33 @@ internal static unsafe class GCExpertDeliveryLoop
         {
             RetrievedTotal++;
             RetrievedThisRound++;
+            PassFired++;
+            // 送出去了就先不要再看這一件,改去對別的格子送 —— 不必站在這裡等它落地。
+            DeferredItems.Add(itemId);
             return;
         }
 
         switch(result)
         {
             case RetainerRetrieve.ResultCommandInFlight:
-                // 指令還在飛,等它落地再重掃。不是錯誤。
+                // 這一件還在飛。先跳過去做別的,等這一趟送完再統一等落地。
+                DeferredItems.Add(itemId);
                 return;
 
             case RetainerRetrieve.ResultInventoryFull:
                 RoundEndReason = RoundEnd.ReserveReached;
-                SetPhase(Phase.CloseRetainer);
+                SetPhase(Phase.LeaveRetainer);
                 return;
 
             case RetainerRetrieve.ResultBlockedUnique:
             case RetainerRetrieve.ResultInCrystals:
             case RetainerRetrieve.ResultNotPresent:
-                // 這件永遠拿不到(重複的獨占道具),或它根本不在該在的地方。
-                // 記下來跳過,否則下一次掃描又會挑到同一件,變成原地空轉。
                 SkippedItems.Add(itemId);
                 PluginLog.Information($"[ExpertDeliveryLoop] Skipping item {itemId} ({ExcelItemHelper.GetName(itemId)}): retrieve returned {result}.");
                 return;
 
             case RetainerRetrieve.ResultRetainerUnavailable:
-                // 🔴 「讀不到」不等於「沒有」。這時候繼續往下走會把還有東西的雇員當成空的。
+                // 🔴 「讀不到」不等於「沒有」。
                 Stop(string.Format(Loc.T("Stopped: could not read the storage of \"{0}\"."), Retainers[RetainerIndex]));
                 return;
 
@@ -520,27 +718,85 @@ internal static unsafe class GCExpertDeliveryLoop
         }
     }
 
-    private static void TickCloseRetainer()
+    /// <summary>等這一趟送出去的指令落地。判準是「雇員格數不再變動」而不是固定秒數 ——
+    /// 送指令比伺服器消化快,固定秒數會嚴重低估進度。</summary>
+    private static void TickRetrieveSettle()
     {
-        P.TaskManager.Enqueue(RetainerHandlers.CloseAgentRetainer, "CloseAgentRetainer");
-        P.TaskManager.Enqueue(() => !IsOccupied(), "WaitUntilNotOccupiedAfterRetainerClose");
-        SetPhase(Phase.CloseRetainerWait);
+        if(!InventorySpaceManager.IsRetainerInventoryLoaded())
+        {
+            Stop(Loc.T("Stopped: the retainer's item storage closed unexpectedly."));
+            return;
+        }
+        if(!EzThrottler.Throttle("ExpertDeliveryLoopSettle", SettlePollMs)) return;
+
+        var now = Environment.TickCount64;
+        var count = CountOccupiedRetainerSlots();
+        if(count != SettleLastCount)
+        {
+            SettleLastCount = count;
+            SettleLastChangeAt = now;
+            return;
+        }
+
+        if(now - SettleLastChangeAt < SettleQuietMs && now - PhaseEnteredAt < SettleCapMs) return;
+
+        // 落地了(或等太久)。重新開一趟:上一趟被伺服器拒收的格子這時候會重新被納入。
+        RetainerRetrieve.ResetTracking();
+        DeferredItems.Clear();
+        PassFired = 0;
+        SetPhase(Phase.Retrieve);
     }
 
-    private static void TickCloseRetainerWait()
+    /// <summary>關掉道具管理視窗、離開這個雇員,回到雇員清單。
+    /// 🔴 .50 只送了「關閉雇員代理」一步就去等「不再被佔用」,而站在鈴前本來就一直是被佔用狀態,
+    /// 於是永遠等不到,得靠使用者手動關視窗才會繼續。正式流程的收尾是
+    /// 「關道具管理 → 在雇員選單選告辭 → 回到雇員清單」,這裡照抄。</summary>
+    private static void TickLeaveRetainer()
+    {
+        PluginLog.Information($"[ExpertDeliveryLoop] Leaving retainer {Retainers[RetainerIndex]}.");
+        P.TaskManager.Enqueue(RetainerHandlers.CloseAgentRetainer, "CloseAgentRetainer");
+        P.TaskManager.Enqueue(RetainerHandlers.SelectQuit, "SelectQuit");
+        P.TaskManager.Enqueue(() => TryGetAddonByName<AtkUnitBase>("RetainerList", out var a) && IsAddonReady(a), "WaitRetainerList");
+        SetPhase(Phase.LeaveRetainerWait);
+    }
+
+    private static void TickLeaveRetainerWait()
     {
         if(!ChainFinished) return;
 
+        if(!TryGetAddonByName<AtkUnitBase>("RetainerList", out var list) || !IsAddonReady(list))
+        {
+            Stop(Loc.T("Stopped: could not get back to the retainer list."));
+            return;
+        }
+
         RetainerIndex++;
-        SetPhase(RoundEndReason == RoundEnd.ReserveReached ? Phase.Handin : Phase.OpenRetainer);
+        SetPhase(RoundEndReason == RoundEnd.ReserveReached ? Phase.CloseBell : Phase.SelectRetainer);
+    }
+
+    /// <summary>關掉雇員清單,離開傳喚鈴。</summary>
+    private static void TickCloseBell()
+    {
+        P.TaskManager.Enqueue(RetainerListHandlers.CloseRetainerList, "CloseRetainerList");
+        P.TaskManager.Enqueue(() => !IsOccupied(), "WaitUntilNotOccupiedAfterBell");
+        SetPhase(Phase.CloseBellWait);
+    }
+
+    private static void TickCloseBellWait()
+    {
+        if(!ChainFinished) return;
+        if(IsOccupied())
+        {
+            Stop(Loc.T("Stopped: could not leave the summoning bell."));
+            return;
+        }
+        SetPhase(Phase.Handin);
     }
 
     #endregion
 
     #region 繳交
 
-    /// <summary>背包裡還有沒有可以繳交的裝備。取回一件都沒取到時,用它分辨
-    /// 「真的沒東西可繳」與「上一輪取回的東西還在背包裡」。</summary>
     private static bool HasDeliverableGearInBags()
     {
         foreach(var type in Utils.PlayerInvetories)
@@ -565,8 +821,6 @@ internal static unsafe class GCExpertDeliveryLoop
         {
             if(RoundEndReason == RoundEnd.ReserveReached)
             {
-                // 背包到保留下限卻一件可繳交的都沒有 —— 塞住背包的是別的東西,再跑下去
-                // 只會一輪一輪地取不到又繳不掉。
                 Stop(Loc.T("Stopped: the inventory is down to the reserve but holds nothing that can be delivered."));
                 return;
             }
@@ -576,6 +830,8 @@ internal static unsafe class GCExpertDeliveryLoop
 
         PluginLog.Information($"[ExpertDeliveryLoop] Starting handin round {HandinRounds + 1} with {RetrievedThisRound} item(s) retrieved this round.");
         TaskDeliverItems.Enqueue();
+        // 這條鏈自己會叫 Lifestream 導航到大國防聯軍,所以整段都算導航窗。
+        NavigationDeadline = Environment.TickCount64 + NavigationGraceMs;
         HandinRounds++;
         SetPhase(Phase.HandinWait);
     }

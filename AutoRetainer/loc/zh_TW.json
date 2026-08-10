@@ -951,5 +951,20 @@
   "Stopped: the handin round did not finish in time.": "已停止：這一輪繳交沒有在時限內完成。",
   "Finished: the retainers have no more gear to deliver.": "完成：雇員身上已經沒有可繳交的裝備了。",
   "Finished: everything has been delivered.": "完成：全部繳交完畢。",
-  "retrieved {0}, handin rounds {1}": "已取出 {0} 件，繳交 {1} 輪"
+  "retrieved {0}, handin rounds {1}": "已取出 {0} 件，繳交 {1} 輪",
+  "Opening the summoning bell": "開啟傳喚鈴",
+  "Use a specific summoning bell": "指定特定的傳喚鈴",
+  "Set current position as the bell": "把目前位置設為本流程的鈴",
+  "Saved the current position as this flow's summoning bell.": "已把目前位置記為本流程的傳喚鈴。",
+  "No position saved yet - the nearest bell is used until you save one.": "還沒記錄位置，在記錄之前會用最近的鈴。",
+  "Saved bell: {0} ({1:F1}, {2:F1}, {3:F1})": "已記錄的鈴：{0}（{1:F1}, {2:F1}, {3:F1}）",
+  "You are in a different zone, so the nearest bell is used instead.": "你目前不在該區域，因此改用最近的鈴。",
+  "Where several bells stand within reach of each other, picking \"whichever is nearest\" can land on the wrong one. Save the spot you actually use and the loop will prefer the bell closest to it. ⚠️ This only chooses between bells you can already reach - getting to the zone is still done by the travel command above.": "好幾個鈴擠在一起、彼此都構得到的地方，「挑最近的」會挑錯。把你實際會用的位置記下來，流程就會優先選離它最近的那個鈴。⚠️ 這只負責在**已經構得到的鈴**之間做選擇；要到那個區域仍然是靠上面那個移動指令。",
+  "Sent to Lifestream only when no summoning bell is already in reach, so standing at one means it is never used. Examples: mb (market board), home, fc, apt, inn. Must not be empty.": "只有在附近找不到傳喚鈴時才會送給 Lifestream；站在鈴旁邊時完全不會用到。可用例子：mb（市場板）、home、fc、apt、inn。不可以留空。",
+  "Stopped: the retainer list did not load after using the summoning bell.": "已停止：使用傳喚鈴之後，雇員清單沒有載入。",
+  "Stopped: could not get back to the retainer list.": "已停止：無法回到雇員清單。",
+  "Stopped: could not leave the summoning bell.": "已停止：無法離開傳喚鈴。",
+  "Stopped: the Priority Seal Allowance was not consumed - the game refused the use-item.": "已停止：軍票預支單沒有被消耗，遊戲拒絕了這次「使用道具」。請確認道具欄有開啟、且角色不在無法使用道具的狀態。",
+  "Stopped: the player stayed unavailable with nothing in progress.": "已停止：玩家長時間處於不可用狀態，而且沒有任何移動或任務在進行。",
+  "The loop has stopped, but work already queued in AutoRetainer will finish on its own.": "循環已經停止，但先前已排入 AutoRetainer 的工作會自行完成。"
 }

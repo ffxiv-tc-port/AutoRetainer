@@ -75,6 +75,19 @@ internal unsafe class Config
     /// the loop only works with a bell that is already in reach, and stops when there is none.</summary>
     public bool ExpertDeliveryLoopTravelToBell = true;
 
+    /// <summary>Prefer the bell nearest <see cref="ExpertDeliveryLoopBellPosition"/> over whichever one happens
+    /// to be closest to the player. Off (the default) keeps the previous behaviour.</summary>
+    public bool ExpertDeliveryLoopUseSavedBell = false;
+
+    /// <summary>Territory the saved bell is in. Only consulted while the player is in that same territory -
+    /// there is no cross-zone pathing here, travel is still whatever
+    /// <see cref="ExpertDeliveryLoopBellCommand"/> does.</summary>
+    public uint ExpertDeliveryLoopBellTerritory = 0;
+
+    /// <summary>Where the saved bell is. Used to pick between several bells that are all within reach, which
+    /// is exactly the case wherever bells stand next to each other.</summary>
+    public Vector3 ExpertDeliveryLoopBellPosition = default;
+
     /// <summary>How long one handin round may take before the loop gives up. The handin itself is gated on
     /// AutoRetainer no longer being busy; this is only the fuse for "it never became not-busy".</summary>
     public int ExpertDeliveryLoopHandinTimeoutMinutes = 10;
