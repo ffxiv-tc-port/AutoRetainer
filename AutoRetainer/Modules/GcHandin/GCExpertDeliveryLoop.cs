@@ -49,7 +49,13 @@ internal static unsafe class GCExpertDeliveryLoop
     /// 🔴 這段等待**不能**用「我們的任務佇列排空」當結論:排空只代表我們送出的動作做完了,
     /// 遊戲還要自己把視窗開起來、把雇員資料填進去。.52 就是拿排空當結論,在互動後 526 毫秒
     /// 就判定「清單沒載入」而停止。</summary>
-    private const long RetainerListLoadTimeoutMs = 20000;
+    private const long RetainerListLoadTimeoutMs = 30000;
+
+    /// <summary>清單還沒載入時,隔這麼久重送一次開鈴互動。</summary>
+    private const long BellInteractRetryMs = 5000;
+
+    /// <summary>開鈴互動最多送幾次(含第一次)。上限的用途是不要退化成每五秒無限重試。</summary>
+    private const int MaxBellInteractAttempts = 4;
 
     /// <summary>取回指令之間的最小間隔。伺服器實測每格約 0.13 秒。</summary>
     private const int RetrieveIntervalMs = 150;
@@ -115,6 +121,12 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>回鈴收尾只嘗試一次。失敗就照樣收工 —— 工作本來就做完了,停不到定位不該
     /// 把一次成功講成失敗。</summary>
     private static bool FinishReturnAttempted;
+
+    /// <summary>這一次開鈴已經送出幾次互動,以及最後一次是什麼時候。
+    /// 🔴 互動本來只送一次:剛導航到位那一幀角色可能還在位移、目標還沒鎖到鈴、距離差一點,
+    /// 那一發就白費了,而清單永遠不會出現 —— 流程只能乾等到逾時。</summary>
+    private static int BellInteractAttempts;
+    private static long LastBellInteractAt;
 
     /// <summary>導航窗的結束時刻。送出任何會讓角色移動/換區的東西時往後推。</summary>
     private static long NavigationDeadline;
@@ -617,8 +629,13 @@ internal static unsafe class GCExpertDeliveryLoop
             return;
         }
 
+        // 剛結束導航的那幾幀角色可能還在位移或演出中,這時候送互動等於浪費一發。
+        if(!Player.Interactable) return;
+
         PluginLog.Information($"[ExpertDeliveryLoop] Interacting with the summoning bell.");
         TaskInteractWithNearestBell.Enqueue();
+        BellInteractAttempts = 1;
+        LastBellInteractAt = Environment.TickCount64;
         SetPhase(Phase.OpenBellWait);
     }
 
@@ -631,10 +648,25 @@ internal static unsafe class GCExpertDeliveryLoop
             return;
         }
 
+        // 互動放槍是沉默的:沒有任何回報說「這一發沒中」,只會表現成清單一直不出現。
+        // 所以在等待期間有界地重送,每一次都講出來,才分得出「還在載入」與「根本沒開起來」。
+        var now = Environment.TickCount64;
+        if(!Utils.IsBusy && Player.Interactable
+            && BellInteractAttempts < MaxBellInteractAttempts
+            && now - LastBellInteractAt > BellInteractRetryMs)
+        {
+            BellInteractAttempts++;
+            PluginLog.Information($"[ExpertDeliveryLoop] Retrying the summoning bell interaction (attempt {BellInteractAttempts}/{MaxBellInteractAttempts}) - the retainer list has still not loaded after {now - LastBellInteractAt}ms.");
+            TaskInteractWithNearestBell.Enqueue();
+            LastBellInteractAt = now;
+            return;
+        }
+
         if(TimeInPhase > RetainerListLoadTimeoutMs)
         {
             // ⚠️ 走到這裡只說明清單沒載入,**不代表任何一個雇員不存在**。
             //    這條路徑刻意不產生任何「已經不存在」的訊息 —— 那會把載入問題講成資料問題。
+            PluginLog.Information($"[ExpertDeliveryLoop] Giving up: the retainer list did not load after {BellInteractAttempts} bell interaction(s) over {TimeInPhase}ms.");
             Stop(Loc.T("Stopped: the retainer list did not load after using the summoning bell."));
         }
     }
