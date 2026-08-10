@@ -66,19 +66,12 @@ internal unsafe class Config
     /// without the bonus, which is what someone who ran out mid-run almost always wants.</summary>
     public bool ExpertDeliveryLoopStopWithoutSealBonus = false;
 
-    /// <summary>Lifestream command used to get back within reach of a summoning bell after a handin.
-    /// ⚠️ Only ever sent when no bell is already reachable, so standing at one (a house, a workshop) means
-    /// this is never used. Must not be empty - Lifestream treats an empty argument as world travel.</summary>
-    public string ExpertDeliveryLoopBellCommand = "mb";
-
-    /// <summary>Allow the loop to travel to a bell with <see cref="ExpertDeliveryLoopBellCommand"/>. Off means
-    /// the loop only works with a bell that is already in reach, and stops when there is none.</summary>
-    public bool ExpertDeliveryLoopTravelToBell = true;
-
     /// <summary>Lifestream teleport-panel favourite the loop travels to before looking for a summoning bell.
-    /// 0 = not set. 🔴 When this is set the loop never falls back to a generic travel command: a fallback
-    /// that lands in the wrong city is worse than stopping, because the flow then hunts for a bell that is
-    /// nowhere near.</summary>
+    /// 0 = not set, and then the loop only ever works with a bell that is already in reach.
+    /// 🔴 This is deliberately the *only* way the loop travels to a bell. The generic-travel-command fallback
+    /// that used to live here was removed: it lands wherever that command's own default is (measured: Ul'dah),
+    /// and the flow then hunts for a bell in the wrong city. Stopping with an instruction beats travelling
+    /// somewhere nobody asked for.</summary>
     public uint ExpertDeliveryLoopBellFavoriteId = 0;
     public byte ExpertDeliveryLoopBellFavoriteSub = 0;
     /// <summary>Display name of the chosen favourite, remembered so the UI can still name it when Lifestream
@@ -90,19 +83,6 @@ internal unsafe class Config
     public uint ExpertDeliveryLoopGCFavoriteId = 0;
     public byte ExpertDeliveryLoopGCFavoriteSub = 0;
     public string ExpertDeliveryLoopGCFavoriteName = "";
-
-    /// <summary>Prefer the bell nearest <see cref="ExpertDeliveryLoopBellPosition"/> over whichever one happens
-    /// to be closest to the player. Off (the default) keeps the previous behaviour.</summary>
-    public bool ExpertDeliveryLoopUseSavedBell = false;
-
-    /// <summary>Territory the saved bell is in. Only consulted while the player is in that same territory -
-    /// there is no cross-zone pathing here, travel is still whatever
-    /// <see cref="ExpertDeliveryLoopBellCommand"/> does.</summary>
-    public uint ExpertDeliveryLoopBellTerritory = 0;
-
-    /// <summary>Where the saved bell is. Used to pick between several bells that are all within reach, which
-    /// is exactly the case wherever bells stand next to each other.</summary>
-    public Vector3 ExpertDeliveryLoopBellPosition = default;
 
     /// <summary>How long one handin round may take before the loop gives up. The handin itself is gated on
     /// AutoRetainer no longer being busy; this is only the fuse for "it never became not-busy".</summary>

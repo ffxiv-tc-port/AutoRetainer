@@ -522,17 +522,16 @@ internal static unsafe class GCExpertDeliveryLoop
 
     #region 到鈴邊
 
-    /// <summary>目前拿得到的傳喚鈴。設定了「指定的鈴」時,在多個都構得到的情況下挑離指定點最近的那個 ——
-    /// 純粹用「離玩家最近」在鈴擠在一起的地方會挑錯。</summary>
+    /// <summary>目前構得到、離玩家最近的傳喚鈴。
+    /// <para>📌 這裡不再有「指定座標挑鈴」那一套。移動一律走使用者選的 Lifestream 我的最愛,而最愛本來就是
+    /// 使用者自己加星號的定點 —— Lifestream 把人放到那裡之後,當前區域裡最近的那個鈴就是他要的那個。
+    /// 原本那套座標偏好只在「不用最愛」的情況下才會生效,而那條路徑已經整個移除。</para></summary>
     internal static IGameObject GetPreferredBell()
     {
         if(Player.Object is null) return null;
 
         IGameObject best = null;
         var bestScore = float.MaxValue;
-        // 用了最愛就不必再靠座標挑:Lifestream 已經把人放在正確的地點,當前區域裡最近的那個就是對的。
-        var useSaved = !HasBellTarget && C.ExpertDeliveryLoopUseSavedBell
-            && C.ExpertDeliveryLoopBellTerritory == Svc.ClientState.TerritoryType;
 
         foreach(var x in Svc.Objects)
         {
@@ -541,9 +540,7 @@ internal static unsafe class GCExpertDeliveryLoop
             if(!x.IsTargetable) continue;
             if(Vector3.Distance(x.Position, Player.Object.Position) >= Utils.GetValidInteractionDistance(x)) continue;
 
-            var score = useSaved
-                ? Vector3.Distance(x.Position, C.ExpertDeliveryLoopBellPosition)
-                : Vector3.Distance(x.Position, Player.Object.Position);
+            var score = Vector3.Distance(x.Position, Player.Object.Position);
             if(score < bestScore)
             {
                 bestScore = score;
@@ -567,47 +564,30 @@ internal static unsafe class GCExpertDeliveryLoop
             return;
         }
 
+        // 🔴 沒指定目的地就沒有移動手段,而且這是刻意的:泛用移動指令的退路已經整個拿掉。
+        //    那條退路會把人送到指令自己的預設地點(實測是烏爾達哈),流程接著在錯的城市裡找鈴 ——
+        //    使用者看到的是「跑去一個沒要求的地方然後說找不到鈴」,比直接停下來難懂得多。
+        //    停下來,並且把「該去哪裡設定」講清楚。
+        if(!HasBellTarget)
+        {
+            PluginLog.Information($"[ExpertDeliveryLoop] No bell in reach and no bell destination configured (ExpertDeliveryLoopBellFavoriteId=0). Stopping - travel needs a Lifestream favourite.");
+            Stop(Loc.T("Stopped: no summoning bell in reach. Choose a summoning bell destination in this flow's settings - the list comes from your Lifestream teleport panel favourites."));
+            return;
+        }
+
         if(TravelledToBellThisRound)
         {
             // 已經到過目的地卻還是沒有鈴 —— 再送一次只會得到同樣的結果。
-            Stop(HasBellTarget
-                ? Loc.T("Stopped: arrived at the chosen destination but there is no summoning bell within reach. Pick a favourite that is closer to a bell.")
-                : Loc.T("Stopped: no summoning bell in reach after travelling."));
+            Stop(Loc.T("Stopped: arrived at the chosen destination but there is no summoning bell within reach. Pick a favourite that is closer to a bell."));
             return;
         }
 
         // 使用者指定了目的地:一律走它,而且**只走它**。
-        if(HasBellTarget)
+        if(!GoToFavorite(C.ExpertDeliveryLoopBellFavoriteId, C.ExpertDeliveryLoopBellFavoriteSub, "bell"))
         {
-            if(!GoToFavorite(C.ExpertDeliveryLoopBellFavoriteId, C.ExpertDeliveryLoopBellFavoriteSub, "bell"))
-            {
-                Stop(Loc.T("Stopped: could not travel to the chosen summoning bell destination - check that it is still starred in Lifestream."));
-                return;
-            }
-            TravelledToBellThisRound = true;
-            SetPhase(Phase.EnsureBellWait);
+            Stop(Loc.T("Stopped: could not travel to the chosen summoning bell destination - check that it is still starred in Lifestream."));
             return;
         }
-
-        if(!C.ExpertDeliveryLoopTravelToBell)
-        {
-            Stop(Loc.T("Stopped: no summoning bell in reach, and travelling to one is turned off."));
-            return;
-        }
-
-        var command = C.ExpertDeliveryLoopBellCommand;
-        if(command.IsNullOrEmpty())
-        {
-            // 🔴 空字串不可以送出去:Lifestream 把空參數當成跨世界旅行。
-            Stop(Loc.T("Stopped: no summoning bell in reach and no travel command is configured."));
-            return;
-        }
-
-        // ⚠️ 這條退路會把人送到該指令自己的預設地點,不一定是使用者要的鈴。
-        //    指定一個 Lifestream 我的最愛才是可靠的做法。
-        PluginLog.Information($"[ExpertDeliveryLoop] No bell in reach and no favourite chosen, falling back to Lifestream command \"{command}\".");
-        S.LifestreamIPC.ExecuteCommand(command);
-        NavigationDeadline = Environment.TickCount64 + NavigationGraceMs;
         TravelledToBellThisRound = true;
         SetPhase(Phase.EnsureBellWait);
     }
@@ -1019,8 +999,8 @@ internal static unsafe class GCExpertDeliveryLoop
             return;
         }
 
-        // 沒有可用的回程手段就照樣收工,不要卡在這裡。
-        if(FinishReturnAttempted || (!HasBellTarget && !C.ExpertDeliveryLoopTravelToBell))
+        // 沒有可用的回程手段就照樣收工,不要卡在這裡。沒設目的地就是沒有回程手段。
+        if(FinishReturnAttempted || !HasBellTarget)
         {
             Stop(reason, success: true);
             return;
@@ -1036,26 +1016,12 @@ internal static unsafe class GCExpertDeliveryLoop
 
         FinishReturnAttempted = true;
 
-        if(HasBellTarget)
-        {
-            if(!GoToFavorite(C.ExpertDeliveryLoopBellFavoriteId, C.ExpertDeliveryLoopBellFavoriteSub, "bell"))
-            {
-                FinishWithoutReturning();
-                return;
-            }
-            SetPhase(Phase.FinishReturnToBellWait);
-            return;
-        }
-
-        var command = C.ExpertDeliveryLoopBellCommand;
-        if(command.IsNullOrEmpty())
+        // 📌 只有 HasBellTarget 為真才進得了這個階段(FinishSuccessfully 的閘門),所以這裡不必再判一次。
+        if(!GoToFavorite(C.ExpertDeliveryLoopBellFavoriteId, C.ExpertDeliveryLoopBellFavoriteSub, "bell"))
         {
             FinishWithoutReturning();
             return;
         }
-        PluginLog.Information($"[ExpertDeliveryLoop] Finished - returning to the bell with Lifestream command \"{command}\".");
-        S.LifestreamIPC.ExecuteCommand(command);
-        NavigationDeadline = Environment.TickCount64 + NavigationGraceMs;
         SetPhase(Phase.FinishReturnToBellWait);
     }
 

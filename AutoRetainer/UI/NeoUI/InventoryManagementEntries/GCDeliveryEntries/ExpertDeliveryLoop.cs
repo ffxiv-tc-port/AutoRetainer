@@ -107,24 +107,13 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         DrawFavoritePicker(Loc.T("Grand Company destination"),
             ref C.ExpertDeliveryLoopGCFavoriteId, ref C.ExpertDeliveryLoopGCFavoriteSub, ref C.ExpertDeliveryLoopGCFavoriteName);
 
+        // 「沒設目的地」是會讓流程停在第一步的狀態,所以要在列上看得見,不是藏在 tooltip 裡。
+        if(C.ExpertDeliveryLoopBellFavoriteId == 0)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudYellow, Loc.T("Without a summoning bell destination the loop only works with a bell already in reach, and stops otherwise."));
+        }
+
         ImGui.Separator();
-
-        if(C.ExpertDeliveryLoopBellFavoriteId != 0)
-        {
-            ImGuiEx.Text(ImGuiColors.DalamudGrey, Loc.T("A bell destination is set, so the fallback travel command below is never used."));
-        }
-
-        ImGui.Checkbox(Loc.T("Travel to a summoning bell when none is in reach"), ref C.ExpertDeliveryLoopTravelToBell);
-        if(C.ExpertDeliveryLoopTravelToBell)
-        {
-            ImGui.Indent();
-            ImGuiEx.SetNextItemWidthScaled(150);
-            ImGui.InputText(Loc.T("Lifestream command"), ref C.ExpertDeliveryLoopBellCommand, 50);
-            ImGuiEx.HelpMarker(Loc.T("Sent to Lifestream only when no summoning bell is already in reach, so standing at one means it is never used. Examples: mb (market board), home, fc, apt, inn. Must not be empty."));
-            ImGui.Unindent();
-        }
-
-        DrawSavedBell();
 
         ImGuiEx.SetNextItemWidthScaled(150);
         ImGui.SliderInt(Loc.T("Handin round timeout (minutes)"), ref C.ExpertDeliveryLoopHandinTimeoutMinutes, 1, 60);
@@ -195,43 +184,6 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
                 ? Loc.T("(no favourites - star a destination in the Lifestream teleport panel first)")
                 : Loc.T("(Lifestream is not available)"));
         }
-    }
-
-    private void DrawSavedBell()
-    {
-        ImGui.Checkbox(Loc.T("Use a specific summoning bell"), ref C.ExpertDeliveryLoopUseSavedBell);
-        ImGuiEx.HelpMarker(Loc.T("Where several bells stand within reach of each other, picking \"whichever is nearest\" can land on the wrong one. Save the spot you actually use and the loop will prefer the bell closest to it. ⚠️ This only chooses between bells you can already reach - getting to the zone is still done by the travel command above."));
-
-        if(!C.ExpertDeliveryLoopUseSavedBell) return;
-
-        ImGui.Indent();
-        if(ImGui.Button(Loc.T("Set current position as the bell")))
-        {
-            if(Player.Available)
-            {
-                C.ExpertDeliveryLoopBellTerritory = Svc.ClientState.TerritoryType;
-                C.ExpertDeliveryLoopBellPosition = Player.Object.Position;
-                DuoLog.Information(Loc.T("Saved the current position as this flow's summoning bell."));
-            }
-        }
-
-        if(C.ExpertDeliveryLoopBellTerritory == 0)
-        {
-            ImGuiEx.Text(ImGuiColors.DalamudYellow, Loc.T("No position saved yet - the nearest bell is used until you save one."));
-        }
-        else
-        {
-            var here = C.ExpertDeliveryLoopBellTerritory == Svc.ClientState.TerritoryType;
-            var zone = GenericHelpers.GetTerritoryName(C.ExpertDeliveryLoopBellTerritory);
-            ImGuiEx.Text(here ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudYellow,
-                string.Format(Loc.T("Saved bell: {0} ({1:F1}, {2:F1}, {3:F1})"), zone,
-                    C.ExpertDeliveryLoopBellPosition.X, C.ExpertDeliveryLoopBellPosition.Y, C.ExpertDeliveryLoopBellPosition.Z));
-            if(!here)
-            {
-                ImGuiEx.Text(ImGuiColors.DalamudGrey, Loc.T("You are in a different zone. Set a bell destination above so the loop can travel there."));
-            }
-        }
-        ImGui.Unindent();
     }
 
     private void DrawEntrustPlanPicker()
