@@ -37,6 +37,50 @@ internal unsafe class Config
     /// <summary>Grand Company handin: if the row count has not changed this long after a refresh event was
     /// sent, send another one (once the list addon is fully ready). Capped at 3 sends per item.</summary>
     public int GCHandinRefreshRetryMs = 150;
+
+    #region Expert delivery loop
+
+    // 稀有品繳交循環。⚠️ 這個功能**沒有啟用旗標**:只有按下按鈕才會跑,沒有任何事件觸發它,
+    // 所以「預設狀態」就是「閒置」。下面全部是行為參數,不是開關。
+
+    /// <summary>Only retainers carrying this entrust plan are visited by the expert delivery loop.
+    /// <see cref="Guid.Empty"/> means nothing is selected, which the loop treats as "no retainers to visit"
+    /// and stops - deliberately not "visit everyone".</summary>
+    public Guid ExpertDeliveryLoopEntrustPlan = Guid.Empty;
+
+    /// <summary>Pick retainers from <see cref="ExpertDeliveryLoopRetainerNames"/> instead of by entrust plan.</summary>
+    public bool ExpertDeliveryLoopManualRetainers = false;
+
+    /// <summary>Retainer names used when <see cref="ExpertDeliveryLoopManualRetainers"/> is on.</summary>
+    public List<string> ExpertDeliveryLoopRetainerNames = [];
+
+    /// <summary>Stop retrieving once the player's own bags are down to this many free slots, and go hand in
+    /// what has been collected instead. ⚠️ The retrieve core independently refuses to go below
+    /// <see cref="MultiMinInventorySlots"/>, so the reserve that actually applies is the larger of the two.</summary>
+    public int ExpertDeliveryLoopReservedSlots = 5;
+
+    /// <summary>Use a Priority Seal Allowance (item 14946) when no seal bonus is active.</summary>
+    public bool ExpertDeliveryLoopUseSealAllowance = true;
+
+    /// <summary>Stop the whole loop when a seal bonus is wanted but none could be applied. Off = carry on
+    /// without the bonus, which is what someone who ran out mid-run almost always wants.</summary>
+    public bool ExpertDeliveryLoopStopWithoutSealBonus = false;
+
+    /// <summary>Lifestream command used to get back within reach of a summoning bell after a handin.
+    /// ⚠️ Only ever sent when no bell is already reachable, so standing at one (a house, a workshop) means
+    /// this is never used. Must not be empty - Lifestream treats an empty argument as world travel.</summary>
+    public string ExpertDeliveryLoopBellCommand = "mb";
+
+    /// <summary>Allow the loop to travel to a bell with <see cref="ExpertDeliveryLoopBellCommand"/>. Off means
+    /// the loop only works with a bell that is already in reach, and stops when there is none.</summary>
+    public bool ExpertDeliveryLoopTravelToBell = true;
+
+    /// <summary>How long one handin round may take before the loop gives up. The handin itself is gated on
+    /// AutoRetainer no longer being busy; this is only the fuse for "it never became not-busy".</summary>
+    public int ExpertDeliveryLoopHandinTimeoutMinutes = 10;
+
+    #endregion
+
     internal bool BypassSanctuaryCheck = false;
     public bool MultiHETOnEnable = true;
     public bool UseServerTime = true;
