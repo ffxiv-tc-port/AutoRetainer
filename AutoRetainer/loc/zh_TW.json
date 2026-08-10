@@ -979,5 +979,8 @@
   "Stopped: could not travel to the chosen summoning bell destination - check that it is still starred in Lifestream.": "已停止：無法前往指定的傳喚鈴目的地，請確認它在 Lifestream 裡仍然是我的最愛。",
   "Stopped: could not travel to the chosen Grand Company destination - check that it is still starred in Lifestream.": "已停止：無法前往指定的大國防聯軍目的地，請確認它在 Lifestream 裡仍然是我的最愛。",
   "Stopped: arrived at the chosen destination but there is no summoning bell within reach. Pick a favourite that is closer to a bell.": "已停止：已抵達指定的目的地，但附近沒有構得到的傳喚鈴。請改選一個離鈴更近的我的最愛。",
-  "Stopped: the retainer list is not loaded, so it cannot be told whether the retainers are still there.": "已停止：雇員清單沒有載入，因此無法判斷雇員還在不在。請重新執行一次。"
+  "Stopped: the retainer list is not loaded, so it cannot be told whether the retainers are still there.": "已停止：雇員清單沒有載入，因此無法判斷雇員還在不在。請重新執行一次。",
+  "Returning to the summoning bell": "返回傳喚鈴",
+  "Back at the summoning bell.": "已回到傳喚鈴。",
+  "Could not return to a summoning bell.": "無法回到傳喚鈴，角色停在原地。"
 }

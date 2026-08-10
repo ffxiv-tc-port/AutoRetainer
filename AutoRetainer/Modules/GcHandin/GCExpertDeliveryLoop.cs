@@ -87,6 +87,8 @@ internal static unsafe class GCExpertDeliveryLoop
         CloseBellWait,
         Handin,
         HandinWait,
+        FinishReturnToBell,
+        FinishReturnToBellWait,
     }
 
     /// <summary>這一輪取回停下來的理由,決定繳交完之後要不要再跑一輪。</summary>
@@ -104,6 +106,12 @@ internal static unsafe class GCExpertDeliveryLoop
     private static long PhaseEnteredAt;
     private static RoundEnd RoundEndReason;
     private static long UnavailableSince;
+
+    /// <summary>正常完成的說法,等回到鈴邊之後才真的講出來。</summary>
+    private static string PendingFinishReason = "";
+    /// <summary>回鈴收尾只嘗試一次。失敗就照樣收工 —— 工作本來就做完了,停不到定位不該
+    /// 把一次成功講成失敗。</summary>
+    private static bool FinishReturnAttempted;
 
     /// <summary>導航窗的結束時刻。送出任何會讓角色移動/換區的東西時往後推。</summary>
     private static long NavigationDeadline;
@@ -143,6 +151,7 @@ internal static unsafe class GCExpertDeliveryLoop
         Phase.Retrieve or Phase.RetrieveSettle => Loc.T("Retrieving gear"),
         Phase.LeaveRetainer or Phase.LeaveRetainerWait or Phase.CloseBell or Phase.CloseBellWait => Loc.T("Closing retainer"),
         Phase.Handin or Phase.HandinWait => Loc.T("Handing in at the Grand Company"),
+        Phase.FinishReturnToBell or Phase.FinishReturnToBellWait => Loc.T("Returning to the summoning bell"),
         _ => "?",
     };
 
@@ -226,6 +235,8 @@ internal static unsafe class GCExpertDeliveryLoop
         TravelledToBellThisRound = false;
         UnavailableSince = 0;
         NavigationDeadline = 0;
+        PendingFinishReason = "";
+        FinishReturnAttempted = false;
         RoundEndReason = RoundEnd.NoGearLeft;
         SkippedItems.Clear();
         DeferredItems.Clear();
@@ -309,6 +320,8 @@ internal static unsafe class GCExpertDeliveryLoop
             case Phase.CloseBellWait: TickCloseBellWait(); break;
             case Phase.Handin: TickHandin(); break;
             case Phase.HandinWait: TickHandinWait(); break;
+            case Phase.FinishReturnToBell: TickFinishReturnToBell(); break;
+            case Phase.FinishReturnToBellWait: TickFinishReturnToBellWait(); break;
         }
     }
 
@@ -908,7 +921,7 @@ internal static unsafe class GCExpertDeliveryLoop
                 Stop(Loc.T("Stopped: the inventory is down to the reserve but holds nothing that can be delivered."));
                 return;
             }
-            Stop(Loc.T("Finished: the retainers have no more gear to deliver."), success: true);
+            FinishSuccessfully(Loc.T("Finished: the retainers have no more gear to deliver."));
             return;
         }
 
@@ -935,6 +948,78 @@ internal static unsafe class GCExpertDeliveryLoop
         SetPhase(Phase.HandinWait);
     }
 
+    /// <summary>正常完成的收尾。
+    /// 🔴 只有**正常完成**才做回鈴停靠:錯誤停止與使用者手動停止一律原地不動 ——
+    /// 出錯時多一段導航只會把現場弄得更難查。
+    /// 停在鈴邊是為了跟外掛平常的停靠慣例一致,多角色模式與日常雇員流程可以直接接手。</summary>
+    private static void FinishSuccessfully(string reason)
+    {
+        if(GetPreferredBell() != null)
+        {
+            Stop(reason, success: true);
+            return;
+        }
+
+        // 沒有可用的回程手段就照樣收工,不要卡在這裡。
+        if(FinishReturnAttempted || (!HasBellTarget && !C.ExpertDeliveryLoopTravelToBell))
+        {
+            Stop(reason, success: true);
+            return;
+        }
+
+        PendingFinishReason = reason;
+        SetPhase(Phase.FinishReturnToBell);
+    }
+
+    private static void TickFinishReturnToBell()
+    {
+        if(Utils.IsBusy) return;
+
+        FinishReturnAttempted = true;
+
+        if(HasBellTarget)
+        {
+            if(!GoToFavorite(C.ExpertDeliveryLoopBellFavoriteId, C.ExpertDeliveryLoopBellFavoriteSub, "bell"))
+            {
+                FinishWithoutReturning();
+                return;
+            }
+            SetPhase(Phase.FinishReturnToBellWait);
+            return;
+        }
+
+        var command = C.ExpertDeliveryLoopBellCommand;
+        if(command.IsNullOrEmpty())
+        {
+            FinishWithoutReturning();
+            return;
+        }
+        PluginLog.Information($"[ExpertDeliveryLoop] Finished - returning to the bell with Lifestream command \"{command}\".");
+        S.LifestreamIPC.ExecuteCommand(command);
+        NavigationDeadline = Environment.TickCount64 + NavigationGraceMs;
+        SetPhase(Phase.FinishReturnToBellWait);
+    }
+
+    private static void TickFinishReturnToBellWait()
+    {
+        if(!ChainFinished) return;
+
+        if(GetPreferredBell() != null)
+        {
+            PluginLog.Information($"[ExpertDeliveryLoop] Back at the summoning bell, run complete.");
+            Stop(PendingFinishReason + " " + Loc.T("Back at the summoning bell."), success: true);
+            return;
+        }
+        FinishWithoutReturning();
+    }
+
+    /// <summary>回不去鈴邊時照樣算完成 —— 東西已經全部繳完了,停不到定位不該被講成失敗。</summary>
+    private static void FinishWithoutReturning()
+    {
+        PluginLog.Information($"[ExpertDeliveryLoop] Run complete, but could not park at a summoning bell.");
+        Stop(PendingFinishReason + " " + Loc.T("Could not return to a summoning bell."), success: true);
+    }
+
     private static void TickHandinWait()
     {
         if(ChainFinished)
@@ -942,7 +1027,7 @@ internal static unsafe class GCExpertDeliveryLoop
             PluginLog.Information($"[ExpertDeliveryLoop] Handin round {HandinRounds} finished. Round end reason: {RoundEndReason}.");
             if(RoundEndReason == RoundEnd.NoGearLeft)
             {
-                Stop(Loc.T("Finished: everything has been delivered."), success: true);
+                FinishSuccessfully(Loc.T("Finished: everything has been delivered."));
                 return;
             }
             SetPhase(Phase.EnsureBell);
