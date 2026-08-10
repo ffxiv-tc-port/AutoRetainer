@@ -418,6 +418,43 @@ internal static unsafe class GCExpertDeliveryLoop
 
     #endregion
 
+    #region Lifestream 我的最愛
+
+    /// <summary>有沒有指定「鈴在哪」。設了就代表使用者已經挑好目的地 ——
+    /// 🔴 這種時候絕對不可以退回泛用的移動指令:那個指令會把人送到它自己的預設地點
+    /// (實測被送到烏爾達哈),而流程接著會在錯的城市裡找鈴。停下來比亂傳好。</summary>
+    internal static bool HasBellTarget => C.ExpertDeliveryLoopBellFavoriteId != 0;
+
+    internal static bool HasGCTarget => C.ExpertDeliveryLoopGCFavoriteId != 0;
+
+    /// <summary>叫 Lifestream 走到某個收藏項。回 false 代表**什麼都沒排進去**,呼叫端要立刻停,
+    /// 不要等一個永遠不會來的完成訊號。</summary>
+    private static bool GoToFavorite(uint id, byte sub, string what)
+    {
+        if(id == 0) return false;
+        bool ok;
+        try
+        {
+            ok = S.LifestreamIPC.TeleportToFavorite(id, sub);
+        }
+        catch(Exception e)
+        {
+            // 舊版 Lifestream 沒有這個門。
+            PluginLog.Information($"[ExpertDeliveryLoop] TeleportToFavorite is unavailable: {e.Message}");
+            return false;
+        }
+        if(!ok)
+        {
+            PluginLog.Information($"[ExpertDeliveryLoop] Lifestream refused to travel to the {what} favourite (id={id}, sub={sub}) - it may have been unstarred, or Lifestream is busy.");
+            return false;
+        }
+        PluginLog.Information($"[ExpertDeliveryLoop] Travelling to the {what} favourite (id={id}, sub={sub}).");
+        NavigationDeadline = Environment.TickCount64 + NavigationGraceMs;
+        return true;
+    }
+
+    #endregion
+
     #region 到鈴邊
 
     /// <summary>目前拿得到的傳喚鈴。設定了「指定的鈴」時,在多個都構得到的情況下挑離指定點最近的那個 ——
@@ -428,7 +465,9 @@ internal static unsafe class GCExpertDeliveryLoop
 
         IGameObject best = null;
         var bestScore = float.MaxValue;
-        var useSaved = C.ExpertDeliveryLoopUseSavedBell && C.ExpertDeliveryLoopBellTerritory == Svc.ClientState.TerritoryType;
+        // 用了最愛就不必再靠座標挑:Lifestream 已經把人放在正確的地點,當前區域裡最近的那個就是對的。
+        var useSaved = !HasBellTarget && C.ExpertDeliveryLoopUseSavedBell
+            && C.ExpertDeliveryLoopBellTerritory == Svc.ClientState.TerritoryType;
 
         foreach(var x in Svc.Objects)
         {
@@ -465,7 +504,23 @@ internal static unsafe class GCExpertDeliveryLoop
 
         if(TravelledToBellThisRound)
         {
-            Stop(Loc.T("Stopped: no summoning bell in reach after travelling."));
+            // 已經到過目的地卻還是沒有鈴 —— 再送一次只會得到同樣的結果。
+            Stop(HasBellTarget
+                ? Loc.T("Stopped: arrived at the chosen destination but there is no summoning bell within reach. Pick a favourite that is closer to a bell.")
+                : Loc.T("Stopped: no summoning bell in reach after travelling."));
+            return;
+        }
+
+        // 使用者指定了目的地:一律走它,而且**只走它**。
+        if(HasBellTarget)
+        {
+            if(!GoToFavorite(C.ExpertDeliveryLoopBellFavoriteId, C.ExpertDeliveryLoopBellFavoriteSub, "bell"))
+            {
+                Stop(Loc.T("Stopped: could not travel to the chosen summoning bell destination - check that it is still starred in Lifestream."));
+                return;
+            }
+            TravelledToBellThisRound = true;
+            SetPhase(Phase.EnsureBellWait);
             return;
         }
 
@@ -483,7 +538,9 @@ internal static unsafe class GCExpertDeliveryLoop
             return;
         }
 
-        PluginLog.Information($"[ExpertDeliveryLoop] No bell in reach, sending Lifestream command \"{command}\".");
+        // ⚠️ 這條退路會把人送到該指令自己的預設地點,不一定是使用者要的鈴。
+        //    指定一個 Lifestream 我的最愛才是可靠的做法。
+        PluginLog.Information($"[ExpertDeliveryLoop] No bell in reach and no favourite chosen, falling back to Lifestream command \"{command}\".");
         S.LifestreamIPC.ExecuteCommand(command);
         NavigationDeadline = Environment.TickCount64 + NavigationGraceMs;
         TravelledToBellThisRound = true;
@@ -829,8 +886,23 @@ internal static unsafe class GCExpertDeliveryLoop
         }
 
         PluginLog.Information($"[ExpertDeliveryLoop] Starting handin round {HandinRounds + 1} with {RetrievedThisRound} item(s) retrieved this round.");
-        TaskDeliverItems.Enqueue();
-        // 這條鏈自己會叫 Lifestream 導航到大國防聯軍,所以整段都算導航窗。
+        if(HasGCTarget)
+        {
+            // 使用者指定了繳交點:自己導航過去,然後只接繳交那一段。
+            // 走內建流程的話它會再送一次自己的移動指令,等於導航兩次。
+            if(!GoToFavorite(C.ExpertDeliveryLoopGCFavoriteId, C.ExpertDeliveryLoopGCFavoriteSub, "Grand Company"))
+            {
+                Stop(Loc.T("Stopped: could not travel to the chosen Grand Company destination - check that it is still starred in Lifestream."));
+                return;
+            }
+            P.TaskManager.Enqueue(() => !S.LifestreamIPC.IsBusy(), "WaitLifestreamBeforeHandin", new(timeLimitMS: 5 * 60 * 1000));
+            P.TaskManager.Enqueue(() => GCContinuation.EnqueueInitiation(true), "EnqueueInitiation");
+        }
+        else
+        {
+            TaskDeliverItems.Enqueue();
+        }
+        // 這一段一定含移動,整段都算導航窗。
         NavigationDeadline = Environment.TickCount64 + NavigationGraceMs;
         HandinRounds++;
         SetPhase(Phase.HandinWait);

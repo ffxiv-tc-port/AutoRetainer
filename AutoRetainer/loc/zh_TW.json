@@ -966,5 +966,17 @@
   "Stopped: could not leave the summoning bell.": "已停止：無法離開傳喚鈴。",
   "Stopped: the Priority Seal Allowance was not consumed - the game refused the use-item.": "已停止：軍票預支單沒有被消耗，遊戲拒絕了這次「使用道具」。請確認道具欄有開啟、且角色不在無法使用道具的狀態。",
   "Stopped: the player stayed unavailable with nothing in progress.": "已停止：玩家長時間處於不可用狀態，而且沒有任何移動或任務在進行。",
-  "The loop has stopped, but work already queued in AutoRetainer will finish on its own.": "循環已經停止，但先前已排入 AutoRetainer 的工作會自行完成。"
+  "The loop has stopped, but work already queued in AutoRetainer will finish on its own.": "循環已經停止，但先前已排入 AutoRetainer 的工作會自行完成。",
+  "Where to go": "要去哪裡",
+  "Pick destinations from your Lifestream teleport panel favourites. This is the reliable way: a favourite is a place you have already starred, so travelling there cannot wander off to some other city the way a generic travel command can.": "從你在 Lifestream 傳送面板收藏的地點裡挑目的地。這是可靠的做法：收藏項是你自己加過星號的地點，前往它不會像泛用移動指令那樣跑到別的城市去。",
+  "Summoning bell destination": "傳喚鈴目的地",
+  "Grand Company destination": "大國防聯軍目的地",
+  "(no longer a favourite)": "（已不在我的最愛中）",
+  "(no favourites - star a destination in the Lifestream teleport panel first)": "（沒有我的最愛——請先在 Lifestream 傳送面板把目的地加上星號）",
+  "(Lifestream is not available)": "（Lifestream 無法使用）",
+  "A bell destination is set, so the fallback travel command below is never used.": "已設定傳喚鈴目的地，因此下面的備用移動指令不會被使用。",
+  "You are in a different zone. Set a bell destination above so the loop can travel there.": "你目前不在該區域。請在上面設定傳喚鈴目的地，流程才能自己前往。",
+  "Stopped: could not travel to the chosen summoning bell destination - check that it is still starred in Lifestream.": "已停止：無法前往指定的傳喚鈴目的地，請確認它在 Lifestream 裡仍然是我的最愛。",
+  "Stopped: could not travel to the chosen Grand Company destination - check that it is still starred in Lifestream.": "已停止：無法前往指定的大國防聯軍目的地，請確認它在 Lifestream 裡仍然是我的最愛。",
+  "Stopped: arrived at the chosen destination but there is no summoning bell within reach. Pick a favourite that is closer to a bell.": "已停止：已抵達指定的目的地，但附近沒有構得到的傳喚鈴。請改選一個離鈴更近的我的最愛。"
 }

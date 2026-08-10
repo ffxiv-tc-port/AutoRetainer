@@ -98,6 +98,22 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
             ImGui.Unindent();
         }
 
+        ImGui.Separator();
+        ImGuiEx.Text(ImGuiColors.DalamudWhite, Loc.T("Where to go"));
+        ImGuiEx.TextWrapped(ImGuiColors.DalamudGrey, Loc.T("Pick destinations from your Lifestream teleport panel favourites. This is the reliable way: a favourite is a place you have already starred, so travelling there cannot wander off to some other city the way a generic travel command can."));
+
+        DrawFavoritePicker(Loc.T("Summoning bell destination"),
+            ref C.ExpertDeliveryLoopBellFavoriteId, ref C.ExpertDeliveryLoopBellFavoriteSub, ref C.ExpertDeliveryLoopBellFavoriteName);
+        DrawFavoritePicker(Loc.T("Grand Company destination"),
+            ref C.ExpertDeliveryLoopGCFavoriteId, ref C.ExpertDeliveryLoopGCFavoriteSub, ref C.ExpertDeliveryLoopGCFavoriteName);
+
+        ImGui.Separator();
+
+        if(C.ExpertDeliveryLoopBellFavoriteId != 0)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudGrey, Loc.T("A bell destination is set, so the fallback travel command below is never used."));
+        }
+
         ImGui.Checkbox(Loc.T("Travel to a summoning bell when none is in reach"), ref C.ExpertDeliveryLoopTravelToBell);
         if(C.ExpertDeliveryLoopTravelToBell)
         {
@@ -112,6 +128,73 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
 
         ImGuiEx.SetNextItemWidthScaled(150);
         ImGui.SliderInt(Loc.T("Handin round timeout (minutes)"), ref C.ExpertDeliveryLoopHandinTimeoutMinutes, 1, 60);
+    }
+
+    /// <summary>Lifestream 我的最愛的快取。每幀去問一次會讓 Lifestream 重建索引,所以節流。</summary>
+    private static List<(uint Id, byte SubIndex, string Name, uint Territory)> FavoritesCache = [];
+    private static long FavoritesCachedAt;
+    private static bool FavoritesAvailable = true;
+
+    internal static List<(uint Id, byte SubIndex, string Name, uint Territory)> GetFavorites()
+    {
+        var now = Environment.TickCount64;
+        if(now - FavoritesCachedAt < 2000) return FavoritesCache;
+        FavoritesCachedAt = now;
+        try
+        {
+            FavoritesCache = S.LifestreamIPC.GetTeleportFavorites() ?? [];
+            FavoritesAvailable = true;
+        }
+        catch(Exception)
+        {
+            // Lifestream 沒裝或版本太舊。這與「一個最愛都沒加」是兩件事,要分開講。
+            FavoritesCache = [];
+            FavoritesAvailable = false;
+        }
+        return FavoritesCache;
+    }
+
+    private void DrawFavoritePicker(string label, ref uint id, ref byte subIndex, ref string savedName)
+    {
+        var favorites = GetFavorites();
+        // ref 參數不能被 lambda 捕捉,先取值到區域變數。
+        var curId = id;
+        var curSub = subIndex;
+        var current = curId == 0
+            ? Loc.T("Not selected")
+            // 選過的項目被取消收藏之後就不在清單裡了。這種狀態要說出來,不能顯示成「未選擇」——
+            // 那會讓使用者以為只是還沒選,而不知道原本選的已經失效。
+            : favorites.Any(x => x.Id == curId && x.SubIndex == curSub)
+                ? savedName
+                : $"{savedName} {Loc.T("(no longer a favourite)")}";
+
+        ImGuiEx.SetNextItemWidthScaled(280);
+        if(ImGui.BeginCombo(label, current))
+        {
+            if(ImGui.Selectable(Loc.T("Not selected"), id == 0))
+            {
+                id = 0;
+                subIndex = 0;
+                savedName = "";
+            }
+            foreach(var fav in favorites)
+            {
+                if(ImGui.Selectable($"{fav.Name}##{fav.Id}_{fav.SubIndex}", fav.Id == id && fav.SubIndex == subIndex))
+                {
+                    id = fav.Id;
+                    subIndex = fav.SubIndex;
+                    savedName = fav.Name;
+                }
+            }
+            ImGui.EndCombo();
+        }
+
+        if(favorites.Count == 0)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudYellow, FavoritesAvailable
+                ? Loc.T("(no favourites - star a destination in the Lifestream teleport panel first)")
+                : Loc.T("(Lifestream is not available)"));
+        }
     }
 
     private void DrawSavedBell()
@@ -145,7 +228,7 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
                     C.ExpertDeliveryLoopBellPosition.X, C.ExpertDeliveryLoopBellPosition.Y, C.ExpertDeliveryLoopBellPosition.Z));
             if(!here)
             {
-                ImGuiEx.Text(ImGuiColors.DalamudGrey, Loc.T("You are in a different zone, so the nearest bell is used instead."));
+                ImGuiEx.Text(ImGuiColors.DalamudGrey, Loc.T("You are in a different zone. Set a bell destination above so the loop can travel there."));
             }
         }
         ImGui.Unindent();

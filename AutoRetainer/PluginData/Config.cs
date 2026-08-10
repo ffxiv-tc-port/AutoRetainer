@@ -75,6 +75,22 @@ internal unsafe class Config
     /// the loop only works with a bell that is already in reach, and stops when there is none.</summary>
     public bool ExpertDeliveryLoopTravelToBell = true;
 
+    /// <summary>Lifestream teleport-panel favourite the loop travels to before looking for a summoning bell.
+    /// 0 = not set. 🔴 When this is set the loop never falls back to a generic travel command: a fallback
+    /// that lands in the wrong city is worse than stopping, because the flow then hunts for a bell that is
+    /// nowhere near.</summary>
+    public uint ExpertDeliveryLoopBellFavoriteId = 0;
+    public byte ExpertDeliveryLoopBellFavoriteSub = 0;
+    /// <summary>Display name of the chosen favourite, remembered so the UI can still name it when Lifestream
+    /// is not loaded or the favourite has been removed.</summary>
+    public string ExpertDeliveryLoopBellFavoriteName = "";
+
+    /// <summary>Lifestream favourite the loop travels to before handing in, instead of letting AutoRetainer's
+    /// own delivery flow pick the route. 0 = use the built-in flow.</summary>
+    public uint ExpertDeliveryLoopGCFavoriteId = 0;
+    public byte ExpertDeliveryLoopGCFavoriteSub = 0;
+    public string ExpertDeliveryLoopGCFavoriteName = "";
+
     /// <summary>Prefer the bell nearest <see cref="ExpertDeliveryLoopBellPosition"/> over whichever one happens
     /// to be closest to the player. Off (the default) keeps the previous behaviour.</summary>
     public bool ExpertDeliveryLoopUseSavedBell = false;

@@ -50,4 +50,9 @@ public class LifestreamIPC
     [EzIPC] public Func<bool> CanMoveToWorkshop;
     [EzIPC] public Action MoveToWorkshop;
     [EzIPC] public Action<string> ExecuteCommand;
+
+    // 使用者在傳送面板收藏好的地點。用它當導航目標比自組路線安全:收藏項都是既知的乙太之光/
+    // 乙太網點,走的是面板按鈕本來就在走的那條路。⚠️ Id 與 SubIndex 要一起帶,同一個 id 可能對到多筆。
+    [EzIPC] public Func<List<(uint Id, byte SubIndex, string Name, uint Territory)>> GetTeleportFavorites;
+    [EzIPC] public Func<uint, byte, bool> TeleportToFavorite;
 }
