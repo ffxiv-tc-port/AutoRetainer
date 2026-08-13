@@ -1,5 +1,6 @@
 ﻿global using OverlayTextData = (System.Numerics.Vector2 Curpos, (bool Warning, string Text)[] Texts);
 using AutoRetainerAPI.Configuration;
+using AutoRetainer.Services.Lifestream;
 using ECommons.GameHelpers;
 using ECommons.Interop;
 using Lumina.Excel.Sheets;
@@ -93,7 +94,7 @@ internal static class UIUtils
     {
         var offlineData = C.OfflineData.FirstOrDefault(x => x.CID == cid);
         if(offlineData == null) return;
-        var data = S.LifestreamIPC.GetHousePathData(cid);
+        var data = LifestreamHousePath.Get(cid);
         if(offlineData.GetAllowFcTeleportForSubs() || offlineData.GetAllowFcTeleportForRetainers())
         {
             string error = null;

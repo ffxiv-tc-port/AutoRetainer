@@ -5,6 +5,7 @@ using ECommons.Automation.NeoTaskManager.Tasks;
 using ECommons.ExcelServices;
 using ECommons.ExcelServices.TerritoryEnumeration;
 using ECommons.GameHelpers;
+using ECommons.IPC;
 using ECommons.Reflection;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
@@ -25,7 +26,7 @@ internal unsafe class DebugMulti : DebugSectionBase
             if(ImGui.Button("Enqueue HET")) TaskNeoHET.Enqueue(null);
             if(ImGui.Button("Enqueue workshop")) TaskNeoHET.TryEnterWorkshop(() => DuoLog.Error("Fail"));
             ImGuiEx.Text($"""
-                Can enter workshop: {S.LifestreamIPC.CanMoveToWorkshop()}
+                Can enter workshop: {ECommonsIPC.Lifestream.CanMoveToWorkshop()}
                 """);
         }
         if(ImGui.CollapsingHeader("Tasks"))

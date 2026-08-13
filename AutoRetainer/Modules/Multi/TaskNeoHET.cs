@@ -6,6 +6,7 @@ using Dalamud.Game.ClientState.Objects.Types;
 using ECommons.Automation.NeoTaskManager;
 using ECommons.Automation.NeoTaskManager.Tasks;
 using ECommons.GameHelpers;
+using ECommons.IPC;
 using ECommons.MathHelpers;
 using ECommons.Throttlers;
 using FFXIVClientStructs.FFXIV.Client.Game;
@@ -90,11 +91,11 @@ public static unsafe class TaskNeoHET
             if(GetWorkshopEntrance() != null)
             {
                 var tasks = new List<TaskManagerTask>();
-                if(S.LifestreamIPC.CanMoveToWorkshop())
+                if(ECommonsIPC.Lifestream.CanMoveToWorkshop())
                 {
                     tasks.AddRange([
-                        new(S.LifestreamIPC.MoveToWorkshop),
-                        new(() => !S.LifestreamIPC.IsBusy())
+                        new(S.LifestreamExtra.MoveToWorkshop),
+                        new(() => !ECommonsIPC.Lifestream.IsBusy())
                         ]);
                 }
                 tasks.AddRange([

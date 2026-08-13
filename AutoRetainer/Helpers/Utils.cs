@@ -13,6 +13,7 @@ using ECommons.Events;
 using ECommons.ExcelServices;
 using ECommons.ExcelServices.TerritoryEnumeration;
 using ECommons.GameHelpers;
+using ECommons.IPC;
 using ECommons.MathHelpers;
 using ECommons.Reflection;
 using ECommons.Throttlers;
@@ -865,7 +866,7 @@ public static unsafe class Utils
     }
 
     internal static bool MultiModeOrArtisan => MultiMode.Active || (SchedulerMain.PluginEnabled && SchedulerMain.Reason == PluginEnableReason.Artisan);
-    internal static bool IsBusy => P.TaskManager.IsBusy || AutoGCHandin.Operation || S.LifestreamIPC.IsBusy();
+    internal static bool IsBusy => P.TaskManager.IsBusy || AutoGCHandin.Operation || ECommonsIPC.Lifestream.IsBusy();
     internal static AtkValue ZeroAtkValue = new() { Type = 0, Int = 0 };
 
     internal static IEnumerable<string> GetEObjNames(params uint[] values)

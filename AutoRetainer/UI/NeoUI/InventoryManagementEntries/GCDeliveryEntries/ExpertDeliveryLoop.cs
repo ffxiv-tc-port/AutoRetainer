@@ -131,7 +131,7 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         FavoritesCachedAt = now;
         try
         {
-            FavoritesCache = S.LifestreamIPC.GetTeleportFavorites() ?? [];
+            FavoritesCache = S.LifestreamExtra.GetTeleportFavorites() ?? [];
             FavoritesAvailable = true;
         }
         catch(Exception)

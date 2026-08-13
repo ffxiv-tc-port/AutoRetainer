@@ -19,7 +19,10 @@ using ECommons.Configuration;
 using ECommons.Events;
 using ECommons.ExcelServices;
 using ECommons.ExcelServices.TerritoryEnumeration;
+using ECommons.EzIpcManager;
 using ECommons.EzSharedDataManager;
+using ECommons.IPC;
+using ECommons.IPC.Subscribers;
 using ECommons.GameHelpers;
 using ECommons.Reflection;
 using ECommons.Singletons;
@@ -211,6 +214,15 @@ public unsafe class AutoRetainer : IDalamudPlugin
                 AutoRetainerWindow.IsOpen = true;
             }
         }
+        // 🔴 ECommons.IPC 的 IPCBase 預設 wrapper 是 SafeWrapper.None(例外會往外擲);
+        // 我方一貫用 AnyException(靜默降級,回預設值)。這裡改回我方語意,不然「Lifestream 沒裝」
+        // 會從「回 false」變成「擲例外」,行為在使用者那頭是靜默地變壞。
+        // ⚠️ ECommonsIPC.X 是 lazy 屬性(field ??= new()),wrapper 在**第一次存取當下**就烘死了,
+        // 所以這行必須早於任何 ECommonsIPC.* 的第一次存取。下面立刻取一次 Lifestream 強制建構,
+        // 把「順序對不對」從執行期運氣變成這裡的既成事實。
+        IPCBase.DefaultWrapper = SafeWrapper.AnyException;
+        _ = ECommonsIPC.Lifestream;
+
         SingletonServiceManager.Initialize(typeof(AutoRetainerServiceManager));
 
     }

@@ -6,6 +6,7 @@ using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.Types;
 using ECommons.ExcelServices;
 using ECommons.GameHelpers;
+using ECommons.IPC;
 using ECommons.Throttlers;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
@@ -500,7 +501,7 @@ internal static unsafe class GCExpertDeliveryLoop
         bool ok;
         try
         {
-            ok = S.LifestreamIPC.TeleportToFavorite(id, sub);
+            ok = S.LifestreamExtra.TeleportToFavorite(id, sub);
         }
         catch(Exception e)
         {
@@ -974,7 +975,7 @@ internal static unsafe class GCExpertDeliveryLoop
                 Stop(Loc.T("Stopped: could not travel to the chosen Grand Company destination - check that it is still starred in Lifestream."));
                 return;
             }
-            P.TaskManager.Enqueue(() => !S.LifestreamIPC.IsBusy(), "WaitLifestreamBeforeHandin", new(timeLimitMS: 5 * 60 * 1000));
+            P.TaskManager.Enqueue(() => !ECommonsIPC.Lifestream.IsBusy(), "WaitLifestreamBeforeHandin", new(timeLimitMS: 5 * 60 * 1000));
             P.TaskManager.Enqueue(() => GCContinuation.EnqueueInitiation(true), "EnqueueInitiation");
         }
         else
