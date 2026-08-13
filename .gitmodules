@@ -22,3 +22,7 @@
 [submodule "FFXIVClientStructs"]
 	path = FFXIVClientStructs
 	url = https://github.com/ffxiv-tc-port/FFXIVClientStructs.git
+[submodule "ECommons.IPC"]
+	path = ECommons.IPC
+	url = https://github.com/ffxiv-tc-port/ECommons.IPC.git
+	branch = tc-api13
