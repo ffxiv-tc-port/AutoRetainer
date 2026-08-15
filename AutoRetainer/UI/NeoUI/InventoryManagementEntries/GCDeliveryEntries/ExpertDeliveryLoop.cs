@@ -1,4 +1,6 @@
-﻿using AutoRetainer.Modules.GcHandin;
+using AutoRetainer.Modules.GcHandin;
+
+using AutoRetainerAPI.Configuration;
 
 using ECommons.GameHelpers;
 
@@ -39,7 +41,18 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         }
 
         ImGui.SameLine();
-        ImGuiEx.Text(GCExpertDeliveryLoop.Running ? GCExpertDeliveryLoop.CurrentPhaseName : Loc.T("Idle"));
+        if(GCExpertDeliveryLoop.Running)
+        {
+            var progress = GCExpertDeliveryLoop.BatchProgress;
+            // 多角色連跑時「現在做到第幾個角色」是要隨時掃視的資訊,放列上而不是 tooltip。
+            ImGuiEx.Text(progress.Total > 0
+                ? $"{GCExpertDeliveryLoop.CurrentPhaseName}  ({string.Format(Loc.T("character {0}/{1}"), progress.Current, progress.Total)})"
+                : GCExpertDeliveryLoop.CurrentPhaseName);
+        }
+        else
+        {
+            ImGuiEx.Text(Loc.T("Idle"));
+        }
 
         // ⚠️ 讀不到的東西畫「?」不要畫 0 —— 把「不知道」顯示成 0 會直接誤導。
         var freeSlots = Player.Available ? Utils.GetInventoryFreeSlotCount().ToString() : "?";
@@ -53,7 +66,7 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         }
 
         // 開始之前就讓使用者看到「會去找誰」,不要按下去才發現名單是空的。
-        if(!GCExpertDeliveryLoop.Running)
+        if(!GCExpertDeliveryLoop.Running && !C.ExpertDeliveryLoopMultiCharacter)
         {
             var targets = GCExpertDeliveryLoop.ResolveRetainers();
             if(targets.Count == 0)
@@ -117,18 +130,191 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
 
         ImGuiEx.SetNextItemWidthScaled(150);
         ImGui.SliderInt(Loc.T("Handin round timeout (minutes)"), ref C.ExpertDeliveryLoopHandinTimeoutMinutes, 1, 60);
+
+        ImGui.Separator();
+        DrawMultiCharacter();
     }
 
-    /// <summary>Lifestream 我的最愛的快取。每幀去問一次會讓 Lifestream 重建索引,所以節流。</summary>
+    #region 多角色連跑
+
+    private void DrawMultiCharacter()
+    {
+        ImGui.Checkbox(Loc.T("Run on several characters"), ref C.ExpertDeliveryLoopMultiCharacter);
+        ImGuiEx.HelpMarker(Loc.T("""
+            The loop runs on each ticked character in turn, logging out and back in between them, and only says it is finished once every one of them is done.
+
+            Nothing here starts by itself either - it still only runs while you press Start. Stop always works, including in the middle of a character switch.
+            """));
+
+        if(!C.ExpertDeliveryLoopMultiCharacter) return;
+
+        ImGui.Indent();
+
+        // 🔴 這兩個是「按下開始一定會被拒絕」的狀態,而且原因跟這個面板沒有關係 —— 要在列上看得見。
+        if(MultiMode.Enabled)
+        {
+            ImGuiEx.TextWrapped(ImGuiColors.DalamudRed, Loc.T("Multi Mode is on. Turn it off before starting a multi-character run - two things switching characters at the same time will fight each other."));
+        }
+        if(C.DontLogout)
+        {
+            ImGuiEx.TextWrapped(ImGuiColors.DalamudRed, Loc.T("The \"Don't logout\" debug option is on, so characters cannot be switched."));
+        }
+
+        DrawCharacterTable();
+
+        ImGuiEx.SetNextItemWidthScaled(150);
+        ImGui.SliderInt(Loc.T("Character switch timeout (minutes)"), ref C.ExpertDeliveryLoopRelogTimeoutMinutes, 1, 60);
+        ImGuiEx.HelpMarker(Loc.T("Covers logging out, the title screen, character selection, any login queue and the post-login scene settle delay."));
+
+        DrawPerCharacterDestinations();
+
+        ImGui.Unindent();
+    }
+
+    private void DrawCharacterTable()
+    {
+        if(C.OfflineData.Count == 0)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudGrey, Loc.T("No character data yet - log into a character once so AutoRetainer can record it."));
+            return;
+        }
+
+        if(!ImGui.BeginTable("##ExpertDeliveryLoopCharacters", 4, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg)) return;
+        ImGui.TableSetupColumn(Loc.T("Character"), ImGuiTableColumnFlags.WidthStretch);
+        // ⚠️ 欄名刻意不用「Retainers」:那個 key 在字典裡已經被外掛的「僱員管理」分頁佔走了,
+        //    直接沿用會讓這個「有幾個」的欄位標題變成「僱員管理」。同字不同義要用不同的 key。
+        ImGui.TableSetupColumn(Loc.T("Retainers to visit"));
+        ImGui.TableSetupColumn(Loc.T("Summoning bell"));
+        ImGui.TableSetupColumn(Loc.T("Grand Company"));
+        ImGui.TableHeadersRow();
+
+        foreach(var data in C.OfflineData)
+        {
+            ImGui.TableNextRow();
+
+            ImGui.TableNextColumn();
+            var selected = C.ExpertDeliveryLoopCharacters.Contains(data.CID);
+            if(ImGui.Checkbox($"{Censor.Character(data.Name, data.World)}##ExpertDeliveryLoopChar{data.CID}", ref selected))
+            {
+                if(selected)
+                {
+                    if(!C.ExpertDeliveryLoopCharacters.Contains(data.CID)) C.ExpertDeliveryLoopCharacters.Add(data.CID);
+                }
+                else
+                {
+                    C.ExpertDeliveryLoopCharacters.Remove(data.CID);
+                }
+            }
+            if(data.CID == Player.CID) ImGuiEx.Tooltip(Loc.T("This is the character you are logged in on. A run starts here, so no character switch is needed for it."));
+
+            ImGui.TableNextColumn();
+            DrawRetainerCountCell(data);
+
+            // ⚠️ 括號不能省:conf?.X != 0 在 conf 是 null 時**回 true**(可空比較的規則),
+            //    那會把「沿用上面的設定」畫成「這個角色自己設的」。
+            var rowConf = GCExpertDeliveryLoop.GetCharacterConfig(data.CID, false);
+
+            ImGui.TableNextColumn();
+            DrawDestinationCell(GCExpertDeliveryLoop.GetBellDestination(data.CID), (rowConf?.BellFavoriteId ?? 0u) != 0);
+
+            ImGui.TableNextColumn();
+            DrawDestinationCell(GCExpertDeliveryLoop.GetGCDestination(data.CID), (rowConf?.GCFavoriteId ?? 0u) != 0);
+        }
+        ImGui.EndTable();
+    }
+
+    /// <summary>「這個角色有幾個僱員會被拜訪」。
+    /// 🔴 從來沒被 AutoRetainer 記錄過僱員的角色要畫「?」不是「0」—— 0 的意思是「查過了,一個都不符合」
+    /// (那是設定錯誤,要去修),而「?」的意思是「還不知道,登入一次它就知道了」。兩者要修的東西完全不同。</summary>
+    private void DrawRetainerCountCell(OfflineCharacterData data)
+    {
+        if(data.RetainerData.Count == 0)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudGrey, "?");
+            ImGuiEx.Tooltip(Loc.T("AutoRetainer has not recorded this character's retainers yet. Log into it once."));
+            return;
+        }
+        var count = GCExpertDeliveryLoop.ResolveRetainers(data).Count;
+        if(count == 0)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudRed, "0");
+            ImGuiEx.Tooltip(Loc.T("No retainer of this character matches the current selection. A run that includes this character refuses to start."));
+            return;
+        }
+        ImGuiEx.Text(count.ToString());
+    }
+
+    private void DrawDestinationCell((uint Id, byte Sub, string Name) destination, bool own)
+    {
+        if(destination.Id == 0)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudYellow, Loc.T("not set"));
+            return;
+        }
+        var name = destination.Name.IsNullOrEmpty() ? $"#{destination.Id}" : destination.Name;
+        ImGuiEx.Text(own ? ImGuiColors.DalamudWhite : ImGuiColors.DalamudGrey, name);
+        ImGuiEx.Tooltip(own
+            ? Loc.T("Set for this character.")
+            : Loc.T("Inherited from the destinations above, because this character has none of its own."));
+    }
+
+    /// <summary>目前登入這個角色的目的地覆寫。
+    /// <para>🔴 只能設定**現在登入的**這個角色,而且這不是偷懶:收藏項的清單是 Lifestream 依當前角色的
+    /// 傳送面板建出來的(自己的房屋、公司房屋、已學到的乙太之光都在裡面),別的角色的清單根本讀不到。
+    /// 硬要在這裡列出來只會列到現在這個角色的東西然後存到別人頭上。</para></summary>
+    private void DrawPerCharacterDestinations()
+    {
+        ImGui.Separator();
+        ImGuiEx.Text(ImGuiColors.DalamudWhite, Loc.T("Destinations for this character"));
+
+        if(!Player.Available)
+        {
+            ImGuiEx.TextWrapped(ImGuiColors.DalamudGrey, Loc.T("Log in to set a character's own destinations."));
+            return;
+        }
+
+        ImGuiEx.TextWrapped(ImGuiColors.DalamudGrey, Loc.T("Leave these unset to use the destinations chosen above. Set them when this character needs different ones - most often because its Grand Company is in another city. You can only set them while logged in on the character, because the favourite list comes from that character's own teleport panel."));
+
+        var conf = GCExpertDeliveryLoop.GetCharacterConfig(Player.CID, false);
+        var bellId = conf?.BellFavoriteId ?? 0u;
+        var bellSub = (byte)(conf?.BellFavoriteSub ?? 0);
+        var bellName = conf?.BellFavoriteName ?? "";
+        if(DrawFavoritePicker(Loc.T("Summoning bell destination for this character"), ref bellId, ref bellSub, ref bellName, allowInherit: true))
+        {
+            var own = GCExpertDeliveryLoop.GetCharacterConfig(Player.CID, true);
+            own.BellFavoriteId = bellId;
+            own.BellFavoriteSub = bellSub;
+            own.BellFavoriteName = bellName;
+        }
+
+        var gcId = conf?.GCFavoriteId ?? 0u;
+        var gcSub = (byte)(conf?.GCFavoriteSub ?? 0);
+        var gcName = conf?.GCFavoriteName ?? "";
+        if(DrawFavoritePicker(Loc.T("Grand Company destination for this character"), ref gcId, ref gcSub, ref gcName, allowInherit: true))
+        {
+            var own = GCExpertDeliveryLoop.GetCharacterConfig(Player.CID, true);
+            own.GCFavoriteId = gcId;
+            own.GCFavoriteSub = gcSub;
+            own.GCFavoriteName = gcName;
+        }
+    }
+
+    #endregion
+
+    /// <summary>Lifestream 我的最愛的快取。每幀去問一次會讓 Lifestream 重建索引,所以節流。
+    /// 🔴 快取要連**是哪個角色的**一起記:收藏項的清單是依當前角色的傳送面板建出來的,
+    /// 換角色之後上一個角色的清單完全不適用,而過期時間只有兩秒的話換角色當下那幾幀會顯示錯的東西。</summary>
     private static List<(uint Id, byte SubIndex, string Name, uint Territory)> FavoritesCache = [];
     private static long FavoritesCachedAt;
+    private static ulong FavoritesCachedFor;
     private static bool FavoritesAvailable = true;
 
     internal static List<(uint Id, byte SubIndex, string Name, uint Territory)> GetFavorites()
     {
         var now = Environment.TickCount64;
-        if(now - FavoritesCachedAt < 2000) return FavoritesCache;
+        if(now - FavoritesCachedAt < 2000 && FavoritesCachedFor == Player.CID) return FavoritesCache;
         FavoritesCachedAt = now;
+        FavoritesCachedFor = Player.CID;
         try
         {
             FavoritesCache = S.LifestreamExtra.GetTeleportFavorites() ?? [];
@@ -143,28 +329,33 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         return FavoritesCache;
     }
 
-    private void DrawFavoritePicker(string label, ref uint id, ref byte subIndex, ref string savedName)
+    /// <summary>回傳是否有被改動 —— 呼叫端拿它決定要不要把值寫回設定(每角色覆寫是懶建立的,
+    /// 沒被改過就不該替那個角色留下一筆設定)。</summary>
+    private bool DrawFavoritePicker(string label, ref uint id, ref byte subIndex, ref string savedName, bool allowInherit = false)
     {
         var favorites = GetFavorites();
         // ref 參數不能被 lambda 捕捉,先取值到區域變數。
         var curId = id;
         var curSub = subIndex;
+        var notSelected = allowInherit ? Loc.T("Use the destination above") : Loc.T("Not selected");
         var current = curId == 0
-            ? Loc.T("Not selected")
+            ? notSelected
             // 選過的項目被取消收藏之後就不在清單裡了。這種狀態要說出來,不能顯示成「未選擇」——
             // 那會讓使用者以為只是還沒選,而不知道原本選的已經失效。
             : favorites.Any(x => x.Id == curId && x.SubIndex == curSub)
                 ? savedName
                 : $"{savedName} {Loc.T("(no longer a favourite)")}";
 
+        var changed = false;
         ImGuiEx.SetNextItemWidthScaled(280);
         if(ImGui.BeginCombo(label, current))
         {
-            if(ImGui.Selectable(Loc.T("Not selected"), id == 0))
+            if(ImGui.Selectable(notSelected, id == 0))
             {
                 id = 0;
                 subIndex = 0;
                 savedName = "";
+                changed = true;
             }
             foreach(var fav in favorites)
             {
@@ -173,6 +364,7 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
                     id = fav.Id;
                     subIndex = fav.SubIndex;
                     savedName = fav.Name;
+                    changed = true;
                 }
             }
             ImGui.EndCombo();
@@ -184,6 +376,7 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
                 ? Loc.T("(no favourites - star a destination in the Lifestream teleport panel first)")
                 : Loc.T("(Lifestream is not available)"));
         }
+        return changed;
     }
 
     private void DrawEntrustPlanPicker()
@@ -219,6 +412,9 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         }
     }
 
+    /// <summary>手動僱員名單。
+    /// 🔴 名單是**按角色**記的。第一版是跨角色共用的一份,那份現在是「還沒被個別設定過的角色」的預設值 ——
+    /// 所以這裡讀的是「目前生效的那份」,而第一次勾選才把它落到這個角色底下(見 GetOwnRetainerNames)。</summary>
     private void DrawManualRetainerPicker()
     {
         var data = Utils.GetCurrentCharacterData();
@@ -229,17 +425,26 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         }
 
         ImGui.Indent();
+        var names = GCExpertDeliveryLoop.GetRetainerNames(data.CID);
         foreach(var retainer in data.RetainerData)
         {
             var name = retainer.Name.ToString();
             if(name.IsNullOrEmpty()) continue;
-            var selected = C.ExpertDeliveryLoopRetainerNames.Contains(name);
+            var selected = names.Contains(name);
             if(ImGui.Checkbox($"{name}##ExpertDeliveryLoopRetainer", ref selected))
             {
-                if(selected) C.ExpertDeliveryLoopRetainerNames.Add(name);
-                else C.ExpertDeliveryLoopRetainerNames.Remove(name);
+                var own = GCExpertDeliveryLoop.GetOwnRetainerNames(data.CID);
+                if(selected)
+                {
+                    if(!own.Contains(name)) own.Add(name);
+                }
+                else
+                {
+                    own.Remove(name);
+                }
             }
         }
         ImGui.Unindent();
+        ImGuiEx.Text(ImGuiColors.DalamudGrey, Loc.T("This selection is remembered per character."));
     }
 }

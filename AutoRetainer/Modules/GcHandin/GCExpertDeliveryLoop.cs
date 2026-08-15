@@ -2,6 +2,7 @@ using AutoRetainer.Internal;
 using AutoRetainer.Internal.InventoryManagement;
 using AutoRetainer.Scheduler.Handlers;
 using AutoRetainer.Scheduler.Tasks;
+using AutoRetainerAPI.Configuration;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.Types;
 using ECommons.ExcelServices;
@@ -73,6 +74,11 @@ internal static unsafe class GCExpertDeliveryLoop
     /// **是我們自己叫它移動的,那它不可用就是正常的**。</summary>
     private const long NavigationGraceMs = 5 * 60 * 1000;
 
+    /// <summary>換角色期間,每隔這麼久把當下的狀態寫一行進 log。
+    /// 🔴 換角色是這條流程裡唯一一段「什麼都看不到」的時間(登出→標題→選角→登入→場景載入),
+    /// 卡住的時候沒有這些行就完全分不出卡在哪一段 —— 而每一段要修的東西都不一樣。</summary>
+    private const long RelogHeartbeatMs = 15000;
+
     /// <summary>玩家「不可用」持續超過這麼久才算真的出事。
     /// 🔴 傳送詠唱、換區、載入畫面期間玩家本來就不可用 —— .50 就是把這種合法過渡態當成致命,
     /// 在 Lifestream 導航途中把自己停掉兩次。</summary>
@@ -99,6 +105,10 @@ internal static unsafe class GCExpertDeliveryLoop
         HandinWait,
         FinishReturnToBell,
         FinishReturnToBellWait,
+        /// <summary>多角色連跑:送出換到下一個角色。</summary>
+        Relog,
+        /// <summary>多角色連跑:等新角色登入並安定。</summary>
+        RelogWait,
     }
 
     /// <summary>這一輪取回停下來的理由,決定繳交完之後要不要再跑一輪。</summary>
@@ -136,6 +146,24 @@ internal static unsafe class GCExpertDeliveryLoop
     private static int RetainerIndex;
     private static bool TravelledToBellThisRound;
 
+    /// <summary>這一趟要跑的角色(CID),依 UI 上看到的順序。單角色跑法時是空的。
+    /// 名單在**開始時**決定一次並沿用整趟 —— 跑到一半才加進來的角色不會被納入。</summary>
+    private static List<ulong> BatchCIDs = [];
+    private static int BatchIndex;
+
+    /// <summary>正在等待登入的角色。0 ＝ 現在不在換角色。</summary>
+    private static ulong RelogTargetCID;
+    private static long RelogHeartbeatAt;
+
+    /// <summary>這一趟是不是多角色連跑。決定收工要不要響音、以及一個角色做完之後要換人還是收工。</summary>
+    internal static bool MultiCharacterRun { get; private set; }
+
+    /// <summary>已經完整跑完的角色數。</summary>
+    internal static int CharactersDone { get; private set; }
+
+    /// <summary>多角色連跑時的「第幾個/共幾個」。單角色跑法回 (0, 0)。</summary>
+    internal static (int Current, int Total) BatchProgress => MultiCharacterRun ? (Math.Min(BatchIndex + 1, BatchCIDs.Count), BatchCIDs.Count) : (0, 0);
+
     /// <summary>這一輪永遠拿不到、不必再看的道具(重複的獨占道具等)。</summary>
     private static readonly HashSet<uint> SkippedItems = [];
 
@@ -168,42 +196,106 @@ internal static unsafe class GCExpertDeliveryLoop
         Phase.LeaveRetainer or Phase.LeaveRetainerWait or Phase.CloseBell or Phase.CloseBellWait => Loc.T("Closing retainer"),
         Phase.Handin or Phase.HandinWait => Loc.T("Handing in at the Grand Company"),
         Phase.FinishReturnToBell or Phase.FinishReturnToBellWait => Loc.T("Returning to the summoning bell"),
+        Phase.Relog or Phase.RelogWait => Loc.T("Switching character"),
         _ => "?",
     };
 
-    #region 雇員名單
+    #region 每角色設定
 
-    /// <summary>循環要處理的雇員。名單在**開始時**決定一次並沿用整趟。
-    /// ⚠️ 一律用 AutoRetainer 自己存的角色資料,不碰遊戲的雇員管理器 ——
-    /// 那個東西在這次登入還沒開過傳喚鈴之前是空的。</summary>
-    internal static List<string> ResolveRetainers()
+    /// <summary>這個角色的覆寫設定。<paramref name="create"/> 為 false 時查不到就回 null ——
+    /// ⚠️ 讀取路徑一律傳 false:UI 每幀都會問,傳 true 會替每一個被看過的角色留下一筆空設定。</summary>
+    internal static ExpertDeliveryLoopCharacterConfig GetCharacterConfig(ulong cid, bool create)
+    {
+        if(C.ExpertDeliveryLoopPerCharacter.TryGetValue(cid, out var conf)) return conf;
+        if(!create) return null;
+        conf = new();
+        C.ExpertDeliveryLoopPerCharacter[cid] = conf;
+        return conf;
+    }
+
+    /// <summary>這個角色目前生效的手動僱員名單。沒有自己的名單就沿用第一版那份跨角色共用的清單。</summary>
+    internal static List<string> GetRetainerNames(ulong cid)
+        => GetCharacterConfig(cid, false)?.RetainerNames ?? C.ExpertDeliveryLoopRetainerNames;
+
+    /// <summary>取得(必要時建立)這個角色**自己的**名單,給 UI 寫入用。
+    /// <para>🔴 第一次落地時要從**目前生效的那份**複製過來,不是開一份空的 —— 舊設定是跨角色共用的,
+    /// 開空的會讓使用者按下第一個勾選的瞬間覺得原本的勾選全被清掉了。</para>
+    /// <para>⚠️ 只複製「這個角色真的有的僱員」:全域清單裡屬於別的角色的名字對這個角色沒有意義,
+    /// 帶過來只會變成看不見(UI 只列這個角色的僱員)又永遠留著的垃圾。讀不到角色資料時才整份複製,
+    /// 那種情況下寧可多帶也不要漏掉。</para></summary>
+    internal static List<string> GetOwnRetainerNames(ulong cid)
+    {
+        var conf = GetCharacterConfig(cid, true);
+        if(conf.RetainerNames == null)
+        {
+            var data = C.OfflineData.FirstOrDefault(x => x.CID == cid);
+            conf.RetainerNames = data == null
+                ? [.. C.ExpertDeliveryLoopRetainerNames]
+                : [.. C.ExpertDeliveryLoopRetainerNames.Where(n => data.RetainerData.Any(r => r.Name.ToString() == n))];
+        }
+        return conf.RetainerNames;
+    }
+
+    /// <summary>這個角色的傳喚鈴目的地。沒設過就用全域那個。</summary>
+    internal static (uint Id, byte Sub, string Name) GetBellDestination(ulong cid)
+    {
+        var conf = GetCharacterConfig(cid, false);
+        if(conf != null && conf.BellFavoriteId != 0) return (conf.BellFavoriteId, conf.BellFavoriteSub, conf.BellFavoriteName);
+        return (C.ExpertDeliveryLoopBellFavoriteId, C.ExpertDeliveryLoopBellFavoriteSub, C.ExpertDeliveryLoopBellFavoriteName);
+    }
+
+    /// <summary>這個角色的繳交點目的地。沒設過就用全域那個。</summary>
+    internal static (uint Id, byte Sub, string Name) GetGCDestination(ulong cid)
+    {
+        var conf = GetCharacterConfig(cid, false);
+        if(conf != null && conf.GCFavoriteId != 0) return (conf.GCFavoriteId, conf.GCFavoriteSub, conf.GCFavoriteName);
+        return (C.ExpertDeliveryLoopGCFavoriteId, C.ExpertDeliveryLoopGCFavoriteSub, C.ExpertDeliveryLoopGCFavoriteName);
+    }
+
+    #endregion
+
+    #region 僱員名單
+
+    /// <summary>循環要處理的僱員。名單在**每個角色開始時**決定一次並沿用到那個角色跑完。
+    /// ⚠️ 一律用 AutoRetainer 自己存的角色資料,不碰遊戲的僱員管理器 ——
+    /// 那個東西在這次登入還沒開過傳喚鈴之前是空的。而且離線資料連**沒有登入的角色**都查得到,
+    /// 多角色連跑就是靠這一點在開跑前把每個角色的設定驗完。</summary>
+    internal static List<string> ResolveRetainers(OfflineCharacterData data)
     {
         var result = new List<string>();
-        var data = Utils.GetCurrentCharacterData();
         if(data == null) return result;
 
         if(C.ExpertDeliveryLoopManualRetainers)
         {
+            var names = GetRetainerNames(data.CID);
             foreach(var retainer in data.RetainerData)
             {
                 var name = retainer.Name.ToString();
                 if(name.IsNullOrEmpty()) continue;
-                if(C.ExpertDeliveryLoopRetainerNames.Contains(name)) result.Add(name);
+                if(names.Contains(name)) result.Add(name);
             }
             return result;
         }
 
-        // 🔴 沒選計畫時回空清單而不是「全部」。「還沒設定」與「要對每個雇員做」是兩回事。
+        // 🔴 沒選計畫時回空清單而不是「全部」。「還沒設定」與「要對每個僱員做」是兩回事。
         if(C.ExpertDeliveryLoopEntrustPlan == Guid.Empty) return result;
 
         foreach(var retainer in data.RetainerData)
         {
             var name = retainer.Name.ToString();
             if(name.IsNullOrEmpty()) continue;
-            if(Utils.GetAdditionalData(data.CID, name).EntrustPlan == C.ExpertDeliveryLoopEntrustPlan) result.Add(name);
+            // ⚠️ 這裡刻意用不建立條目的版本。Utils.GetAdditionalData 會把查不到的鍵補上一筆空資料,
+            //    而這個查詢現在會掃過**每一個角色的每一個僱員**(UI 每幀、開跑前驗證各一次)。
+            //    語意完全相同:新建的條目 EntrustPlan 是 Guid.Empty,而上面那道閘門已經排除了
+            //    「選的計畫是 Guid.Empty」,所以空條目永遠不可能命中。
+            var key = Utils.GetAdditionalDataKey(data.CID, name, false);
+            if(C.AdditionalData.TryGetValue(key, out var additional) && additional.EntrustPlan == C.ExpertDeliveryLoopEntrustPlan) result.Add(name);
         }
         return result;
     }
+
+    /// <summary>目前登入這個角色的僱員名單。</summary>
+    internal static List<string> ResolveRetainers() => ResolveRetainers(Utils.GetCurrentCharacterData());
 
     #endregion
 
@@ -218,47 +310,169 @@ internal static unsafe class GCExpertDeliveryLoop
             Fail(Loc.T("Player is not available."));
             return;
         }
-        if(GCContinuation.GetGCInfo() == null)
-        {
-            Fail(Loc.T("This character is not employed by a Grand Company."));
-            return;
-        }
-        if(!AutoGCHandin.IsEnabled())
-        {
-            Fail(Loc.T("Expert delivery is disabled for this character - set a delivery mode first."));
-            return;
-        }
         if(Utils.IsBusy)
         {
             Fail(Loc.T("AutoRetainer or Lifestream is busy."));
             return;
         }
 
-        Retainers = ResolveRetainers();
-        if(Retainers.Count == 0)
+        List<ulong> batch = null;
+        if(C.ExpertDeliveryLoopMultiCharacter)
         {
-            Fail(C.ExpertDeliveryLoopManualRetainers
-                ? Loc.T("No retainers are selected.")
-                : Loc.T("No retainer of this character carries the selected entrust plan."));
+            if(!TryBuildBatch(out batch, out var batchError))
+            {
+                Fail(batchError);
+                return;
+            }
+        }
+
+        // 整批的第一個角色就是現在登入的這個時,不必先換角 —— 直接驗這個角色的前置條件。
+        // 不是的話這一趟的第一個動作就是換角色,現在這個角色的設定與它無關,不該擋著開始。
+        var startHere = batch == null || batch[0] == Player.CID;
+        if(startHere && !TryBeginCharacter(out var error))
+        {
+            Fail(error);
             return;
         }
 
         Running = true;
+        MultiCharacterRun = batch != null;
+        BatchCIDs = batch ?? [];
+        BatchIndex = 0;
+        CharactersDone = 0;
+        RelogTargetCID = 0;
         RetrievedTotal = 0;
-        RetrievedThisRound = 0;
         HandinRounds = 0;
+        StatusText = "";
+
+        if(startHere)
+        {
+            SetPhase(Phase.SealBonus);
+            PluginLog.Information($"[ExpertDeliveryLoop] Started{(MultiCharacterRun ? $" (multi-character: {BatchCIDs.Count} character(s))" : "")}. Retainers to visit: {Retainers.Print()}. Reserved slots: {EffectiveReservedSlots} (config {C.ExpertDeliveryLoopReservedSlots}, MultiMinInventorySlots {C.MultiMinInventorySlots}).");
+        }
+        else
+        {
+            SetPhase(Phase.Relog);
+            PluginLog.Information($"[ExpertDeliveryLoop] Started (multi-character: {BatchCIDs.Count} character(s)). The logged-in character (CID {Player.CID}) is not on the list, so the first thing this run does is switch to CID {BatchCIDs[0]}.");
+        }
+    }
+
+    /// <summary>驗完整批角色的前置條件,並排出拜訪順序。
+    /// <para>🔴 這些條件全部讀得到離線資料,**不必登入那個角色就驗得到**。少了這一步,設定漏掉的角色
+    /// 要等到換過去、跑到一半才會發現 —— 而那時候已經過了十幾分鐘,還占用了一次換角色。</para>
+    /// <para>回 false 時 <paramref name="error"/> 直接是給使用者看的完整說法(含是哪幾個角色、缺什麼)。</para></summary>
+    private static bool TryBuildBatch(out List<ulong> batch, out string error)
+    {
+        batch = null;
+        error = "";
+
+        // 🔴 兩套換角色的東西同時在跑一定會打架:多開排程看到「這個角色沒事做」就會把人換走,
+        //    而它換走的時機與這條流程完全無關。這不是保守,是實際會互相踩。
+        if(MultiMode.Enabled)
+        {
+            error = Loc.T("Multi Mode is on. Turn it off before starting a multi-character run - two things switching characters at the same time will fight each other.");
+            return false;
+        }
+        // 這個除錯選項會讓登出那一步直接把整條任務佇列砍掉,而且不留下任何訊息。
+        if(C.DontLogout)
+        {
+            error = Loc.T("The \"Don't logout\" debug option is on, so characters cannot be switched.");
+            return false;
+        }
+
+        List<OfflineCharacterData> selected = [];
+        List<string> problems = [];
+        foreach(var cid in C.ExpertDeliveryLoopCharacters)
+        {
+            if(!C.OfflineData.TryGetFirst(x => x.CID == cid, out var data))
+            {
+                problems.Add(string.Format(Loc.T("CID {0}: there is no saved data for this character any more."), cid));
+                continue;
+            }
+            selected.Add(data);
+        }
+        // 順序照 UI 上看到的(離線資料本身的順序),不要照勾選的先後 —— 使用者無從得知後者。
+        selected = [.. C.OfflineData.Where(selected.Contains)];
+
+        if(selected.Count == 0 && problems.Count == 0)
+        {
+            error = Loc.T("No characters are selected for the multi-character run.");
+            return false;
+        }
+
+        foreach(var data in selected)
+        {
+            var who = Censor.Character(data.Name, data.World);
+            if(data.IsLockedOut())
+            {
+                problems.Add(string.Format(Loc.T("{0}: this character's region is locked out right now."), who));
+            }
+            else if(data.GCDeliveryType == GCDeliveryType.Disabled)
+            {
+                problems.Add(string.Format(Loc.T("{0}: expert delivery is disabled - set a delivery mode for this character first."), who));
+            }
+            else if(ResolveRetainers(data).Count == 0)
+            {
+                problems.Add(string.Format(Loc.T("{0}: no retainer matches the current selection."), who));
+            }
+        }
+
+        if(problems.Count > 0)
+        {
+            // 🔴 一次列出全部,不要只講第一個 —— 一次修一個問題等於要使用者重按五次按鈕。
+            error = Loc.T("Not starting: some of the selected characters are not ready.") + "\n" + string.Join("\n", problems);
+            return false;
+        }
+
+        batch = [.. selected.Select(x => x.CID)];
+        // 從現在登入的這個角色開始,省掉一次沒必要的換角色。
+        var idx = batch.IndexOf(Player.CID);
+        if(idx > 0) batch = [.. batch.Skip(idx), .. batch.Take(idx)];
+        return true;
+    }
+
+    /// <summary>把狀態機重設成「這個角色從頭開始」,並驗這個角色跑不跑得動。
+    /// <para>🔴 每一個屬於「上一個角色」的東西都要在這裡清掉:僱員名單、僱員索引、這一輪取了幾件、
+    /// 有沒有已經傳送過、導航窗、回鈴收尾旗標、跳過與在途的道具。換角色之後位置、區域、僱員清單
+    /// 全部是新的,沿用任何一項都會讓流程對著上一個角色的世界做決定。</para></summary>
+    private static bool TryBeginCharacter(out string error)
+    {
+        error = "";
+        if(GCContinuation.GetGCInfo() == null)
+        {
+            error = Loc.T("This character is not employed by a Grand Company.");
+            return false;
+        }
+        if(!AutoGCHandin.IsEnabled())
+        {
+            error = Loc.T("Expert delivery is disabled for this character - set a delivery mode first.");
+            return false;
+        }
+
+        var retainers = ResolveRetainers();
+        if(retainers.Count == 0)
+        {
+            error = C.ExpertDeliveryLoopManualRetainers
+                ? Loc.T("No retainers are selected.")
+                : Loc.T("No retainer of this character carries the selected entrust plan.");
+            return false;
+        }
+
+        Retainers = retainers;
         RetainerIndex = 0;
+        RetrievedThisRound = 0;
         TravelledToBellThisRound = false;
         UnavailableSince = 0;
         NavigationDeadline = 0;
         PendingFinishReason = "";
         FinishReturnAttempted = false;
         RoundEndReason = RoundEnd.NoGearLeft;
+        BellInteractAttempts = 0;
+        LastBellInteractAt = 0;
+        PassFired = 0;
         SkippedItems.Clear();
         DeferredItems.Clear();
-        StatusText = "";
-        SetPhase(Phase.SealBonus);
-        PluginLog.Information($"[ExpertDeliveryLoop] Started. Retainers to visit: {Retainers.Print()}. Reserved slots: {EffectiveReservedSlots} (config {C.ExpertDeliveryLoopReservedSlots}, MultiMinInventorySlots {C.MultiMinInventorySlots}).");
+        return true;
     }
 
     internal static void Stop(string reason, bool success = false)
@@ -272,6 +486,7 @@ internal static unsafe class GCExpertDeliveryLoop
         //    所以當下如果還有東西在跑,訊息要明講。
         var stillBusy = Utils.IsBusy;
         var summary = $"{reason} ({string.Format(Loc.T("retrieved {0}, handin rounds {1}"), RetrievedTotal, HandinRounds)})";
+        if(MultiCharacterRun) summary += " " + string.Format(Loc.T("Characters finished: {0}/{1}."), CharactersDone, BatchCIDs.Count);
         if(stillBusy) summary += " " + Loc.T("The loop has stopped, but work already queued in AutoRetainer will finish on its own.");
         if(success)
         {
@@ -281,8 +496,12 @@ internal static unsafe class GCExpertDeliveryLoop
         else
         {
             DuoLog.Warning(summary);
+            // 🔴 多角色連跑失敗時也出聲。這種跑法本來就是丟著讓它跑的 —— 沒響的話,一批五個角色
+            //    死在第二個,使用者要在半小時後才發現,而且發現時已經分不出是哪一段出的事。
+            //    閘門用的是同一個「完成時通知」選項:通知的開關只有一個,不要在這裡自己多開一個。
+            if(MultiCharacterRun && C.GCHandinNotify) Utils.TryNotify(summary);
         }
-        PluginLog.Information($"[ExpertDeliveryLoop] Stopped: {reason} | retrieved={RetrievedTotal} handinRounds={HandinRounds} success={success} stillBusy={stillBusy}");
+        PluginLog.Information($"[ExpertDeliveryLoop] Stopped: {reason} | retrieved={RetrievedTotal} handinRounds={HandinRounds} success={success} stillBusy={stillBusy} multiCharacter={MultiCharacterRun} charactersDone={CharactersDone}/{BatchCIDs.Count}");
     }
 
     private static void Fail(string reason)
@@ -316,6 +535,21 @@ internal static unsafe class GCExpertDeliveryLoop
     internal static void Tick()
     {
         if(!Running) return;
+
+        // 🔴 換角色那一段玩家本來就不可用(登出→標題→選角→登入),而可用性守衛在登出之後會判成
+        //    「沒有東西在進行而且持續不可用」,把自己停在標題畫面。這兩個階段有自己的逾時與診斷,
+        //    走的是完全不同的判準,所以在守衛之前就先分流。
+        if(CurrentPhase == Phase.Relog)
+        {
+            TickRelog();
+            return;
+        }
+        if(CurrentPhase == Phase.RelogWait)
+        {
+            TickRelogWait();
+            return;
+        }
+
         if(!CheckPlayerAvailability()) return;
 
         switch(CurrentPhase)
@@ -340,6 +574,149 @@ internal static unsafe class GCExpertDeliveryLoop
             case Phase.FinishReturnToBellWait: TickFinishReturnToBellWait(); break;
         }
     }
+
+    #region 換角色
+
+    private static long RelogTimeoutMs => C.ExpertDeliveryLoopRelogTimeoutMinutes * 60L * 1000L;
+
+    private static void TickRelog()
+    {
+        // 上一個角色排進去的東西還在跑、或角色還被什麼佔用著,就先等 —— 登出會把排隊中的動作全部丟掉,
+        // 而換角色的原語本身在被佔用時是直接拒絕的(那會被講成「換不過去」,實際上只是還沒放手)。
+        // ⚠️ 這是等待點,所以要有逾時:沒有的話「有東西永遠不放手」會表現成流程無聲地停在這裡。
+        if(Utils.IsBusy || IsOccupied())
+        {
+            if(TimeInPhase <= RelogTimeoutMs) return;
+            PluginLog.Information($"[ExpertDeliveryLoop] Gave up waiting to start the character switch after {TimeInPhase}ms (limit {RelogTimeoutMs}ms): taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={ECommonsIPC.Lifestream.IsBusy()} gcHandinOperation={AutoGCHandin.Operation} occupied={IsOccupied()}.");
+            Stop(string.Format(Loc.T("Stopped: nothing let go of this character within {0} minutes, so it could not be switched."), C.ExpertDeliveryLoopRelogTimeoutMinutes));
+            return;
+        }
+
+        if(BatchIndex >= BatchCIDs.Count)
+        {
+            // 走不到這裡:換角色只在「還有下一個」時才被排進來。真的走到了就當整批做完,
+            // 不要靜默停在一個沒有處理函式的狀態。
+            PluginLog.Information($"[ExpertDeliveryLoop] Relog phase entered with no character left (index {BatchIndex} of {BatchCIDs.Count}); treating the run as finished.");
+            Stop(Loc.T("Finished: every selected character has been done."), success: true);
+            return;
+        }
+
+        var cid = BatchCIDs[BatchIndex];
+        if(!C.OfflineData.TryGetFirst(x => x.CID == cid, out var data))
+        {
+            Stop(string.Format(Loc.T("Stopped: the saved data for the next character (CID {0}) is gone."), cid));
+            return;
+        }
+
+        if(Player.Available && Player.CID == cid)
+        {
+            // 已經站在目標角色上了(整批的第一個就是現在登入的這個)。不必換,直接開跑。
+            BeginCharacterOrStop(data);
+            return;
+        }
+
+        if(!MultiMode.Relog(data, out var error, RelogReason.ExpertDeliveryLoop))
+        {
+            Stop(string.Format(Loc.T("Stopped: could not switch to {0} - {1}"), Censor.Character(data.Name, data.World), error));
+            return;
+        }
+
+        RelogTargetCID = cid;
+        RelogHeartbeatAt = Environment.TickCount64;
+        PluginLog.Information($"[ExpertDeliveryLoop] Switching to character {BatchIndex + 1}/{BatchCIDs.Count}: {data.Name}@{data.World} (CID {cid}), from CID {Player.CID}. Waited {TimeInPhase}ms for the character to be free; switch timeout {RelogTimeoutMs}ms.");
+        SetPhase(Phase.RelogWait);
+    }
+
+    /// <summary>等新角色登入並且真的可以做事。
+    /// <para>🔴 「登入了」不等於「可以做事了」:剛登入時背包容器可能還讀不到(空格數會回 0,與背包
+    /// 真的滿了完全同形),而登入後還有場景安定延遲。所以完成條件是四件事同時成立,不是只看有沒有登入。</para>
+    /// <para>逾時的原因彼此互斥而且要修的東西各不相同,所以逾時訊息要指出是哪一種,並且把實際數值印出來。</para></summary>
+    private static void TickRelogWait()
+    {
+        var now = Environment.TickCount64;
+        var elapsed = TimeInPhase;
+
+        var loggedIn = Svc.ClientState.IsLoggedIn;
+        var currentCID = Player.CID;
+        var onTarget = Player.Available && currentCID == RelogTargetCID;
+        var busy = Utils.IsBusy;
+        var readable = Utils.IsInventoryStateReadable();
+        var occupied = IsOccupied();
+
+        if(onTarget && !busy && readable && !occupied)
+        {
+            PluginLog.Information($"[ExpertDeliveryLoop] Character switch finished after {elapsed}ms: now on CID {currentCID} (target {RelogTargetCID}), taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={ECommonsIPC.Lifestream.IsBusy()} inventoryReadable={readable} occupied={occupied}.");
+            RelogTargetCID = 0;
+            if(!C.OfflineData.TryGetFirst(x => x.CID == currentCID, out var data))
+            {
+                Stop(string.Format(Loc.T("Stopped: the saved data for the next character (CID {0}) is gone."), currentCID));
+                return;
+            }
+            BeginCharacterOrStop(data);
+            return;
+        }
+
+        if(now - RelogHeartbeatAt > RelogHeartbeatMs)
+        {
+            RelogHeartbeatAt = now;
+            PluginLog.Information($"[ExpertDeliveryLoop] Still switching characters after {elapsed}ms of {RelogTimeoutMs}ms: isLoggedIn={loggedIn} currentCID={currentCID} targetCID={RelogTargetCID} playerAvailable={Player.Available} taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={ECommonsIPC.Lifestream.IsBusy()} gcHandinOperation={AutoGCHandin.Operation} inventoryReadable={readable} occupied={occupied}.");
+        }
+
+        if(elapsed <= RelogTimeoutMs) return;
+
+        // 互斥的成因梯,由外而內:還沒登入 → 登入到別人 → 登入了但還在忙 → 不忙但讀不到背包 → 被佔用。
+        string cause;
+        if(!loggedIn) cause = Loc.T("it never got past the login screen");
+        else if(currentCID != RelogTargetCID) cause = Loc.T("a different character is logged in");
+        else if(busy) cause = Loc.T("AutoRetainer or Lifestream never stopped being busy");
+        else if(!readable) cause = Loc.T("the inventory never became readable");
+        else cause = Loc.T("the character stayed occupied");
+
+        PluginLog.Information($"[ExpertDeliveryLoop] Character switch timed out after {elapsed}ms (limit {RelogTimeoutMs}ms): isLoggedIn={loggedIn} currentCID={currentCID} targetCID={RelogTargetCID} playerAvailable={Player.Available} taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={ECommonsIPC.Lifestream.IsBusy()} gcHandinOperation={AutoGCHandin.Operation} inventoryReadable={readable} occupied={occupied}.");
+        Stop(string.Format(Loc.T("Stopped: switching characters did not finish within {0} minutes - {1}."), C.ExpertDeliveryLoopRelogTimeoutMinutes, cause));
+    }
+
+    /// <summary>新角色就位了 —— 驗它的設定,不行就停。
+    /// <para>🔴 刻意**不跳過**跑不了的角色:使用者勾了它就是要它跑,靜默跳過的結果是整批看起來成功了
+    /// 但少做了一個角色,而且沒有任何地方講過。跑不了就當場說是哪一個角色、缺什麼。</para></summary>
+    private static void BeginCharacterOrStop(OfflineCharacterData data)
+    {
+        if(!TryBeginCharacter(out var error))
+        {
+            Stop(string.Format(Loc.T("Stopped on {0}: {1}"), Censor.Character(data.Name, data.World), error));
+            return;
+        }
+        var bell = GetBellDestination(data.CID);
+        var gc = GetGCDestination(data.CID);
+        PluginLog.Information($"[ExpertDeliveryLoop] Character {BatchIndex + 1}/{BatchCIDs.Count} {data.Name}@{data.World} (CID {data.CID}) starting. Retainers: {Retainers.Print()}. Bell favourite id={bell.Id} sub={bell.Sub} \"{bell.Name}\", GC favourite id={gc.Id} sub={gc.Sub} \"{gc.Name}\". Reserved slots: {EffectiveReservedSlots}.");
+        SetPhase(Phase.SealBonus);
+    }
+
+    /// <summary>一個角色跑完了。多角色連跑就換下一個,否則整趟收工。
+    /// <para>🔴 每個角色收工只在聊天視窗留一行,**不響音** —— 響音代表「整件事做完了,可以回來看了」,
+    /// 每個角色都響會讓它失去這個意義。</para></summary>
+    private static void FinishCharacter(string reason)
+    {
+        if(MultiCharacterRun)
+        {
+            CharactersDone++;
+            BatchIndex++;
+            if(BatchIndex < BatchCIDs.Count)
+            {
+                var line = string.Format(Loc.T("{0} finished ({1}/{2} characters), switching to the next one."),
+                    Censor.Character(Player.Name, Player.HomeWorld), CharactersDone, BatchCIDs.Count);
+                DuoLog.Information($"{reason} {line}");
+                PluginLog.Information($"[ExpertDeliveryLoop] Character {CharactersDone}/{BatchCIDs.Count} done: {reason} | retrievedTotal={RetrievedTotal} handinRounds={HandinRounds}. Next CID {BatchCIDs[BatchIndex]}.");
+                SetPhase(Phase.Relog);
+                return;
+            }
+            Stop(string.Format(Loc.T("Finished: all {0} selected characters are done."), BatchCIDs.Count), success: true);
+            return;
+        }
+        Stop(reason, success: true);
+    }
+
+    #endregion
 
     /// <summary>玩家可用性守衛。
     /// 🔴 「不可用」在這條流程裡**大多數時候是正常的**:傳送詠唱、跨區載入、城內乙太網換圖都會讓
@@ -488,10 +865,12 @@ internal static unsafe class GCExpertDeliveryLoop
 
     /// <summary>有沒有指定「鈴在哪」。設了就代表使用者已經挑好目的地 ——
     /// 🔴 這種時候絕對不可以退回泛用的移動指令:那個指令會把人送到它自己的預設地點
-    /// (實測被送到烏爾達哈),而流程接著會在錯的城市裡找鈴。停下來比亂傳好。</summary>
-    internal static bool HasBellTarget => C.ExpertDeliveryLoopBellFavoriteId != 0;
+    /// (實測被送到烏爾達哈),而流程接著會在錯的城市裡找鈴。停下來比亂傳好。
+    /// <para>⚠️ 一律以**現在登入的角色**去查。收藏項的清單是 Lifestream 依當前角色的傳送面板建出來的,
+    /// 上一個角色的目的地對這個角色可能根本不存在(自己的房屋、不同的大國防聯軍城市)。</para></summary>
+    internal static bool HasBellTarget => GetBellDestination(Player.CID).Id != 0;
 
-    internal static bool HasGCTarget => C.ExpertDeliveryLoopGCFavoriteId != 0;
+    internal static bool HasGCTarget => GetGCDestination(Player.CID).Id != 0;
 
     /// <summary>叫 Lifestream 走到某個收藏項。回 false 代表**什麼都沒排進去**,呼叫端要立刻停,
     /// 不要等一個永遠不會來的完成訊號。</summary>
@@ -584,7 +963,8 @@ internal static unsafe class GCExpertDeliveryLoop
         }
 
         // 使用者指定了目的地:一律走它,而且**只走它**。
-        if(!GoToFavorite(C.ExpertDeliveryLoopBellFavoriteId, C.ExpertDeliveryLoopBellFavoriteSub, "bell"))
+        var bell = GetBellDestination(Player.CID);
+        if(!GoToFavorite(bell.Id, bell.Sub, "bell"))
         {
             Stop(Loc.T("Stopped: could not travel to the chosen summoning bell destination - check that it is still starred in Lifestream."));
             return;
@@ -970,7 +1350,8 @@ internal static unsafe class GCExpertDeliveryLoop
         {
             // 使用者指定了繳交點:自己導航過去,然後只接繳交那一段。
             // 走內建流程的話它會再送一次自己的移動指令,等於導航兩次。
-            if(!GoToFavorite(C.ExpertDeliveryLoopGCFavoriteId, C.ExpertDeliveryLoopGCFavoriteSub, "Grand Company"))
+            var gc = GetGCDestination(Player.CID);
+            if(!GoToFavorite(gc.Id, gc.Sub, "Grand Company"))
             {
                 Stop(Loc.T("Stopped: could not travel to the chosen Grand Company destination - check that it is still starred in Lifestream."));
                 return;
@@ -991,19 +1372,20 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>正常完成的收尾。
     /// 🔴 只有**正常完成**才做回鈴停靠:錯誤停止與使用者手動停止一律原地不動 ——
     /// 出錯時多一段導航只會把現場弄得更難查。
-    /// 停在鈴邊是為了跟外掛平常的停靠慣例一致,多角色模式與日常雇員流程可以直接接手。</summary>
+    /// 停在鈴邊是為了跟外掛平常的停靠慣例一致,多角色連跑與日常僱員流程可以直接接手 ——
+    /// 📌 多角色連跑更用得到這一點:登出前停在鈴邊,下次換回這個角色時就直接登入在鈴旁邊。</summary>
     private static void FinishSuccessfully(string reason)
     {
         if(GetPreferredBell() != null)
         {
-            Stop(reason, success: true);
+            FinishCharacter(reason);
             return;
         }
 
         // 沒有可用的回程手段就照樣收工,不要卡在這裡。沒設目的地就是沒有回程手段。
         if(FinishReturnAttempted || !HasBellTarget)
         {
-            Stop(reason, success: true);
+            FinishCharacter(reason);
             return;
         }
 
@@ -1018,7 +1400,8 @@ internal static unsafe class GCExpertDeliveryLoop
         FinishReturnAttempted = true;
 
         // 📌 只有 HasBellTarget 為真才進得了這個階段(FinishSuccessfully 的閘門),所以這裡不必再判一次。
-        if(!GoToFavorite(C.ExpertDeliveryLoopBellFavoriteId, C.ExpertDeliveryLoopBellFavoriteSub, "bell"))
+        var bell = GetBellDestination(Player.CID);
+        if(!GoToFavorite(bell.Id, bell.Sub, "bell"))
         {
             FinishWithoutReturning();
             return;
@@ -1032,8 +1415,8 @@ internal static unsafe class GCExpertDeliveryLoop
 
         if(GetPreferredBell() != null)
         {
-            PluginLog.Information($"[ExpertDeliveryLoop] Back at the summoning bell, run complete.");
-            Stop(PendingFinishReason + " " + Loc.T("Back at the summoning bell."), success: true);
+            PluginLog.Information($"[ExpertDeliveryLoop] Back at the summoning bell, this character is complete.");
+            FinishCharacter(PendingFinishReason + " " + Loc.T("Back at the summoning bell."));
             return;
         }
         FinishWithoutReturning();
@@ -1042,8 +1425,8 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>回不去鈴邊時照樣算完成 —— 東西已經全部繳完了,停不到定位不該被講成失敗。</summary>
     private static void FinishWithoutReturning()
     {
-        PluginLog.Information($"[ExpertDeliveryLoop] Run complete, but could not park at a summoning bell.");
-        Stop(PendingFinishReason + " " + Loc.T("Could not return to a summoning bell."), success: true);
+        PluginLog.Information($"[ExpertDeliveryLoop] This character is complete, but could not park at a summoning bell.");
+        FinishCharacter(PendingFinishReason + " " + Loc.T("Could not return to a summoning bell."));
     }
 
     private static void TickHandinWait()

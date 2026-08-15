@@ -51,8 +51,24 @@ internal unsafe class Config
     /// <summary>Pick retainers from <see cref="ExpertDeliveryLoopRetainerNames"/> instead of by entrust plan.</summary>
     public bool ExpertDeliveryLoopManualRetainers = false;
 
-    /// <summary>Retainer names used when <see cref="ExpertDeliveryLoopManualRetainers"/> is on.</summary>
+    /// <summary>Retainer names used when <see cref="ExpertDeliveryLoopManualRetainers"/> is on.
+    /// 🔴 這是**第一版留下來的跨角色共用清單**,現在的角色是「還沒被按角色設定過的角色所使用的預設值」。
+    /// 新的寫入一律進 <see cref="ExpertDeliveryLoopPerCharacter"/>;這個欄位刻意不清空也不刪除 ——
+    /// 既有使用者的設定要無損留著,而且它對其他角色是無害的(名字對不上該角色的僱員就自然不會被選中)。</summary>
     public List<string> ExpertDeliveryLoopRetainerNames = [];
+
+    /// <summary>Per-character overrides for the expert delivery loop, keyed by CID.
+    /// 每個欄位都有「沒設定」的表示法,沒設定就退回上面那些全域值。詳見 <see cref="ExpertDeliveryLoopCharacterConfig"/>。</summary>
+    public Dictionary<ulong, ExpertDeliveryLoopCharacterConfig> ExpertDeliveryLoopPerCharacter = [];
+
+    /// <summary>Run the expert delivery loop across several characters, logging out and back in between them.
+    /// ⚠️ 一樣沒有自動觸發:這只是決定「按下按鈕之後要跑幾個角色」。</summary>
+    public bool ExpertDeliveryLoopMultiCharacter = false;
+
+    /// <summary>CIDs the multi-character run visits, in the order they appear in <see cref="OfflineData"/>.
+    /// 🔴 預設空清單 ＝ 多角色模式打開也不會跑 —— 「還沒挑」與「要跑全部」是兩回事,
+    /// 而後者會在使用者還沒看清楚之前就開始換角色。</summary>
+    public List<ulong> ExpertDeliveryLoopCharacters = [];
 
     /// <summary>Stop retrieving once the player's own bags are down to this many free slots, and go hand in
     /// what has been collected instead. ⚠️ The retrieve core independently refuses to go below
@@ -87,6 +103,11 @@ internal unsafe class Config
     /// <summary>How long one handin round may take before the loop gives up. The handin itself is gated on
     /// AutoRetainer no longer being busy; this is only the fuse for "it never became not-busy".</summary>
     public int ExpertDeliveryLoopHandinTimeoutMinutes = 10;
+
+    /// <summary>How long one character switch may take before the multi-character run gives up.
+    /// ⚠️ 這段包含登出、標題畫面、選角、登入排隊與登入後的場景安定延遲 —— 世界排隊時它可以很長,
+    /// 所以預設放寬到十分鐘,而不是照「換個畫面應該幾秒」去抓。</summary>
+    public int ExpertDeliveryLoopRelogTimeoutMinutes = 10;
 
     #endregion
 
