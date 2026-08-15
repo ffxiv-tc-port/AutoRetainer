@@ -1014,5 +1014,8 @@
   "Stopped on {0}: {1}": "在 {0} 上停止：{1}",
   "{0} finished ({1}/{2} characters), switching to the next one.": "{0} 已跑完（{1}/{2} 個角色），正在換下一個。",
   "Finished: all {0} selected characters are done.": "已完成：勾選的 {0} 個角色全部跑完了。",
-  "Characters finished: {0}/{1}.": "已跑完的角色：{0}/{1}。"
+  "Characters finished: {0}/{1}.": "已跑完的角色：{0}/{1}。",
+  "Notify when a multi-character run stops early (requires NotificationMaster)": "多角色連跑中途停止時發送通知（需要 NotificationMaster 插件）",
+  "A multi-character run is something you leave running, so a run that dies on the second of five characters otherwise stays silent until you come back - and by then it is hard to tell which part went wrong.\n\nThis covers stopping early: errors, and stopping it by hand. The notification for a run that finished everything is the separate \"Tray notification upon handin completion\" option under Miscellaneous.": "多角色連跑本來就是丟著讓它跑的，所以一批五個角色死在第二個的時候，如果不出聲，你要回來才會發現，而那時候已經很難分辨是哪一段出的事。\n\n這個開關只管中途停止：出錯，以及手動按停止。整批全部跑完的通知是另一個獨立選項，在「雜項」底下的「籌備稀有品完成時發送托盤通知」。",
+  "Switching character (paused: another plugin has suppressed AutoRetainer)": "正在換角色（已暫停：其他插件抑制了 AutoRetainer）"
 }

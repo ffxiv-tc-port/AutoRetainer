@@ -166,6 +166,13 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         ImGui.SliderInt(Loc.T("Character switch timeout (minutes)"), ref C.ExpertDeliveryLoopRelogTimeoutMinutes, 1, 60);
         ImGuiEx.HelpMarker(Loc.T("Covers logging out, the title screen, character selection, any login queue and the post-login scene settle delay."));
 
+        ImGui.Checkbox(Loc.T("Notify when a multi-character run stops early (requires NotificationMaster)"), ref C.ExpertDeliveryLoopNotifyOnFailure);
+        ImGuiEx.HelpMarker(Loc.T("""
+            A multi-character run is something you leave running, so a run that dies on the second of five characters otherwise stays silent until you come back - and by then it is hard to tell which part went wrong.
+
+            This covers stopping early: errors, and stopping it by hand. The notification for a run that finished everything is the separate "Tray notification upon handin completion" option under Miscellaneous.
+            """));
+
         DrawPerCharacterDestinations();
 
         ImGui.Unindent();

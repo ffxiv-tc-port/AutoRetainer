@@ -155,6 +155,12 @@ internal static unsafe class GCExpertDeliveryLoop
     private static ulong RelogTargetCID;
     private static long RelogHeartbeatAt;
 
+    /// <summary>換角色因為 <c>IPC.Suppressed</c> 而暫停的起始時刻。0 ＝ 現在沒有在暫停。
+    /// <para>🔴 暫停期間**時鐘也要停**:換角逾時是拿 <see cref="PhaseEnteredAt"/> 比對現在時間算出來的,
+    /// 被別的外掛抑制十分鐘會直接表現成一次假的「換角逾時」失敗 —— 而那個失敗訊息會指向完全無關的
+    /// 成因(登入畫面/背包讀不到),把人帶去查錯的地方。恢復時把計時起點往後推暫停的長度。</para></summary>
+    private static long RelogSuppressedSince;
+
     /// <summary>這一趟是不是多角色連跑。決定收工要不要響音、以及一個角色做完之後要換人還是收工。</summary>
     internal static bool MultiCharacterRun { get; private set; }
 
@@ -196,7 +202,11 @@ internal static unsafe class GCExpertDeliveryLoop
         Phase.LeaveRetainer or Phase.LeaveRetainerWait or Phase.CloseBell or Phase.CloseBellWait => Loc.T("Closing retainer"),
         Phase.Handin or Phase.HandinWait => Loc.T("Handing in at the Grand Company"),
         Phase.FinishReturnToBell or Phase.FinishReturnToBellWait => Loc.T("Returning to the summoning bell"),
-        Phase.Relog or Phase.RelogWait => Loc.T("Switching character"),
+        // 暫停中是「原地不動而且完全正常」的狀態 —— 不講出來的話,列上看到的就只是一個永遠不動的
+        // 「正在換角色」,與真的卡死一模一樣。這是要隨時掃視的資訊,所以放列上而不是 tooltip。
+        Phase.Relog or Phase.RelogWait => RelogSuppressedSince != 0
+            ? Loc.T("Switching character (paused: another plugin has suppressed AutoRetainer)")
+            : Loc.T("Switching character"),
         _ => "?",
     };
 
@@ -341,6 +351,7 @@ internal static unsafe class GCExpertDeliveryLoop
         BatchIndex = 0;
         CharactersDone = 0;
         RelogTargetCID = 0;
+        RelogSuppressedSince = 0;
         RetrievedTotal = 0;
         HandinRounds = 0;
         StatusText = "";
@@ -480,6 +491,7 @@ internal static unsafe class GCExpertDeliveryLoop
         if(!Running && CurrentPhase == Phase.Idle) return;
         Running = false;
         CurrentPhase = Phase.Idle;
+        RelogSuppressedSince = 0;
         StatusText = reason;
         // 🔴 停止只停外層狀態機,已經排進 AutoRetainer/Lifestream 的任務鏈會自己跑完 ——
         //    中途硬中斷互動鏈的風險比讓它跑完高。但那會造成「說停了卻還在繳交」的困惑,
@@ -498,8 +510,9 @@ internal static unsafe class GCExpertDeliveryLoop
             DuoLog.Warning(summary);
             // 🔴 多角色連跑失敗時也出聲。這種跑法本來就是丟著讓它跑的 —— 沒響的話,一批五個角色
             //    死在第二個,使用者要在半小時後才發現,而且發現時已經分不出是哪一段出的事。
-            //    閘門用的是同一個「完成時通知」選項:通知的開關只有一個,不要在這裡自己多開一個。
-            if(MultiCharacterRun && C.GCHandinNotify) Utils.TryNotify(summary);
+            //    ⚠️ 這裡刻意**不**沿用「完成時通知」那個開關:它預設是關的,而「整批做完了」與
+            //    「批次死在半路」的重要程度完全不同。失敗有自己的開關,預設開。
+            if(MultiCharacterRun && C.ExpertDeliveryLoopNotifyOnFailure) Utils.TryNotify(summary);
         }
         PluginLog.Information($"[ExpertDeliveryLoop] Stopped: {reason} | retrieved={RetrievedTotal} handinRounds={HandinRounds} success={success} stillBusy={stillBusy} multiCharacter={MultiCharacterRun} charactersDone={CharactersDone}/{BatchCIDs.Count}");
     }
@@ -539,14 +552,11 @@ internal static unsafe class GCExpertDeliveryLoop
         // 🔴 換角色那一段玩家本來就不可用(登出→標題→選角→登入),而可用性守衛在登出之後會判成
         //    「沒有東西在進行而且持續不可用」,把自己停在標題畫面。這兩個階段有自己的逾時與診斷,
         //    走的是完全不同的判準,所以在守衛之前就先分流。
-        if(CurrentPhase == Phase.Relog)
+        if(CurrentPhase is Phase.Relog or Phase.RelogWait)
         {
-            TickRelog();
-            return;
-        }
-        if(CurrentPhase == Phase.RelogWait)
-        {
-            TickRelogWait();
+            if(RelogSuppressionHolds()) return;
+            if(CurrentPhase == Phase.Relog) TickRelog();
+            else TickRelogWait();
             return;
         }
 
@@ -578,6 +588,39 @@ internal static unsafe class GCExpertDeliveryLoop
     #region 換角色
 
     private static long RelogTimeoutMs => C.ExpertDeliveryLoopRelogTimeoutMinutes * 60L * 1000L;
+
+    /// <summary>別的外掛把 AutoRetainer 抑制住(<c>AutoRetainer.SetSuppressed</c>)時,換角色就原地持住。
+    /// 回 true ＝ 這一幀什麼都不要做。
+    /// <para>🔴 抑制的意思是「現在不要接手這個角色」,而換角色是這條流程裡侵入性最強的一步:
+    /// 它會把角色登出。在抑制期間登出,等於把別的外掛(或使用者自己)正在做的事直接砍掉,
+    /// 而且**不可逆** —— 所以這裡選擇持住不動,不是照跑也不是放棄整趟。</para>
+    /// <para>🔴 暫停期間不計入換角逾時。逾時是拿階段起始時刻比對現在時間算的,不把暫停時間補回去的話
+    /// 「被抑制十分鐘」會表現成一次假的逾時失敗,而逾時訊息還會指向一個完全無關的成因。</para>
+    /// <para>⚠️ 只管換角色。繳交途中不受抑制節制是既有行為,這裡不動它。</para>
+    /// <para>診斷只在**狀態翻轉**時各印一行(進入暫停、恢復),不是每幀 —— 這段可以持續好幾分鐘。</para></summary>
+    private static bool RelogSuppressionHolds()
+    {
+        var now = Environment.TickCount64;
+        if(IPC.Suppressed)
+        {
+            if(RelogSuppressedSince == 0)
+            {
+                RelogSuppressedSince = now;
+                PluginLog.Information($"[ExpertDeliveryLoop] Character switch paused: another plugin has suppressed AutoRetainer (AutoRetainer.SetSuppressed). Holding in phase {CurrentPhase} with targetCID {RelogTargetCID}, {TimeInPhase}ms spent in this phase so far; the {RelogTimeoutMs}ms switch timeout does not advance while paused. Nothing is logged out until this is released.");
+            }
+            return true;
+        }
+
+        if(RelogSuppressedSince != 0)
+        {
+            var pausedFor = now - RelogSuppressedSince;
+            RelogSuppressedSince = 0;
+            PhaseEnteredAt += pausedFor;
+            RelogHeartbeatAt += pausedFor;
+            PluginLog.Information($"[ExpertDeliveryLoop] Character switch resumed: the suppression was released after {pausedFor}ms. Phase {CurrentPhase}, targetCID {RelogTargetCID}; the phase and heartbeat clocks were pushed forward by that amount, so {TimeInPhase}ms of the {RelogTimeoutMs}ms switch timeout has actually been used.");
+        }
+        return false;
+    }
 
     private static void TickRelog()
     {

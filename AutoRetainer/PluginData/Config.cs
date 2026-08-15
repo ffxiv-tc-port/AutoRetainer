@@ -109,6 +109,14 @@ internal unsafe class Config
     /// 所以預設放寬到十分鐘,而不是照「換個畫面應該幾秒」去抓。</summary>
     public int ExpertDeliveryLoopRelogTimeoutMinutes = 10;
 
+    /// <summary>Tray notification when a multi-character run stops early - on an error or by hand.
+    /// <para>🔴 預設**開**,而且刻意不沿用 <see cref="GCHandinNotify"/>(完成時通知,預設關):
+    /// 「整批做完了」與「一批五個角色死在第二個」是兩件重要程度完全不同的事。後者不出聲的話,
+    /// 使用者要半小時後回來才發現,而那時候已經分不出是哪一段出的事 —— 這是這條流程最痛的情境。</para>
+    /// <para>⚠️ 整批完成的通知仍然走 <see cref="GCHandinNotify"/>,這個開關不影響它。
+    /// 兩者一樣都需要 NotificationMaster 才會真的響。</para></summary>
+    public bool ExpertDeliveryLoopNotifyOnFailure = true;
+
     #endregion
 
     internal bool BypassSanctuaryCheck = false;
