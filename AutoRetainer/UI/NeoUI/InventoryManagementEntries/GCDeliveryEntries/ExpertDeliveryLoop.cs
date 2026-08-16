@@ -60,6 +60,16 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
             $"{Loc.T("Handin rounds")}: {GCExpertDeliveryLoop.HandinRounds}    " +
             $"{Loc.T("Free slots")}: {freeSlots}");
 
+        // 循環跑著的時候一般僱員自動處理整個讓路(SchedulerMain.RetainerAutomationDeferred)。
+        // ⚠️ 這是「起疑才查」的資訊,理由放 tooltip —— 但**暫停這件事本身**要在列上看得見:
+        //    不講的話,使用者只會看到探險委託整趟都沒被收走,而畫面上沒有任何東西解釋為什麼,
+        //    與「AutoRetainer 壞了」完全同形。
+        if(GCExpertDeliveryLoop.Running)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudGrey, Loc.T("Normal retainer processing is paused while this runs"));
+            ImGuiEx.Tooltip(Loc.T("AutoRetainer's own retainer automation stands down while this loop runs: it does not collect or reassign ventures, does not run the entrust/auto-vendor pass, and does not open a summoning bell by itself. Both drive the same retainer list through the same task queue, so letting them run together makes the normal cycle close the retainer list out from under this loop.\n\nIt is deferred, not cancelled - it resumes on its own the moment this loop stops. Nothing is lost either: venture results that came due stay on the retainer until they are collected."));
+        }
+
         if(!GCExpertDeliveryLoop.StatusText.IsNullOrEmpty())
         {
             ImGuiEx.TextWrapped(ImGuiColors.DalamudYellow, GCExpertDeliveryLoop.StatusText);

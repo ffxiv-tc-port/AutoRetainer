@@ -66,6 +66,51 @@ internal static unsafe class SchedulerMain
 
     internal static PluginEnableReason Reason { get; set; }
 
+    /// <summary>true ＝ 稀有品繳交循環正在跑,所以 AutoRetainer 自己的一般僱員自動處理
+    /// (收取／重派探險、存入僱員、自動賣出、僱員感知自動開鈴)這一幀要整個讓路。
+    ///
+    /// <para>🔴 為什麼一定要互斥:兩邊**驅動的是同一個僱員清單,而且共用同一條 <see cref="P.TaskManager"/>**。
+    /// 循環開鈴用的是 <see cref="Tasks.TaskInteractWithNearestBell"/>,它會把 <c>P.IsInteractionAutomatic</c>
+    /// 設成 true,於是 <c>OccupiedSummoningBell</c> 翻正時 <c>ConditionChange</c> 就替我們
+    /// <see cref="EnablePlugin"/>(<see cref="PluginEnableReason.Auto"/>) —— 也就是說**循環自己把一般處理打開**。
+    /// 接著 <see cref="AutoRetainer.Tick"/> 裡 <see cref="Tick"/> 排在 <c>GCExpertDeliveryLoop.Tick()</c> 前面,
+    /// 每一幀都先搶到 <c>!P.TaskManager.IsBusy</c> 這道閘門,把整條收派探險的任務鏈塞進共用佇列。</para>
+    ///
+    /// <para>🔴 最致命的一步在收尾:一般處理把僱員跑完之後照 <c>C.TaskCompletedBehaviorAuto</c> 收尾,
+    /// 設成 <c>Close_retainer_list_and_disable_plugin</c> 時會排入 <c>CloseRetainerList</c>。
+    /// 2026-08-16 19:38:47.498 實測:那一幀關掉僱員清單,而循環的 <c>TickSelectRetainer</c> 在**同一幀**
+    /// 看到佇列空了就送出 <c>SelectRetainerByName</c> —— 送進一個剛被關掉的清單,20 秒後逾時,
+    /// 循環以「無法開啟道具管理」停在第 1/7 個角色。使用者看到的症狀就是「收僱員任務打斷連跑」。</para>
+    ///
+    /// <para>⚠️ 但**不要**把這個 bug 讀成「只有那個收尾設定會中」:那個設定不是預設值
+    /// (預設是 <c>Stay_in_retainer_list_and_keep_plugin_enabled</c>),它只決定打斷的**烈度**。
+    /// 上面第一、二段與收尾設定完全無關 —— 一般處理照樣會在循環中途搶走僱員、跑完整條收派探險,
+    /// 差別只在少了那一下關清單,於是表現成「循環卡住/動作夾雜」而不是「硬停」。
+    /// 互斥要擋的是**搶僱員**那一步,不是收尾那一步。</para>
+    ///
+    /// <para>⚠️ 這是**延後不是取消**:排程器的啟用狀態與 <see cref="Reason"/> 都原封不動留著,
+    /// 只是這段期間不 Tick,循環一停下來下一幀就自己接回去跑。沒有任何探險委託會因此漏收 ——
+    /// 未收取的成果是僱員身上的持續狀態(收之前連新委託都下不了),只會留著等下一輪。</para></summary>
+    internal static bool RetainerAutomationDeferred { get; private set; }
+
+    /// <summary>每幀更新一次 <see cref="RetainerAutomationDeferred"/>,並且**只在翻轉時**各印一行。
+    /// 🔴 從 <see cref="AutoRetainer.Tick"/> 無條件呼叫,不要塞進 <c>PluginEnabled</c> 底下 ——
+    /// 僱員感知自動開鈴那條路徑在排程器沒啟用時照樣會動,兩個消費端都要看得到同一個旗標。</summary>
+    internal static void UpdateRetainerAutomationDeferral()
+    {
+        var defer = GCExpertDeliveryLoop.Running;
+        if(defer == RetainerAutomationDeferred) return;
+        RetainerAutomationDeferred = defer;
+        if(defer)
+        {
+            PluginLog.Information($"[RetainerAutomationMutex] The expert delivery loop took the wheel, so AutoRetainer's own retainer automation stands down: no venture collecting/reassigning, no entrust/auto-vendor pass, no retainer-sense bell opening until the loop stops. Both drive the same retainer list through the same task queue, and the normal cycle's completion behaviour (Auto={C.TaskCompletedBehaviorAuto}) closes the retainer list out from under the loop. Deferred, not cancelled - the scheduler stays as it is (enabled={PluginEnabledInternal}, reason={Reason}) and picks up again by itself. Nothing is lost: uncollected venture results stay on the retainer until they are collected.");
+        }
+        else
+        {
+            PluginLog.Information($"[RetainerAutomationMutex] The expert delivery loop has stopped, so AutoRetainer's own retainer automation is live again (enabled={PluginEnabledInternal}, reason={Reason}). Any ventures that came due during the run are collected on the next normal pass.");
+        }
+    }
+
     internal static bool? EnablePlugin(PluginEnableReason reason)
     {
         Reason = reason;
@@ -131,6 +176,9 @@ internal static unsafe class SchedulerMain
 
     internal static void Tick()
     {
+        // 🔴 稀有品繳交循環在跑的時候整個讓路。閘門放在這裡(而不是呼叫端)是刻意的:
+        //    呼叫端那個 if 區塊裡還有 C.SelectedRetainers 的初始化,那件事沒有理由跟著停。
+        if(RetainerAutomationDeferred) return;
         if(PluginEnabled)
         {
             if(C.RetainerSense)

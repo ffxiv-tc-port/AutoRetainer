@@ -537,6 +537,9 @@ public unsafe class AutoRetainer : IDalamudPlugin
     private void Tick(object _)
     {
         MultiModeDtr.Tick();
+        // 🔴 必須在下面兩個消費端(SchedulerMain.Tick 與僱員感知自動開鈴)之前、而且**無條件**跑,
+        //    這樣兩邊看到的是同一幀的同一個答案,而且「開始讓路／恢復」兩個邊緣都各印得到一行。
+        SchedulerMain.UpdateRetainerAutomationDeferral();
         if(!IPC.Suppressed)
         {
             if(SchedulerMain.PluginEnabled && Svc.ClientState.LocalPlayer != null)
@@ -607,7 +610,10 @@ public unsafe class AutoRetainer : IDalamudPlugin
         IsNextToBell = false;
         if(C.RetainerSense && Svc.ClientState.LocalPlayer != null && Svc.ClientState.LocalPlayer.HomeWorld.RowId == Svc.ClientState.LocalPlayer.CurrentWorld.RowId)
         {
-            if(!IPC.Suppressed && !IsOccupied() && !C.OldRetainerSense && !TaskManager.IsBusy && !Utils.MultiModeOrArtisan && !Svc.Condition[ConditionFlag.InCombat] && !Svc.Condition[ConditionFlag.BoundByDuty] && Utils.IsAnyRetainersCompletedVenture())
+            // ⚠️ !SchedulerMain.RetainerAutomationDeferred:稀有品繳交循環在跑的時候不要自己去點鈴。
+            //    這條路徑不看 SchedulerMain.PluginEnabled,所以光是擋住 SchedulerMain.Tick() 擋不到它 ——
+            //    它會把 TaskInteractWithNearestBell 直接排進循環正在用的那條共用佇列。
+            if(!IPC.Suppressed && !IsOccupied() && !C.OldRetainerSense && !TaskManager.IsBusy && !Utils.MultiModeOrArtisan && !Svc.Condition[ConditionFlag.InCombat] && !Svc.Condition[ConditionFlag.BoundByDuty] && !SchedulerMain.RetainerAutomationDeferred && Utils.IsAnyRetainersCompletedVenture())
             {
                 var bell = Utils.GetReachableRetainerBell(true);
                 if(bell == null || LastPosition != Svc.ClientState.LocalPlayer.Position)
