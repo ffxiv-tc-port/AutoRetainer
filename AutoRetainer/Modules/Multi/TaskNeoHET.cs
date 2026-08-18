@@ -180,6 +180,9 @@ public static unsafe class TaskNeoHET
         PluginLog.Warning($"Temporary HUD bypass is being applied");
         return entrance;*/
         var hud = AgentHUD.Instance();
+        // AgentHUD.Instance() 是產生器產出的取得子,AgentModule 還沒好時回 null。
+        // 取不到就當「找不到入口」回 null,與下面找不到標記時的回傳值一致。
+        if(hud == null) return null;
         if(hud->MapMarkers.Where(x => x.IconId.EqualsAny(markers)).OrderBy(x => Player.DistanceTo(new Vector2(x.Position.X, x.Position.Z))).TryGetFirst(out var marker))
         {
             var mpos = new Vector2(marker.Position.X, marker.Position.Z);
@@ -199,6 +202,9 @@ public static unsafe class TaskNeoHET
         /*PluginLog.Warning($"Temporary HUD bypass is being applied (2)");
         return true;*/
         var hud = AgentHUD.Instance();
+        // 同上:取不到就回 false =「不在這個地塊」。
+        // 回 false 只是讓呼叫端多走一次一般進屋流程;回 true 會讓流程以為人已到位而跳過真正的進入步驟。
+        if(hud == null) return false;
         if(hud->MapMarkers.Where(x => x.IconId.EqualsAny(markers)).TryGetFirst(x => Player.DistanceTo(new Vector2(x.Position.X, x.Position.Z)) < ValidPlayerToApartmentDistance, out var marker))
         {
             return true;
