@@ -76,7 +76,8 @@ internal unsafe class DebugMisc : DebugSectionBase
         {
             ExternalWriter.PlaceWriteOrder(new(System.IO.Path.Combine(Svc.PluginInterface.ConfigDirectory.FullName, "WriterTest.json"), EzConfig.DefaultSerializationFactory.Serialize(C, true)));
         }
-        ImGuiEx.Text($"FC points: {Utils.FCPoints}");
+        // 讀不到時顯示 ?,不要畫成 0 —— 0 是合法的部隊點數,把「不知道」渲染成 0 會直接誤導人。
+        ImGuiEx.Text($"FC points: {(Utils.TryGetFCPoints(out var fcPoints) ? fcPoints.ToString() : "?")}");
         if(ImGui.CollapsingHeader("Housing"))
         {
             var h = HousingManager.Instance();

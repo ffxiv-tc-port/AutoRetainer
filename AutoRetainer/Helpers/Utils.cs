@@ -67,7 +67,38 @@ public static unsafe class Utils
     // TC(台服)客戶端在 Dalamud 13.0.0.16 之後回報 ClientLanguage 7(TraditionalChinese),
     // 舊版回報 4(ChineseSimplified)。用數值比較才能同時相容 CI 釘的 13.0.0.6(列舉沒有 7 這個名字)與執行期新版。
     public static bool IsCN => (int)Svc.ClientState.ClientLanguage is 4 or 5 or 7;
-    public static int FCPoints => *(int*)((nint)AgentModule.Instance()->GetAgentByInternalId(AgentId.FreeCompanyCreditShop) + 256);
+    /// <summary>
+    /// 部隊點數。⚠️ 取不到時回 <c>0</c> —— 0 同時代表「真的沒有點數」與「讀不到」,
+    /// 這與呼叫端既有語意一致(<c>OfflineDataManager</c> 本來就用 <c>!= 0</c> 當「有資料才寫入」的閘門)。
+    /// 要區分兩者請改用 <see cref="TryGetFCPoints"/>。
+    /// </summary>
+    public static int FCPoints => TryGetFCPoints(out var points) ? points : 0;
+
+    /// <summary>
+    /// 讀部隊點數,並回報「這次到底有沒有讀到」。
+    /// </summary>
+    /// <remarks>
+    /// 原本是 <c>*(int*)((nint)AgentModule.Instance()-&gt;GetAgentByInternalId(...) + 256)</c>,
+    /// 整條鏈零判空。兩層都有真實的 null 路徑:
+    /// <list type="bullet">
+    /// <item>AgentModule.Instance() 是 CS 手寫的,逐字為 <c>uiModule == null ? null : uiModule-&gt;GetAgentModule()</c>
+    /// —— 登入前 / 卸載期間 UIModule 還沒建立就回 null。</item>
+    /// <item>GetAgentByInternalId 對尚未建立的代理人回 null(部隊點數商店在沒開過部隊介面前就是這樣)。</item>
+    /// </list>
+    /// ⚠️ 這次只補判空。<c>+256</c> 這個未文件化的原生偏移本身沒有動(另案處理),
+    /// 它在台服對不對仍然是未驗證的假設 —— 但偏移錯的失敗形式是「數字不對」,不是崩潰;
+    /// 而少了上面兩層判空的失敗形式是攔不到的 AccessViolationException。
+    /// </remarks>
+    public static bool TryGetFCPoints(out int points)
+    {
+        points = 0;
+        var agentModule = AgentModule.Instance();
+        if(agentModule == null) return false;
+        var agent = agentModule->GetAgentByInternalId(AgentId.FreeCompanyCreditShop);
+        if(agent == null) return false;
+        points = *(int*)((nint)agent + 256);
+        return true;
+    }
     public static float AnimationLock => Player.AnimationLock;
 
     public static uint[] WeaponsUICategories
