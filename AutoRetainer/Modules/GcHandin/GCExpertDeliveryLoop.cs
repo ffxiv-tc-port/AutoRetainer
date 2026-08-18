@@ -315,6 +315,18 @@ internal static unsafe class GCExpertDeliveryLoop
     {
         if(Running) return;
 
+        // 🔴 多角色模式跟這條循環是互斥的,而且**單角跑一樣會被踩**:多角色模式看到「這個角色沒事做」
+        //    就自己把角色登出換掉,時機與這條流程完全無關 —— 循環會被丟在另一個角色上繼續送僱員互動,
+        //    而那個角色的僱員名單根本不是它要找的。多角色連跑更兇:兩套東西同時在換角色。
+        //    ⚠️ 這道守衛以前只存在於多角色連跑的前置檢查(TryBuildBatch)裡,**單角路徑完全沒擋到**。
+        //    ⚠️ 看的是 Enabled 不是 Active:被別的外掛抑制中的多角色模式隨時會恢復,不算安全狀態。
+        if(MultiMode.Enabled)
+        {
+            PluginLog.Information($"[ExpertDeliveryLoop] Refusing to start because Multi Mode is enabled: multiCharacterRun={C.ExpertDeliveryLoopMultiCharacter} multiModeEnabled={MultiMode.Enabled} multiModeActive={MultiMode.Active} suppressed={IPC.Suppressed} multiModeType={C.MultiModeType} nightMode={C.NightMode}. Multi Mode logs itself out and switches characters on its own schedule, which would strand this loop on a different character.");
+            Fail(Loc.T("Multi Mode is on. Turn it off before starting this loop - Multi Mode logs out and switches characters by itself, so it would either fight this run's own character switching or leave the loop stranded on another character."));
+            return;
+        }
+
         if(!Player.Available)
         {
             Fail(Loc.T("Player is not available."));
@@ -379,6 +391,8 @@ internal static unsafe class GCExpertDeliveryLoop
 
         // 🔴 兩套換角色的東西同時在跑一定會打架:多開排程看到「這個角色沒事做」就會把人換走,
         //    而它換走的時機與這條流程完全無關。這不是保守,是實際會互相踩。
+        // 📌 Start() 現在在更前面就擋掉了(單角跑也會被踩,那條路徑走不到這裡)。這一道刻意留著:
+        //    這個函式驗的是「整批角色跑不跑得起來」,不該假設呼叫端一定先擋過。
         if(MultiMode.Enabled)
         {
             error = Loc.T("Multi Mode is on. Turn it off before starting a multi-character run - two things switching characters at the same time will fight each other.");
@@ -548,6 +562,20 @@ internal static unsafe class GCExpertDeliveryLoop
     internal static void Tick()
     {
         if(!Running) return;
+
+        // 🔴 反向守衛:循環已經跑起來之後才被打開多角色模式。Start() 擋得住「先開多角色模式再按開始」,
+        //    擋不住這個,而後果一模一樣 —— 多角色模式會自己把角色登出換掉,循環被丟在別的角色上,
+        //    它送出去的僱員互動全部落空,畫面上卻沒有任何東西解釋為什麼。
+        //    ⚠️ 讓路的是循環,不是多角色模式:多角色模式本身完全不動(它有夜間模式、開機自動啟用、
+        //       IPC 等好幾條自動啟用路徑,在那裡攔會改到與本問題無關的行為),而循環是使用者按一下
+        //       就能再按一次的東西,停下來的代價低得多。
+        //    📌 已經排進共用佇列的任務照 Stop() 的既有語意跑完;多角色模式的換角本來就會等佇列空。
+        if(MultiMode.Enabled)
+        {
+            PluginLog.Information($"[ExpertDeliveryLoop] Stopping because Multi Mode was turned on while the loop was running: phase={CurrentPhase} multiCharacterRun={MultiCharacterRun} charactersDone={CharactersDone}/{BatchCIDs.Count} retrieved={RetrievedTotal} handinRounds={HandinRounds} multiModeActive={MultiMode.Active} suppressed={IPC.Suppressed}. Multi Mode logs itself out and switches characters on its own schedule, which would strand this loop on a different character.");
+            Stop(Loc.T("Stopped: Multi Mode was turned on. It switches characters on its own, which would leave this loop running on the wrong character."));
+            return;
+        }
 
         // 🔴 換角色那一段玩家本來就不可用(登出→標題→選角→登入),而可用性守衛在登出之後會判成
         //    「沒有東西在進行而且持續不可用」,把自己停在標題畫面。這兩個階段有自己的逾時與診斷,

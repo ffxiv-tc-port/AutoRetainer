@@ -75,6 +75,15 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
             ImGuiEx.TextWrapped(ImGuiColors.DalamudYellow, GCExpertDeliveryLoop.StatusText);
         }
 
+        // 多角色模式開著的話這個循環根本啟動不了(GCExpertDeliveryLoop.Start 會拒絕),而且循環跑到
+        // 一半被打開多角色模式也會當場停下來。理由跟下面那行「會去找誰」一樣:擋路的東西要在按下去
+        // 之前就看得見,不要按了才從錯誤訊息裡發現。
+        if(MultiMode.Enabled)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudRed, Loc.T("Multi Mode is on - this loop cannot run until you turn it off."));
+            ImGuiEx.Tooltip(Loc.T("Multi Mode logs your character out and switches to another one on its own schedule. This loop drives one character's retainers step by step, so a switch in the middle of it leaves the loop sending retainer interactions on a character that is not the one it was working on."));
+        }
+
         // 開始之前就讓使用者看到「會去找誰」,不要按下去才發現名單是空的。
         if(!GCExpertDeliveryLoop.Running && !C.ExpertDeliveryLoopMultiCharacter)
         {
