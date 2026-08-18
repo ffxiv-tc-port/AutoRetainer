@@ -1056,5 +1056,8 @@
   "Weapons": "武器",
   "Armor": "防具",
   "Materiel": "軍需品",
-  "Materials": "素材"
+  "Materials": "素材",
+  "Pick max amount of destinations": "選擇最多目的地",
+  "Spam one destination": "重複刷單一目的地",
+  "Include one unlock destination while levelling": "練級時順帶解鎖 1 個目的地"
 }

@@ -393,7 +393,7 @@ public class DeployablesTab : NeoUIEntry
                     ImGui.Text(Loc.T("Mode:"));
                     ImGui.SameLine(60f);
                     ImGui.SetNextItemWidth(150f);
-                    ImGuiEx.EnumCombo($"##unlockmode{entry.GUID}", ref entry.UnlockMode, Loc.EnumNames<UnlockMode>());
+                    ImGuiEx.EnumCombo($"##unlockmode{entry.GUID}", ref entry.UnlockMode, Lang.UnlockModeNames);
                 }
                 else if(entry.VesselBehavior == VesselBehavior.Use_plan)
                 {
@@ -446,7 +446,7 @@ public class DeployablesTab : NeoUIEntry
                         ImGui.Text(Loc.T("First Sub Mode:"));
                         ImGui.SameLine(150f);
                         ImGui.SetNextItemWidth(150f);
-                        ImGuiEx.EnumCombo($"##firstSubUnlockmode{entry.GUID}", ref entry.FirstSubUnlockMode, Loc.EnumNames<UnlockMode>());
+                        ImGuiEx.EnumCombo($"##firstSubUnlockmode{entry.GUID}", ref entry.FirstSubUnlockMode, Lang.UnlockModeNames);
                     }
                     else if(entry.FirstSubVesselBehavior == VesselBehavior.Use_plan)
                     {

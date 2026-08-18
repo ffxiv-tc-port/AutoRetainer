@@ -37,12 +37,32 @@ internal static class Lang
 
     internal static string LogOutAndExitGame => Svc.Data.GetExcelSheet<Addon>().GetRow(116).Text.GetText(true).Cleanup();
 
-    internal static readonly ReadOnlyDictionary<UnlockMode, string> UnlockModeNames = new(new Dictionary<UnlockMode, string>()
+    // Display text for UnlockMode. These are descriptions rather than bare member names on
+    // purpose: "MultiSelect" on its own does not tell the user that the mode fills the route with
+    // as many unlock destinations as the submersible can reach, so the wording is worth keeping -
+    // it only has to become translatable. Upstream fed this hardcoded English table to two of the
+    // four unlock-mode combos while the other two fell back to the enum member name, which is how
+    // the same enum ended up showing two different sets of words; all four now read from here.
+    //
+    // Built once on first use and reused for the rest of the session: ImGuiEx.EnumCombo is called
+    // from immediate-mode Draw code, so translating at the call site would allocate a dictionary
+    // plus one string per member on every frame. The table lives in a nested type rather than in a
+    // static field of Lang so its initializer is tied to its own first use instead of to any other
+    // Lang member - that is what rules out it running, and caching untranslated text, before the
+    // dictionary is loaded. Loc.Load is the first statement of AutoRetainer.Load(), so every draw
+    // call is later than it. Handed out read-only so a consumer cannot mutate the shared instance.
+    internal static IDictionary<UnlockMode, string> UnlockModeNames => UnlockModeNameCache.Value;
+
+    private static class UnlockModeNameCache
     {
-        { UnlockMode.MultiSelect, "Pick max amount of destinations" },
-        { UnlockMode.SpamOne, "Spam one destination" },
-        { UnlockMode.WhileLevelling, "Include one unlock destination while levelling" },
-    });
+        internal static readonly IDictionary<UnlockMode, string> Value =
+            new ReadOnlyDictionary<UnlockMode, string>(new Dictionary<UnlockMode, string>()
+            {
+                { UnlockMode.MultiSelect, Loc.T("Pick max amount of destinations") },
+                { UnlockMode.SpamOne, Loc.T("Spam one destination") },
+                { UnlockMode.WhileLevelling, Loc.T("Include one unlock destination while levelling") },
+            });
+    }
 
     internal static readonly (string Normal, string GameFont) Digits = ("0123456789", "");
 
