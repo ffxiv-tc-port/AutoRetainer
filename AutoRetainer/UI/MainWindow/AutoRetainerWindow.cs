@@ -133,7 +133,7 @@ internal unsafe class AutoRetainerWindow : Window
         }
         if(MultiMode.Active)
         {
-            ImGuiComponents.HelpMarker(Loc.T("MultiMode also controls this option. You can always change it by hand and it takes effect immediately, but while MultiMode is running it will switch this back on by itself when it moves on to the next retainer or character - untick \"Multi\" as well if you want it to stay off."));
+            ImGuiComponents.HelpMarker(Loc.T(SharedText.MultiModeOverridesThisOption));
         }
 
         if(P.WasEnabled)

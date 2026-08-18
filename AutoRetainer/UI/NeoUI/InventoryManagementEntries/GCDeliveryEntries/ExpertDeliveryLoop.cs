@@ -172,11 +172,11 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         // 🔴 這兩個是「按下開始一定會被拒絕」的狀態,而且原因跟這個面板沒有關係 —— 要在列上看得見。
         if(MultiMode.Enabled)
         {
-            ImGuiEx.TextWrapped(ImGuiColors.DalamudRed, Loc.T("Multi Mode is on. Turn it off before starting a multi-character run - two things switching characters at the same time will fight each other."));
+            ImGuiEx.TextWrapped(ImGuiColors.DalamudRed, Loc.T(SharedText.MultiModeBlocksMultiCharacterRun));
         }
         if(C.DontLogout)
         {
-            ImGuiEx.TextWrapped(ImGuiColors.DalamudRed, Loc.T("The \"Don't logout\" debug option is on, so characters cannot be switched."));
+            ImGuiEx.TextWrapped(ImGuiColors.DalamudRed, Loc.T(SharedText.DontLogoutBlocksCharacterSwitch));
         }
 
         DrawCharacterTable();

@@ -20,7 +20,7 @@ public class FastAddition : InventoryManagemenrBase
             var addHeld = UIUtils.IsHotkeyHeld(addKey);
             var addHardHeld = UIUtils.IsHotkeyHeld(addHardKey);
             var removeHeld = UIUtils.IsHotkeyHeld(removeKey);
-            ImGuiEx.TextWrapped(GradientColor.Get(EColor.RedBright, EColor.YellowBright), Loc.T("While this text is visible, hover over items while holding:"));
+            ImGuiEx.TextWrapped(GradientColor.Get(EColor.RedBright, EColor.YellowBright), Loc.T(SharedText.HoverItemsWhileHolding));
             ImGuiEx.Text(!addHeld ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, string.Format(Loc.T("{0} - add to Quick Venture Sell List"), UIUtils.HotkeyName(addKey)));
             ImGuiEx.Text(Loc.T("* Items that already in Unconditional Sell List WILL NOT BE ADDED to Quick Venture Sell List"));
             ImGuiEx.Text(!addHardHeld ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, string.Format(Loc.T("{0} - add to Unconditional Sell List"), UIUtils.HotkeyName(addHardKey)));

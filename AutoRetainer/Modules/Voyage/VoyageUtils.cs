@@ -143,7 +143,9 @@ internal static unsafe class VoyageUtils
 
     internal static int? GetVesselIndex(string name, VoyageType type)
     {
-        var w = HousingManager.Instance()->WorkshopTerritory;
+        var housing = HousingManager.Instance();
+        if(housing == null) return null;
+        var w = housing->WorkshopTerritory;
         if(w == null) return null;
         var adata = GetAdditionalVesselData(Data, name, type);
         if(adata.IndexOverride > 0) return adata.IndexOverride - 1;
@@ -348,11 +350,14 @@ internal static unsafe class VoyageUtils
     internal static void WriteOfflineData()
     {
         //PluginLog.Debug($"WriteOfflineDataSub");
-        if(HousingManager.Instance()->WorkshopTerritory != null && C.OfflineData.TryGetFirst(x => x.CID == Player.CID, out var ocd))
+        // 這裡原本只判了 WorkshopTerritory，沒判 HousingManager 本身 —— 而它才是先解參考的那一個。
+        var housing = HousingManager.Instance();
+        if(housing == null) return;
+        if(housing->WorkshopTerritory != null && C.OfflineData.TryGetFirst(x => x.CID == Player.CID, out var ocd))
         {
             ocd.WriteOfflineInventoryData();
             {
-                var vessels = HousingManager.Instance()->WorkshopTerritory->Airship;
+                var vessels = housing->WorkshopTerritory->Airship;
                 var temp = new List<OfflineVesselData>();
                 foreach(var x in vessels.Data)
                 {
@@ -372,7 +377,7 @@ internal static unsafe class VoyageUtils
                 }
             }
             {
-                var vessels = HousingManager.Instance()->WorkshopTerritory->Submersible;
+                var vessels = housing->WorkshopTerritory->Submersible;
                 var temp = new List<OfflineVesselData>();
                 for(var i = 0; i < Math.Min(4, vessels.DataPointers.Length); i++)
                 {
@@ -565,7 +570,11 @@ internal static unsafe class VoyageUtils
     internal static int GetVesselIndexByName(string name, VoyageType type)
     {
         var index = 0;
-        var h = HousingManager.Instance()->WorkshopTerritory;
+        // 讀不到就讓 h 保持 null，落到函式尾端既有的 throw —— 與 WorkshopTerritory 為 null
+        // 時的行為完全一致（不用三元：指標與 null 字面值之間沒有隱含轉換，CS0173）。
+        WorkshopTerritory* h = null;
+        var housing = HousingManager.Instance();
+        if(housing != null) h = housing->WorkshopTerritory;
         if(h != null)
         {
             if(type == VoyageType.Airship)

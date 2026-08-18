@@ -72,7 +72,7 @@ internal unsafe class SubmarinePointPlanUI : Window
                 {
                     if(!my.Any())
                     {
-                        ImGuiEx.TextWrapped(Loc.T("This plan is not used by any submersibles."));
+                        ImGuiEx.TextWrapped(Loc.T(SharedText.PlanNotUsedByAnySubmersibles));
                     }
                     else
                     {

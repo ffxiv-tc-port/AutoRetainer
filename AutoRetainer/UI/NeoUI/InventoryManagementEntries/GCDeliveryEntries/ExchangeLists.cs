@@ -89,7 +89,7 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
                     C.DefaultGCExchangePlan = selectedPlan;
                     new TickScheduler(() => C.AdditionalGCExchangePlans.Remove(selectedPlan));
                 }
-                ImGuiEx.Tooltip(Loc.T("Make this plan default. Current default plan will be overwritten. Hold CTRL and click."));
+                ImGuiEx.Tooltip(Loc.T(SharedText.MakePlanDefaultHint));
                 ImGui.SameLine(0, 1);
                 if(ImGuiEx.IconButton(FontAwesomeIcon.Trash, enabled: ImGuiEx.Ctrl && selectedPlan != null))
                 {

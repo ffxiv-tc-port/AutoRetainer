@@ -130,7 +130,7 @@ internal static unsafe class WorkshopUI
                     ImGui.PushFont(UiBuilder.IconFont);
                     ImGuiEx.TextV("\uf252");
                     ImGui.PopFont();
-                    ImGuiEx.Tooltip(Loc.T("Wait for all deployables is globally enabled."));
+                    ImGuiEx.Tooltip(Loc.T(SharedText.WaitForDeployablesEnabledGlobally));
                     ImGui.SameLine(0, 3);
                 }
                 else if(data.MultiWaitForAllDeployables)
@@ -138,7 +138,7 @@ internal static unsafe class WorkshopUI
                     ImGui.PushFont(UiBuilder.IconFont);
                     ImGuiEx.TextV("\uf252");
                     ImGui.PopFont();
-                    ImGuiEx.Tooltip(Loc.T("Wait for all deployables is enabled for this character."));
+                    ImGuiEx.Tooltip(Loc.T(SharedText.WaitForDeployablesEnabledForCharacter));
                     ImGui.SameLine(0, 3);
                 }
             }
@@ -230,19 +230,19 @@ internal static unsafe class WorkshopUI
                         }
                         if(ImGui.Button(Loc.T("Select best path with 1 unlock included")))
                         {
-                            TaskCalculateAndPickBestExpRoute.Enqueue(VoyageUtils.GetSubmarineUnlockPlanByGuid(Data.GetAdditionalVesselData(GenericHelpers.Read(CurrentSubmarine.Get()->Name), VoyageType.Submersible).SelectedUnlockPlan) ?? new());
+                            TaskCalculateAndPickBestExpRoute.Enqueue(VoyageUtils.GetSubmarineUnlockPlanByGuid(Data.GetAdditionalVesselData(CurrentSubmarine.GetCurrentNameOrThrow(), VoyageType.Submersible).SelectedUnlockPlan) ?? new());
                         }
                         if(ImGui.Button(Loc.T("Select unlock path (up to 5)")))
                         {
-                            TaskDeployOnUnlockRoute.EnqueuePickOrCalc(VoyageUtils.GetSubmarineUnlockPlanByGuid(Data.GetAdditionalVesselData(GenericHelpers.Read(CurrentSubmarine.Get()->Name), VoyageType.Submersible).SelectedUnlockPlan) ?? new(), UnlockMode.MultiSelect);
+                            TaskDeployOnUnlockRoute.EnqueuePickOrCalc(VoyageUtils.GetSubmarineUnlockPlanByGuid(Data.GetAdditionalVesselData(CurrentSubmarine.GetCurrentNameOrThrow(), VoyageType.Submersible).SelectedUnlockPlan) ?? new(), UnlockMode.MultiSelect);
                         }
                         if(ImGui.Button(Loc.T("Select unlock path (only 1)")))
                         {
-                            TaskDeployOnUnlockRoute.EnqueuePickOrCalc(VoyageUtils.GetSubmarineUnlockPlanByGuid(Data.GetAdditionalVesselData(GenericHelpers.Read(CurrentSubmarine.Get()->Name), VoyageType.Submersible).SelectedUnlockPlan) ?? new(), UnlockMode.SpamOne);
+                            TaskDeployOnUnlockRoute.EnqueuePickOrCalc(VoyageUtils.GetSubmarineUnlockPlanByGuid(Data.GetAdditionalVesselData(CurrentSubmarine.GetCurrentNameOrThrow(), VoyageType.Submersible).SelectedUnlockPlan) ?? new(), UnlockMode.SpamOne);
                         }
                         if(ImGui.Button(Loc.T("Select point planner path")))
                         {
-                            var plan = VoyageUtils.GetSubmarinePointPlanByGuid(Data.GetAdditionalVesselData(GenericHelpers.Read(CurrentSubmarine.Get()->Name), VoyageType.Submersible).SelectedPointPlan);
+                            var plan = VoyageUtils.GetSubmarinePointPlanByGuid(Data.GetAdditionalVesselData(CurrentSubmarine.GetCurrentNameOrThrow(), VoyageType.Submersible).SelectedPointPlan);
                             if(plan != null)
                             {
                                 TaskDeployOnPointPlan.EnqueuePick(plan);

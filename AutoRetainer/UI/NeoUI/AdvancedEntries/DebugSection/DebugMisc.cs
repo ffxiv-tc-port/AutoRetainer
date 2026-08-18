@@ -81,16 +81,24 @@ internal unsafe class DebugMisc : DebugSectionBase
         if(ImGui.CollapsingHeader("Housing"))
         {
             var h = HousingManager.Instance();
-            ImGuiEx.Text($"GetCurrentDivision {h->GetCurrentDivision()}");
-            ImGuiEx.Text($"GetCurrentHouseId {h->GetCurrentIndoorHouseId()}");
-            ImGuiEx.Text($"GetCurrentPlot {h->GetCurrentPlot()}");
-            ImGuiEx.Text($"GetCurrentRoom {h->GetCurrentRoom()}");
-            ImGuiEx.Text($"GetCurrentWard {h->GetCurrentWard()}");
+            // 讀不到就在列上直說，不要把「不知道」畫成 0/-1 —— 0 是合法的分區與地塊編號。
+            if(h == null)
+            {
+                ImGuiEx.Text($"HousingManager: ? (unavailable)");
+            }
+            else
+            {
+                ImGuiEx.Text($"GetCurrentDivision {h->GetCurrentDivision()}");
+                ImGuiEx.Text($"GetCurrentHouseId {h->GetCurrentIndoorHouseId()}");
+                ImGuiEx.Text($"GetCurrentPlot {h->GetCurrentPlot()}");
+                ImGuiEx.Text($"GetCurrentRoom {h->GetCurrentRoom()}");
+                ImGuiEx.Text($"GetCurrentWard {h->GetCurrentWard()}");
+            }
             if(ImGui.Button("Simulate login"))
             {
                 ProperOnLogin.FireArtificially();
             }
-            if(h->OutdoorTerritory != null)
+            if(h != null && h->OutdoorTerritory != null)
             {
                 for(var i = 0; i < 30; i++)
                 {

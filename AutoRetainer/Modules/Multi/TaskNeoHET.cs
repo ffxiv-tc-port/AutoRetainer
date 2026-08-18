@@ -191,7 +191,11 @@ public static unsafe class TaskNeoHET
 
     public static bool IsInMarkerHousingPlot(IEnumerable<uint> markers)
     {
-        if(HousingManager.Instance()->GetCurrentPlot() < 0) return false;
+        var housing = HousingManager.Instance();
+        // 讀不到就當「不在這個地塊」。回 false 只是讓呼叫端多走一次一般進屋流程；
+        // 回 true 會讓流程以為人已經到位而跳過真正的進入步驟。
+        if(housing == null) return false;
+        if(housing->GetCurrentPlot() < 0) return false;
         /*PluginLog.Warning($"Temporary HUD bypass is being applied (2)");
         return true;*/
         var hud = AgentHUD.Instance();

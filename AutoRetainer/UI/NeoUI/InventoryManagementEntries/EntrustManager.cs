@@ -154,7 +154,7 @@ public class EntrustManager : InventoryManagemenrBase
                 var removeKey = C.FastListRemoveKey;
                 var addHeld = UIUtils.IsHotkeyHeld(addKey);
                 var removeHeld = UIUtils.IsHotkeyHeld(removeKey);
-                ImGuiEx.TextWrapped(GradientColor.Get(EColor.RedBright, EColor.YellowBright), Loc.T("While this text is visible, hover over items while holding:"));
+                ImGuiEx.TextWrapped(GradientColor.Get(EColor.RedBright, EColor.YellowBright), Loc.T(SharedText.HoverItemsWhileHolding));
                 ImGuiEx.Text(!addHeld ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, string.Format(Loc.T("{0} - add to entrust plan"), UIUtils.HotkeyName(addKey)));
                 ImGuiEx.Text(!removeHeld ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, string.Format(Loc.T("{0} - delete from entrust plan"), UIUtils.HotkeyName(removeKey)));
                 if(Svc.GameGui.HoveredItem > 0)

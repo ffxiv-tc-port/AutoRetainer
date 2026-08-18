@@ -395,13 +395,13 @@ internal static unsafe class GCExpertDeliveryLoop
         //    這個函式驗的是「整批角色跑不跑得起來」,不該假設呼叫端一定先擋過。
         if(MultiMode.Enabled)
         {
-            error = Loc.T("Multi Mode is on. Turn it off before starting a multi-character run - two things switching characters at the same time will fight each other.");
+            error = Loc.T(SharedText.MultiModeBlocksMultiCharacterRun);
             return false;
         }
         // 這個除錯選項會讓登出那一步直接把整條任務佇列砍掉,而且不留下任何訊息。
         if(C.DontLogout)
         {
-            error = Loc.T("The \"Don't logout\" debug option is on, so characters cannot be switched.");
+            error = Loc.T(SharedText.DontLogoutBlocksCharacterSwitch);
             return false;
         }
 
@@ -675,7 +675,7 @@ internal static unsafe class GCExpertDeliveryLoop
         var cid = BatchCIDs[BatchIndex];
         if(!C.OfflineData.TryGetFirst(x => x.CID == cid, out var data))
         {
-            Stop(string.Format(Loc.T("Stopped: the saved data for the next character (CID {0}) is gone."), cid));
+            Stop(string.Format(Loc.T(SharedText.StoppedNextCharacterDataGone), cid));
             return;
         }
 
@@ -720,7 +720,7 @@ internal static unsafe class GCExpertDeliveryLoop
             RelogTargetCID = 0;
             if(!C.OfflineData.TryGetFirst(x => x.CID == currentCID, out var data))
             {
-                Stop(string.Format(Loc.T("Stopped: the saved data for the next character (CID {0}) is gone."), currentCID));
+                Stop(string.Format(Loc.T(SharedText.StoppedNextCharacterDataGone), currentCID));
                 return;
             }
             BeginCharacterOrStop(data);
@@ -1240,7 +1240,7 @@ internal static unsafe class GCExpertDeliveryLoop
 
         if(!InventorySpaceManager.IsRetainerInventoryLoaded())
         {
-            Stop(Loc.T("Stopped: the retainer's item storage closed unexpectedly."));
+            Stop(Loc.T(SharedText.StoppedRetainerStorageClosed));
             return;
         }
 
@@ -1312,7 +1312,7 @@ internal static unsafe class GCExpertDeliveryLoop
     {
         if(!InventorySpaceManager.IsRetainerInventoryLoaded())
         {
-            Stop(Loc.T("Stopped: the retainer's item storage closed unexpectedly."));
+            Stop(Loc.T(SharedText.StoppedRetainerStorageClosed));
             return;
         }
         if(!EzThrottler.Throttle("ExpertDeliveryLoopSettle", SettlePollMs)) return;

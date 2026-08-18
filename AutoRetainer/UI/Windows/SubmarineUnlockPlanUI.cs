@@ -65,9 +65,13 @@ internal unsafe class SubmarineUnlockPlanUI : Window
 
     internal bool IsSubDataAvail()
     {
-        if(HousingManager.Instance()->WorkshopTerritory == null) return false;
-        if(HousingManager.Instance()->WorkshopTerritory->Submersible.Data.Length == 0) return false;
-        if(HousingManager.Instance()->WorkshopTerritory->Submersible.Data[0].Name[0] == 0) return false;
+        // 原本三行都判了 WorkshopTerritory，卻沒有一行判 HousingManager 本身。
+        var housing = HousingManager.Instance();
+        if(housing == null) return false;
+        var workshop = housing->WorkshopTerritory;
+        if(workshop == null) return false;
+        if(workshop->Submersible.Data.Length == 0) return false;
+        if(workshop->Submersible.Data[0].Name[0] == 0) return false;
         return true;
     }
 
@@ -119,7 +123,7 @@ internal unsafe class SubmarineUnlockPlanUI : Window
                 {
                     if(!my.Any())
                     {
-                        ImGuiEx.TextWrapped(Loc.T("This plan is not used by any submersibles."));
+                        ImGuiEx.TextWrapped(Loc.T(SharedText.PlanNotUsedByAnySubmersibles));
                     }
                     else
                     {

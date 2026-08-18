@@ -54,9 +54,9 @@ public class CharaConfig
             ImGuiEx.Checkbox(Loc.T("...to private house"), ref data.TeleportOptionsOverride.RetainersPrivate);
             ImGuiEx.Checkbox(Loc.T("...to free company house"), ref data.TeleportOptionsOverride.RetainersFC);
             ImGuiEx.Checkbox(Loc.T("...to apartment"), ref data.TeleportOptionsOverride.RetainersApartment);
-            ImGui.Text(Loc.T("If all above are disabled or fail, will be teleported to inn."));
+            ImGui.Text(Loc.T(SharedText.FallbackTeleportToInn));
             ImGui.Unindent();
-            ImGuiEx.Checkbox(Loc.T("Teleport to free company house for deployables"), ref data.TeleportOptionsOverride.Deployables);
+            ImGuiEx.Checkbox(Loc.T(SharedText.TeleportToFcHouseForDeployables), ref data.TeleportOptionsOverride.Deployables);
             ImGui.Unindent();
             ImGuiGroup.EndGroupBox();
         }).Draw();

@@ -19,7 +19,10 @@ internal unsafe class DebugVoyage : DebugSectionBase
         {
             try
             {
-                var h = HousingManager.Instance()->WorkshopTerritory;
+                // 不用三元：指標與 null 字面值之間沒有隱含轉換（CS0173）。
+                WorkshopTerritory* h = null;
+                var housing = HousingManager.Instance();
+                if(housing != null) h = housing->WorkshopTerritory;
                 if(h != null)
                 {
                     foreach(var x in h->Submersible.Data)
@@ -120,13 +123,15 @@ internal unsafe class DebugVoyage : DebugSectionBase
             }
             var curPlotId = (long*)(Process.GetCurrentProcess().MainModule.BaseAddress + 0x215FB68);
             ImGuiEx.TextCopy($"Plot ID: {*curPlotId:X16}");
-            ImGuiEx.Text($"HID: {HousingManager.Instance()->GetCurrentIndoorHouseId()}");
-            if(HousingManager.Instance()->WorkshopTerritory != null)
+            var housing = HousingManager.Instance();
+            // 讀不到就寫 ?，不要畫成 0 —— 0 是合法的房屋識別碼與船隻數量。
+            ImGuiEx.Text($"HID: {(housing == null ? "?" : housing->GetCurrentIndoorHouseId().ToString())}");
+            if(housing != null && housing->WorkshopTerritory != null)
             {
-                ImGuiEx.Text($"Num air: {HousingManager.Instance()->WorkshopTerritory->Airship.AirshipCount}");
-                //ImGuiEx.Text($"Num w: {HousingManager.Instance()->WorkshopTerritory->Submersible.DataList}");
+                ImGuiEx.Text($"Num air: {housing->WorkshopTerritory->Airship.AirshipCount}");
+                //ImGuiEx.Text($"Num w: {housing->WorkshopTerritory->Submersible.DataList}");
                 {
-                    var data = HousingManager.Instance()->WorkshopTerritory->Airship.Data;
+                    var data = housing->WorkshopTerritory->Airship.Data;
                     for(var i = 0; i < data.Length; i++)
                     {
                         var d = data[i];
@@ -134,7 +139,7 @@ internal unsafe class DebugVoyage : DebugSectionBase
                     }
                 }
                 {
-                    var data = HousingManager.Instance()->WorkshopTerritory->Submersible.Data;
+                    var data = housing->WorkshopTerritory->Submersible.Data;
                     for(var i = 0; i < data.Length; i++)
                     {
                         var d = data[i];

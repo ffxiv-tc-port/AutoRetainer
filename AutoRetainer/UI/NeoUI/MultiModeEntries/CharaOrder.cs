@@ -15,9 +15,9 @@ public class CharaOrder : NeoUIEntry
         C.OfflineData.RemoveAll(x => C.Blacklist.Any(z => z.CID == x.CID));
         var b = new NuiBuilder()
         .Section(Loc.T("Character Order"))
-        .Widget(Loc.T("Here you can sort your characters. This will affect order in which they will be processed by Multi Mode as well as how they will appear in plugin interface and login overlay."), (x) =>
+        .Widget(Loc.T(SharedText.CharacterSortingExplanation), (x) =>
         {
-            ImGuiEx.TextWrapped(Loc.T("Here you can sort your characters. This will affect order in which they will be processed by Multi Mode as well as how they will appear in plugin interface and login overlay."));
+            ImGuiEx.TextWrapped(Loc.T(SharedText.CharacterSortingExplanation));
             ImGui.SetNextItemWidth(150f);
             ImGui.InputText(Loc.T("Search"), ref Search, 50);
             DragDrop.Begin();

@@ -354,7 +354,9 @@ internal static unsafe class VoyageMain
                                             // 否則啟用裁切的計畫會永遠比不中而每趟都重走一次完整的選點流程。
                                             // 沒啟用裁切時 GetEffectivePoints 回傳的就是 plan.Points 本身，行為完全不變。
                                             var effectivePoints = PointPlanRange.GetEffectivePoints(plan, log: false);
-                                            var current = CurrentSubmarine.Get()->CurrentExplorationPoints.ToArray().Select(x => (uint)x).Where(x => x != 0);
+                                            var currentSub = CurrentSubmarine.Get();
+                                            if(currentSub == null) throw new InvalidOperationException(CurrentSubmarine.Unavailable);
+                                            var current = currentSub->CurrentExplorationPoints.ToArray().Select(x => (uint)x).Where(x => x != 0);
                                             if(!current.SequenceEqual(effectivePoints))
                                             {
                                                 TaskDeployOnPointPlan.Enqueue(next, type, plan);
