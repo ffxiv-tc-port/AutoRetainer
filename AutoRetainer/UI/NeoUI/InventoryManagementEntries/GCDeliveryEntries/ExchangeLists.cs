@@ -185,7 +185,7 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
             }, () =>
             {
                 ImGui.SetNextItemWidth(100f);
-                ImGuiEx.EnumCombo("##cat2", ref SelectedCategory2, nullName: Loc.T("All Categories"));
+                ImGuiEx.EnumCombo("##cat2", ref SelectedCategory2, names: Loc.EnumNames<GCExchangeCategoryTab>(), nullName: Loc.T("All Categories"));
                 ImGuiEx.Tooltip(Loc.T("Category"));
             });
             foreach(var x in Utils.SharedGCExchangeListings)
@@ -266,7 +266,7 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
             ImGui.Checkbox(Loc.T("Only Selected"), ref onlySelected());
             ImGui.SameLine();
             ImGui.SetNextItemWidth(100f);
-            ImGuiEx.EnumCombo("##cat", ref SelectedCategory, nullName: Loc.T("All Categories"));
+            ImGuiEx.EnumCombo("##cat", ref SelectedCategory, names: Loc.EnumNames<GCExchangeCategoryTab>(), nullName: Loc.T("All Categories"));
             ImGuiEx.Tooltip(Loc.T("Category"));
         });
 

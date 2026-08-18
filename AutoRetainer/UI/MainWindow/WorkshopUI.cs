@@ -480,7 +480,7 @@ internal static unsafe class WorkshopUI
         {
             ImGui.CollapsingHeader($"{vessel.Name} - {Censor.Character(data.Name)} {Loc.T("Configuration")}  ##conf", ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
             ImGuiEx.Text(Loc.T("Vessel behavior:"));
-            ImGuiEx.EnumCombo("##vbeh", ref adata.VesselBehavior);
+            ImGuiEx.EnumCombo("##vbeh", ref adata.VesselBehavior, Loc.EnumNames<VesselBehavior>());
             if(adata.VesselBehavior == VesselBehavior.Unlock)
             {
                 ImGuiEx.Text(Loc.T("Unlock mode:"));

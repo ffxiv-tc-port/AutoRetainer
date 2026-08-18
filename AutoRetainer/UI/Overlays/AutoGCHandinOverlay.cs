@@ -25,7 +25,7 @@ internal unsafe class AutoGCHandinOverlay : Window
         {
             ImGui.SameLine();
             ImGuiEx.SetNextItemWidthScaled(200);
-            ImGuiEx.EnumCombo("##mode", ref d.GCDeliveryType);
+            ImGuiEx.EnumCombo("##mode", ref d.GCDeliveryType, Loc.EnumNames<GCDeliveryType>());
             if(d.GCDeliveryType == GCDeliveryType.Hide_Gear_Set_Items)
             {
                 ImGui.SameLine();

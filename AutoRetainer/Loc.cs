@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Reflection;
 using Dalamud.Game;
@@ -56,14 +57,37 @@ internal static class Loc
     }
 
     // Builds a display-name dictionary for an underscore-separated enum (e.g. Enable_AutoRetainer),
-    // translating the space-converted fallback text via Loc.T for use with EnumComboFullWidth's names: parameter.
+    // translating the space-converted fallback text via Loc.T. Feed it to the names: parameter of
+    // NuiBuilder.EnumComboFullWidth or ImGuiEx.EnumCombo so the entries of a combo get translated,
+    // not just its label.
+    //
+    // The key handed to Loc.T is exactly what ECommons renders when no names table is supplied
+    // (ToString() with '_' replaced by a space), so a member that has no translation entry still
+    // displays byte-for-byte what it displayed before.
+    //
+    // The table is built once per enum type and reused for the rest of the session. That matters
+    // because ImGuiEx.EnumCombo is called from immediate-mode Draw code: building the dictionary at
+    // the call site would allocate it, plus one string per member, on every single frame. Caching is
+    // safe here because Loc.Load runs as the first statement of AutoRetainer.Load(), before any
+    // window or NeoUI entry is constructed, and the plugin has no runtime language switch.
     public static IDictionary<TEnum, string> EnumNames<TEnum>() where TEnum : struct, Enum
+        => EnumNameCache<TEnum>.Value;
+
+    // One lazily built table per closed enum type: the runtime runs this static initializer on the
+    // first access to EnumNameCache<T>, so every later lookup costs just a field read. Handed out
+    // read-only so a consumer cannot mutate the shared instance.
+    private static class EnumNameCache<TEnum> where TEnum : struct, Enum
     {
-        var dict = new Dictionary<TEnum, string>();
-        foreach(var v in Enum.GetValues<TEnum>())
+        internal static readonly IDictionary<TEnum, string> Value = Build();
+
+        private static IDictionary<TEnum, string> Build()
         {
-            dict[v] = T(v.ToString().Replace('_', ' '));
+            var dict = new Dictionary<TEnum, string>();
+            foreach(var v in Enum.GetValues<TEnum>())
+            {
+                dict[v] = T(v.ToString().Replace('_', ' '));
+            }
+            return new ReadOnlyDictionary<TEnum, string>(dict);
         }
-        return dict;
     }
 }
