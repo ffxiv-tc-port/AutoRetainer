@@ -1,4 +1,5 @@
 ﻿using AutoRetainer.Internal;
+using AutoRetainer.Services;
 using AutoRetainerAPI.Configuration;
 
 namespace AutoRetainer.UI.MainWindow.MultiModeTab;
@@ -27,13 +28,13 @@ internal static unsafe class MultiModeUI
         }
         else
         {
-            if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var cdata))
+            if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var cdata))
             {
                 sortedData.Add(cdata);
             }
             foreach(var x in C.OfflineData.ApplyOrder(C.RetainersVisualOrders))
             {
-                if(x.CID != Svc.ClientState.LocalContentId)
+                if(x.CID != SvcEx.PlayerState.ContentId)
                 {
                     sortedData.Add(x);
                 }

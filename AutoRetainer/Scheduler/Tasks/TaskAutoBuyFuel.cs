@@ -74,7 +74,7 @@ internal static unsafe class TaskAutoBuyFuel
         var x = Svc.Targets.Target;
         if(x != null && x.Name.ToString().ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.AdventurerDollNamePart) && !IsOccupied())
         {
-            if(Vector3.Distance(x.Position, Svc.ClientState.LocalPlayer.Position) < Utils.GetValidInteractionDistance(x) && x.IsTargetable)
+            if(Vector3.Distance(x.Position, Svc.Objects.LocalPlayer.Position) < Utils.GetValidInteractionDistance(x) && x.IsTargetable)
             {
                 if(Player.IsAnimationLocked) return false;
                 if(Utils.GenericThrottle && EzThrottler.Throttle("AutoBuyFuel.Interact", 5000))

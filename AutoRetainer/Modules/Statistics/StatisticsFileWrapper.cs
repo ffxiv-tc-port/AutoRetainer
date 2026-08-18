@@ -1,4 +1,5 @@
-﻿using ECommons.Configuration;
+﻿using AutoRetainer.Services;
+using ECommons.Configuration;
 
 namespace AutoRetainer.Modules.Statistics;
 
@@ -14,9 +15,9 @@ internal class StatisticsFileWrapper
         this.CID = CID;
         this.RetainerName = RetainerName;
         File = EzConfig.LoadConfiguration<StatisticsFile>(FileName);
-        if(CID == Svc.ClientState.LocalContentId)
+        if(CID == SvcEx.PlayerState.ContentId)
         {
-            File.PlayerName = Svc.ClientState.LocalPlayer.Name.ToString() + "@" + Svc.ClientState.LocalPlayer.HomeWorld.ValueNullable?.Name.ToString();
+            File.PlayerName = Svc.Objects.LocalPlayer.Name.ToString() + "@" + Svc.Objects.LocalPlayer.HomeWorld.ValueNullable?.Name.ToString();
         }
         File.RetainerName = RetainerName;
     }

@@ -130,7 +130,7 @@ public static unsafe class TaskNeoHET
     {
         if(!TryGetAddonByName<AtkUnitBase>("FreeCompanyChest", out _))
         {
-            static IGameObject chest() => Svc.Objects.FirstOrDefault(x => x.DataId == 2000470 && Player.DistanceTo(x) < 4.6f);
+            static IGameObject chest() => Svc.Objects.FirstOrDefault(x => x.BaseId == 2000470 && Player.DistanceTo(x) < 4.6f);
             if(chest() != null && EzThrottler.Throttle("EnqueueInteractFCChest", 5000))
             {
                 P.TaskManager.InsertTask(NeoTasks.InteractWithObject(chest, configuration: new(abortOnTimeout: false, timeLimitMS: 30000)));

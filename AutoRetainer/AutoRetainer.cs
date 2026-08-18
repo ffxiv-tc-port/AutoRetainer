@@ -86,6 +86,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         {
             P = this;
             ECommonsMain.Init(pi, this, Module.DalamudReflector);
+            SvcEx.Init(pi);
             // 讓「呼叫了對方沒有的 IPC 方法」不再完全靜默。
             // 訂閱越早越好：事件只在 IPC **呼叫**當下才被查閱，在這裡訂閱就涵蓋往後所有呼叫。
             EzIpcFailureLog.Enable();
@@ -237,7 +238,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
             //4330	57	33	0	False	Vous avez confié la tâche “<SheetFr(Item,12,IntegerParameter(1),2,1)/> ( <Value>IntegerParameter(2)</Value>)” à votre servant.
             if(text.StartsWithAny("You assign your retainer".Cleanup(), "リテイナーベンチャー".Cleanup(), "Du hast deinen Gehilfen mit".Cleanup(), "Vous avez confié la tâche".Cleanup())
                 && Utils.TryGetCurrentRetainer(out var ret)
-                && C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var offlineData)
+                && C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var offlineData)
                 && offlineData.RetainerData.TryGetFirst(x => x.Name == ret, out var offlineRetainerData))
             {
                 offlineRetainerData.VentureBeginsAt = P.Time;
@@ -542,12 +543,12 @@ public unsafe class AutoRetainer : IDalamudPlugin
         SchedulerMain.UpdateRetainerAutomationDeferral();
         if(!IPC.Suppressed)
         {
-            if(SchedulerMain.PluginEnabled && Svc.ClientState.LocalPlayer != null)
+            if(SchedulerMain.PluginEnabled && Svc.Objects.LocalPlayer != null)
             {
                 SchedulerMain.Tick();
-                if(!C.SelectedRetainers.ContainsKey(Svc.ClientState.LocalContentId))
+                if(!C.SelectedRetainers.ContainsKey(SvcEx.PlayerState.ContentId))
                 {
-                    C.SelectedRetainers[Svc.ClientState.LocalContentId] = [];
+                    C.SelectedRetainers[SvcEx.PlayerState.ContentId] = [];
                 }
             }
         }
@@ -608,7 +609,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
             }
         }
         IsNextToBell = false;
-        if(C.RetainerSense && Svc.ClientState.LocalPlayer != null && Svc.ClientState.LocalPlayer.HomeWorld.RowId == Svc.ClientState.LocalPlayer.CurrentWorld.RowId)
+        if(C.RetainerSense && Svc.Objects.LocalPlayer != null && Svc.Objects.LocalPlayer.HomeWorld.RowId == Svc.Objects.LocalPlayer.CurrentWorld.RowId)
         {
             // ⚠️ !SchedulerMain.RetainerAutomationDeferred:稀有品繳交循環在跑的時候不要自己去點鈴。
             //    這條路徑不看 SchedulerMain.PluginEnabled,所以光是擋住 SchedulerMain.Tick() 擋不到它 ——
@@ -616,9 +617,9 @@ public unsafe class AutoRetainer : IDalamudPlugin
             if(!IPC.Suppressed && !IsOccupied() && !C.OldRetainerSense && !TaskManager.IsBusy && !Utils.MultiModeOrArtisan && !Svc.Condition[ConditionFlag.InCombat] && !Svc.Condition[ConditionFlag.BoundByDuty] && !SchedulerMain.RetainerAutomationDeferred && Utils.IsAnyRetainersCompletedVenture())
             {
                 var bell = Utils.GetReachableRetainerBell(true);
-                if(bell == null || LastPosition != Svc.ClientState.LocalPlayer.Position)
+                if(bell == null || LastPosition != Svc.Objects.LocalPlayer.Position)
                 {
-                    LastPosition = Svc.ClientState.LocalPlayer.Position;
+                    LastPosition = Svc.Objects.LocalPlayer.Position;
                     LastMovementAt = Environment.TickCount64;
                 }
                 if(bell != null)

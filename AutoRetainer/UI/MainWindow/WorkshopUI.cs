@@ -3,6 +3,7 @@ using AutoRetainer.Modules.Voyage;
 using AutoRetainer.Modules.Voyage.Tasks;
 using AutoRetainer.Modules.Voyage.VoyageCalculator;
 using AutoRetainer.Scheduler.Tasks;
+using AutoRetainer.Services;
 using AutoRetainer.UI.MainWindow.MultiModeTab;
 using AutoRetainerAPI.Configuration;
 using Dalamud.Game;
@@ -27,13 +28,13 @@ internal static unsafe class WorkshopUI
         }
         else
         {
-            if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var cdata))
+            if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var cdata))
             {
                 sortedData.Add(cdata);
             }
             foreach(var x in C.OfflineData.ApplyOrder(C.DeployablesVisualOrders))
             {
-                if(x.CID != Svc.ClientState.LocalContentId)
+                if(x.CID != SvcEx.PlayerState.ContentId)
                 {
                     sortedData.Add(x);
                 }

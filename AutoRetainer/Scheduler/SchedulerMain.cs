@@ -2,6 +2,7 @@
 using AutoRetainer.Internal.InventoryManagement;
 using AutoRetainer.Scheduler.Handlers;
 using AutoRetainer.Scheduler.Tasks;
+using AutoRetainer.Services;
 using AutoRetainerAPI.Configuration;
 using ECommons.ExcelServices;
 using ECommons.Throttlers;
@@ -204,7 +205,7 @@ internal static unsafe class SchedulerMain
                                 {
                                     P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(retainer));
 
-                                    var adata = Utils.GetAdditionalData(Svc.ClientState.LocalContentId, ret.Name.ToString());
+                                    var adata = Utils.GetAdditionalData(SvcEx.PlayerState.ContentId, ret.Name.ToString());
 
                                     VentureOverride = 0;
 
@@ -488,7 +489,7 @@ internal static unsafe class SchedulerMain
     internal static IEnumerable<string> EnumeratePendingRetainers()
     {
         if(!GameRetainerManager.Ready) yield break;
-        if(!C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var cdata)) yield break;
+        if(!C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var cdata)) yield break;
 
         List<OfflineRetainerData> retainerData = [.. cdata.RetainerData];
         if(C.LeastMBSFirst)
@@ -500,8 +501,8 @@ internal static unsafe class SchedulerMain
         {
             var r = retainerData[i];
             var rname = r.Name.ToString();
-            var adata = Utils.GetAdditionalData(Svc.ClientState.LocalContentId, rname);
-            if(P.GetSelectedRetainers(Svc.ClientState.LocalContentId).Contains(rname)
+            var adata = Utils.GetAdditionalData(SvcEx.PlayerState.ContentId, rname);
+            if(P.GetSelectedRetainers(SvcEx.PlayerState.ContentId).Contains(rname)
                 && r.GetVentureSecondsRemaining() <= C.UnsyncCompensation && (r.VentureID != 0 || CanAssignQuickExploration || (adata.EnablePlanner && adata.VenturePlan.ListUnwrapped.Count > 0)))
             {
                 yield return rname;
@@ -536,7 +537,7 @@ internal static unsafe class SchedulerMain
             PendingEntrustVendorPostprocess.RemoveAt(0);
             if(!Utils.TryGetRetainerByName(next, out _)) continue;
 
-            var adata = Utils.GetAdditionalData(Svc.ClientState.LocalContentId, next);
+            var adata = Utils.GetAdditionalData(SvcEx.PlayerState.ContentId, next);
             var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
 
             // Data null 或背包讀不到 ⇒ 不重驗，維持舊行為把雇員開起來。

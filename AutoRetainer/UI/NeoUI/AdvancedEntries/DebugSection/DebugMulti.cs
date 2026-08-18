@@ -78,11 +78,11 @@ internal unsafe class DebugMulti : DebugSectionBase
         ImGuiEx.Text($"Is in sanctuary: {TerritoryInfo.Instance()->InSanctuary}");
         ImGuiEx.Text($"Is in sanctuary ExcelTerritoryHelper: {ExcelTerritoryHelper.IsSanctuary(Svc.ClientState.TerritoryType)}");
         ImGui.Checkbox($"Bypass sanctuary check", ref C.BypassSanctuaryCheck);
-        if(Svc.ClientState.LocalPlayer != null && Svc.Targets.Target != null)
+        if(Svc.Objects.LocalPlayer != null && Svc.Targets.Target != null)
         {
-            ImGuiEx.Text($"Distance to target: {Vector3.Distance(Svc.ClientState.LocalPlayer.Position, Svc.Targets.Target.Position)}");
+            ImGuiEx.Text($"Distance to target: {Vector3.Distance(Svc.Objects.LocalPlayer.Position, Svc.Targets.Target.Position)}");
             ImGuiEx.Text($"Target hitbox: {Svc.Targets.Target.HitboxRadius}");
-            ImGuiEx.Text($"Distance to target's hitbox: {Vector3.Distance(Svc.ClientState.LocalPlayer.Position, Svc.Targets.Target.Position) - Svc.Targets.Target.HitboxRadius}");
+            ImGuiEx.Text($"Distance to target's hitbox: {Vector3.Distance(Svc.Objects.LocalPlayer.Position, Svc.Targets.Target.Position) - Svc.Targets.Target.HitboxRadius}");
         }
         if(ImGui.CollapsingHeader("CharaSelect"))
         {

@@ -1,4 +1,5 @@
 ﻿using AutoRetainer.Internal;
+using AutoRetainer.Services;
 using AutoRetainerAPI.Configuration;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Text.SeStringHandling;
@@ -70,18 +71,18 @@ internal static unsafe class OfflineDataManager
     internal static void WriteOfflineData(bool writeGatherables, bool saveConfig)
     {
         if(!ProperOnLogin.PlayerPresent) return;
-        if(C.Blacklist.Any(x => x.CID == Svc.ClientState.LocalContentId)) return;
+        if(C.Blacklist.Any(x => x.CID == SvcEx.PlayerState.ContentId)) return;
         if(Svc.Condition[ConditionFlag.DutyRecorderPlayback]) return;
-        if(!C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(!C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
             data = new()
             {
-                CID = Svc.ClientState.LocalContentId,
+                CID = SvcEx.PlayerState.ContentId,
             };
             C.OfflineData.Add(data);
         }
-        data.World = ExcelWorldHelper.GetName(Svc.ClientState.LocalPlayer.HomeWorld.RowId);
-        data.Name = Svc.ClientState.LocalPlayer.Name.ToString();
+        data.World = ExcelWorldHelper.GetName(Svc.Objects.LocalPlayer.HomeWorld.RowId);
+        data.Name = Svc.Objects.LocalPlayer.Name.ToString();
         if(Player.Object.CurrentWorld.RowId != Player.Object.HomeWorld.RowId)
         {
             data.WorldOverride = Player.CurrentWorld;
@@ -233,7 +234,7 @@ internal static unsafe class OfflineDataManager
 
     internal static OfflineRetainerData GetData(string name, ulong? CID = null)
     {
-        var cid = CID ?? Svc.ClientState.LocalContentId;
+        var cid = CID ?? SvcEx.PlayerState.ContentId;
         if(C.OfflineData.TryGetFirst(x => x.CID == cid, out var data) && data.RetainerData.TryGetFirst(x => x.Name == name, out var rdata))
         {
             return rdata;

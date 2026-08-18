@@ -187,7 +187,7 @@ internal static unsafe class GCContinuation
         {
             if(Player.IsAnimationLocked) return false;
             var t = Svc.Targets.Target;
-            if(t.IsTargetable && t.DataId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCInteract"))
+            if(t.IsTargetable && t.BaseId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCInteract"))
             {
                 TargetSystem.Instance()->InteractWithObject(Svc.Targets.Target.Struct(), false);
                 return true;
@@ -197,7 +197,7 @@ internal static unsafe class GCContinuation
         {
             foreach(var t in Svc.Objects)
             {
-                if(t.IsTargetable && t.DataId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCSetTarget"))
+                if(t.IsTargetable && t.BaseId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCSetTarget"))
                 {
                     Svc.Targets.Target = t;
                     return false;

@@ -2,6 +2,7 @@
 using AutoRetainer.Modules.Voyage;
 using AutoRetainer.Scheduler.Handlers;
 using AutoRetainer.Scheduler.Tasks;
+using AutoRetainer.Services;
 using AutoRetainerAPI.Configuration;
 using Dalamud.Game;
 using Dalamud.Game.ClientState.Conditions;
@@ -1043,7 +1044,7 @@ public static unsafe class Utils
     internal static bool IsAnyRetainersCompletedVenture()
     {
         if(!ProperOnLogin.PlayerPresent) return false;
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
             var selectedRetainers = data.GetEnabledRetainers().Where(z => z.HasVenture);
             return selectedRetainers.Any(z => z.GetVentureSecondsRemaining() <= 10);
@@ -1053,7 +1054,7 @@ public static unsafe class Utils
 
     internal static bool IsAllCurrentCharacterRetainersHaveMoreThan5Mins()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
             foreach(var z in data.GetEnabledRetainers())
             {
@@ -1096,7 +1097,7 @@ public static unsafe class Utils
         {
             if(x.IsTargetable && (x.ObjectKind == ObjectKind.Housing || x.ObjectKind == ObjectKind.EventObj) && x.Name.ToString().EqualsIgnoreCaseAny(Lang.BellName))
             {
-                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
                 if(distance < currentDistance)
                 {
                     currentDistance = distance;
@@ -1117,7 +1118,7 @@ public static unsafe class Utils
             if((x.ObjectKind == ObjectKind.Housing || x.ObjectKind == ObjectKind.EventObj) && x.Name.ToString().EqualsIgnoreCaseAny(Lang.BellName))
             {
                 var distance = extend && VoyageUtils.Workshops.Contains(Svc.ClientState.TerritoryType) ? 20f : GetValidInteractionDistance(x);
-                if(Vector3.Distance(x.Position, Svc.ClientState.LocalPlayer.Position) < distance && x.IsTargetable)
+                if(Vector3.Distance(x.Position, Svc.Objects.LocalPlayer.Position) < distance && x.IsTargetable)
                 {
                     return x;
                 }
@@ -1138,7 +1139,7 @@ public static unsafe class Utils
         {
             if(x.IsTargetable && x.Name.ToString().ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.AdventurerDollNamePart))
             {
-                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
                 if(distance < currentDistance)
                 {
                     currentDistance = distance;
@@ -1157,7 +1158,7 @@ public static unsafe class Utils
         {
             if(x.Name.ToString().ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.AdventurerDollNamePart))
             {
-                if(Vector3.Distance(x.Position, Svc.ClientState.LocalPlayer.Position) < GetValidInteractionDistance(x) && x.IsTargetable)
+                if(Vector3.Distance(x.Position, Svc.Objects.LocalPlayer.Position) < GetValidInteractionDistance(x) && x.IsTargetable)
                 {
                     return x;
                 }
@@ -1170,7 +1171,7 @@ public static unsafe class Utils
 
     internal static bool AnyRetainersAvailableCurrentChara()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
             return data.GetEnabledRetainers().Any(z => z.GetVentureSecondsRemaining() <= C.UnsyncCompensation);
         }
@@ -1315,7 +1316,7 @@ public static unsafe class Utils
 
     internal static float GetAngleTo(Vector2 pos)
     {
-        return (MathHelper.GetRelativeAngle(Svc.ClientState.LocalPlayer.Position.ToVector2(), pos) + Svc.ClientState.LocalPlayer.Rotation.RadToDeg()) % 360;
+        return (MathHelper.GetRelativeAngle(Svc.Objects.LocalPlayer.Position.ToVector2(), pos) + Svc.Objects.LocalPlayer.Rotation.RadToDeg()) % 360;
     }
 
     internal static bool IsApartmentEntrance(this IGameObject obj)
@@ -1332,7 +1333,7 @@ public static unsafe class Utils
         {
             if(x.IsTargetable && x.Name.ToString().EqualsIgnoreCaseAny([.. Lang.Entrance/*, Lang.ApartmentEntrance*/]))
             {
-                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
                 if(distance < currentDistance)
                 {
                     currentDistance = distance;
@@ -1434,12 +1435,12 @@ public static unsafe class Utils
 
     internal static bool IsCurrentRetainerEnabled()
     {
-        return TryGetCurrentRetainer(out var ret) && C.SelectedRetainers.TryGetValue(Svc.ClientState.LocalContentId, out var rets) && rets.Contains(ret);
+        return TryGetCurrentRetainer(out var ret) && C.SelectedRetainers.TryGetValue(SvcEx.PlayerState.ContentId, out var rets) && rets.Contains(ret);
     }
 
     internal static bool TryGetCurrentRetainer(out string name)
     {
-        if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && ProperOnLogin.PlayerPresent && Svc.Objects.Where(x => x.ObjectKind == ObjectKind.Retainer).OrderBy(x => Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position)).TryGetFirst(out var obj))
+        if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && ProperOnLogin.PlayerPresent && Svc.Objects.Where(x => x.ObjectKind == ObjectKind.Retainer).OrderBy(x => Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position)).TryGetFirst(out var obj))
         {
             name = obj.Name.ToString();
             return true;
@@ -1625,7 +1626,7 @@ public static unsafe class Utils
             Utils.ExtraLog($"GetNearestWorkshopEntrance: Scanning object table: object={x}, targetable={x.IsTargetable}");
             if(x.IsTargetable && x.Name.ToString().EqualsIgnoreCaseAny(Lang.AdditionalChambersEntrance))
             {
-                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
                 Utils.ExtraLog($"GetNearestWorkshopEntrance: check passed, object={x}, targetable={x.IsTargetable}, distance={distance}");
                 if(distance < currentDistance)
                 {
