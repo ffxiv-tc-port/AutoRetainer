@@ -77,8 +77,13 @@ internal unsafe class DebugVoyage : DebugSectionBase
                 ImGuiEx.Text($"Panel type: {VoyageUtils.GetCurrentWorkshopPanelType()}");
                 if(TryGetAddonByName<AtkUnitBase>("AirShipExplorationResult", out var addon) && IsAddonReady(addon))
                 {
-                    var button = addon->UldManager.NodeList[3]->GetAsAtkComponentButton();
-                    // 同上：外層雖然有 try/catch，但 AVE 是 corrupted-state exception，攔不到。
+                    // 🔴 NodeList[3] 原本上界與元素都沒驗;GetAsAtkComponentButton() 是
+                    //    [MemberFunction],對 null 節點呼叫等於把 this = 0 交給原生碼。
+                    //    外層雖然有 try/catch，但 AVE 是 corrupted-state exception，攔不到。
+                    //    取不到時 button 為 null,GetButtonEnabled 回 null → 這一列顯示 "?"
+                    //    (既有行為就是用 "?" 表示「讀不到」,這裡沿用)。
+                    var resultNode = Utils.GetNodeSafe(&addon->UldManager, 3);
+                    var button = resultNode == null ? null : resultNode->GetAsAtkComponentButton();
                     ImGuiEx.Text($"Button: {Utils.GetButtonEnabled(button)?.ToString() ?? "?"}");
                 }
                 if(ImGui.Button("Interact with nearest panel"))

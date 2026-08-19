@@ -59,7 +59,11 @@ internal unsafe class AutoGCHandinOverlay : Window
     public override bool DrawConditions()
     {
         return Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.OccupiedInQuestEvent] && (Allowed || (TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon)
+                // 🔴 NodeListCount > 20 只驗了上界、沒判 NodeList[5] 本身為 null —— 半套邊界檢查。
+                //    這是每幀跑的疊加層開關條件,取不到時視為「不顯示」(＝原本節點不可見的行為)。
+                //    ⚠️ NodeListCount > 20 保留不動:它擋的是「這不是完整版面」,與 IsNodeVisible
+                //    內部的索引上界檢查不是同一件事,拿掉等於順手放寬既有條件。
                 && addon->UldManager.NodeListCount > 20
-                && addon->UldManager.NodeList[5]->IsVisible()));
+                && Utils.IsNodeVisible(&addon->UldManager, 5)));
     }
 }

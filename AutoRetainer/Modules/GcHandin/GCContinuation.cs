@@ -91,7 +91,18 @@ internal static unsafe class GCContinuation
         {
             if(EzThrottler.Throttle("GC SetMaxVenturesExchange"))
             {
-                var numeric = (AtkComponentNumericInput*)addon->UldManager.NodeList[8]->GetComponent();
+                // 🔴 NodeList[8] 原本上界與元素都沒驗,GetComponent() 的回值也沒判空就直接
+                //    numeric->SetValue()。三層任一取不到就回 false —— 呼叫端把 false 當成
+                //    「這次還沒設定成功」而在下一個節流窗重試,與既有的「addon 尚未 ready」同語意。
+                //    🔑 這裡絕不能回 true:回 true 等於謊報「數量已設好」,後面的確認步驟會照
+                //    版面上的預設值(1 個)成交,使用者拿到的委託票數量會靜默地不對。
+                var numericNode = Utils.GetNodeSafe(&addon->UldManager, 8);
+                var numeric = numericNode == null ? null : (AtkComponentNumericInput*)numericNode->GetComponent();
+                if(numeric == null)
+                {
+                    PluginLog.Information("ShopExchangeCurrencyDialog NodeList[8] 的數量輸入元件取不到(版面未建好或已拆除),這一輪不設定數量");
+                    return false;
+                }
                 var sealsPer = Utils.GetCurrentlyAvailableSharedExchangeListings().SafeSelect(VentureItem)?.Seals ?? 200u;
                 var maxBySeals = sealsPer > 0 ? (int)(GetAdjustedSeals() / sealsPer) : amount;
                 var set = Math.Min(amount, maxBySeals);

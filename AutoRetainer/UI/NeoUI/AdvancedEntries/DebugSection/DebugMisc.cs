@@ -28,14 +28,14 @@ internal unsafe class DebugMisc : DebugSectionBase
             {
                 ImGuiEx.Text($"IsAddonReady: {IsAddonReady(title)}");
                 ImGuiEx.Text($"NodeListCount: {title->UldManager.NodeListCount}");
-                if(title->UldManager.NodeListCount > 3)
-                {
-                    ImGuiEx.Text($"NodeList[3].Color.A: {title->UldManager.NodeList[3]->Color.A:X2}");
-                }
-                if(title->UldManager.NodeListCount > 7)
-                {
-                    ImGuiEx.Text($"NodeList[7].IsVisible(): {title->UldManager.NodeList[7]->IsVisible()}");
-                }
+                // 🔴 原本只驗了 NodeListCount 上界、沒判元素為 null —— 是「半套邊界檢查」的
+                //    另外那一半。索引在範圍內時 NodeList[i] 仍可能是 null(版面正在建/拆)。
+                //    ⚠️ 取不到時顯示 "?" 而不是 0／False:這是要使用者回報的診斷欄,
+                //    把「不知道」畫成一個合法的值會直接誤導判讀。
+                var titleNode3 = Utils.GetNodeSafe(&title->UldManager, 3);
+                ImGuiEx.Text($"NodeList[3].Color.A: {(titleNode3 == null ? "?" : $"{titleNode3->Color.A:X2}")}");
+                var titleNode7 = Utils.GetNodeSafe(&title->UldManager, 7);
+                ImGuiEx.Text($"NodeList[7].IsVisible(): {(titleNode7 == null ? "?" : titleNode7->IsVisible().ToString())}");
             }
             ImGuiEx.Text($"TitleDCWorldMap found: {TryGetAddonByName<AtkUnitBase>("TitleDCWorldMap", out _)}");
             ImGuiEx.Text($"TitleConnect found: {TryGetAddonByName<AtkUnitBase>("TitleConnect", out _)}");
@@ -185,7 +185,9 @@ internal unsafe class DebugMisc : DebugSectionBase
 
         ImGui.Separator();
         {
-            if(ImGui.Button("Fire") && TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon) && IsAddonReady(addon) && addon->UldManager.NodeList[5]->IsVisible())
+            // 🔴 NodeList[5] 原本上界與元素都沒驗;取不到時視為「不可見」＝這顆除錯鈕不作用,
+            //    與版面還沒建好時本來就不該觸發交付同語意。
+            if(ImGui.Button("Fire") && TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon) && IsAddonReady(addon) && Utils.IsNodeVisible(&addon->UldManager, 5))
             {
                 AutoGCHandin.InvokeHandin(addon, 0);
             }

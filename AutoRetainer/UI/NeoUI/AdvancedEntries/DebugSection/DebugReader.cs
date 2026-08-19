@@ -100,6 +100,10 @@ internal unsafe class DebugReader : DebugSectionBase
 
     private static void DumpNodeList(AtkUldManager* uld, int depth, System.Text.StringBuilder sb)
     {
+        // 🔴 迴圈本身已經有上界與元素判空,但少了最外面那一層:NodeList 這個**指標欄位**
+        //    在版面建立完成前是 null,而 NodeListCount 可能已經先寫上去了 ——
+        //    那時 NodeList[i] 讀的是位址 i*8,不是 null,元素判空擋不住。
+        if(uld == null || uld->NodeList == null) return;
         var indent = new string(' ', depth * 2);
         for(var i = 0; i < uld->NodeListCount; i++)
         {

@@ -207,8 +207,15 @@ internal static unsafe class RetainerHandlers
         var invName = Utils.GetActiveRetainerInventoryName();
         if(TryGetAddonByName<AtkUnitBase>(invName.Name, out var addon) && IsAddonReady(addon))
         {
-            var button = (AtkComponentButton*)addon->UldManager.NodeList[invName.EntrustDuplicatesIndex]->GetComponent();
-            if(addon->UldManager.NodeList[invName.EntrustDuplicatesIndex]->IsVisible() && Utils.IsButtonEnabled(button) && Utils.GenericThrottle)
+            // 🔴 原本上界與元素都沒驗,而這個索引不是常數 —— EntrustDuplicatesIndex 依道具欄種類
+            //    (InventoryLarge / InventoryExpansion / InventoryRetainerLarge …)切換,不同版面的
+            //    NodeListCount 也不同,越界時讀到的是相鄰記憶體而不是 null,元素判空完全擋不住。
+            //    GetComponent() / IsVisible() 都是 [MemberFunction],節點取不到時等於把 this = 0
+            //    交給遊戲原生碼。取不到就當「按鈕還沒出現」回 false 讓下一輪重試 —— 與既有的
+            //    「不可見／未啟用」走同一條路,不會謊報已委託。
+            var node = Utils.GetNodeSafe(&addon->UldManager, invName.EntrustDuplicatesIndex);
+            var button = node == null ? null : (AtkComponentButton*)node->GetComponent();
+            if(node != null && node->IsVisible() && Utils.IsButtonEnabled(button) && Utils.GenericThrottle)
             {
                 //new ClickButtonGeneric(addon, invName.Name).Click(button);
                 Callback.Fire(addon, false, (int)0);
@@ -227,8 +234,12 @@ internal static unsafe class RetainerHandlers
     {
         if(TryGetAddonByName<AtkUnitBase>("RetainerItemTransferList", out var addon) && IsAddonReady(addon))
         {
-            var button = (AtkComponentButton*)addon->UldManager.NodeList[3]->GetComponent();
-            if(addon->UldManager.NodeList[3]->IsVisible() && Utils.IsButtonEnabled(button) && Utils.GenericThrottle)
+            // 🔴 除了上界與元素判空,這裡還多一層:button 是 GetComponent() 的回值,原本沒判空就
+            //    直接 button->ClickAddonButton(addon)。ClickAddonButton 內部會讀 AtkComponentBase
+            //    的欄位,對 null 一樣是解參考。取不到就回 false 重試,不謊報已確認。
+            var node = Utils.GetNodeSafe(&addon->UldManager, 3);
+            var button = node == null ? null : (AtkComponentButton*)node->GetComponent();
+            if(node != null && button != null && node->IsVisible() && Utils.IsButtonEnabled(button) && Utils.GenericThrottle)
             {
                 button->ClickAddonButton(addon);
                 DebugLog($"Clicked duplicates confirm");
@@ -441,8 +452,14 @@ internal static unsafe class RetainerHandlers
     {
         if(TryGetAddonByName<AtkUnitBase>("Bank", out var addon) && IsAddonReady(addon))
         {
-            var withdraw = (AtkComponentButton*)addon->UldManager.NodeList[3]->GetComponent();
-            if(addon->UldManager.NodeList[3]->IsVisible() && Utils.IsButtonEnabled(withdraw) && !forceCancel)
+            // 🔴 兩個節點原本都是裸解參考。這裡的失敗語意刻意分兩層:
+            //    ①「提領」節點取不到 → 落到 else 走「取消」分支(與「提領鈕不可見／未啟用」相同,
+            //       forceCancel 的既有行為也是靠這條路),不是直接放棄整步;
+            //    ②「取消」節點也取不到 → 回 false 讓下一輪重試,絕不回 true(回 true 會讓佇列
+            //       以為銀行視窗已經處理掉了,實際上它還開著)。
+            var withdrawNode = Utils.GetNodeSafe(&addon->UldManager, 3);
+            var withdraw = withdrawNode == null ? null : (AtkComponentButton*)withdrawNode->GetComponent();
+            if(withdrawNode != null && withdrawNode->IsVisible() && Utils.IsButtonEnabled(withdraw) && !forceCancel)
             {
                 if(Utils.GenericThrottle)
                 {
@@ -461,8 +478,9 @@ internal static unsafe class RetainerHandlers
             }
             else
             {
-                var cancel = (AtkComponentButton*)addon->UldManager.NodeList[2]->GetComponent();
-                if(addon->UldManager.NodeList[2]->IsVisible() && Utils.IsButtonEnabled(cancel))
+                var cancelNode = Utils.GetNodeSafe(&addon->UldManager, 2);
+                var cancel = cancelNode == null ? null : (AtkComponentButton*)cancelNode->GetComponent();
+                if(cancelNode != null && cancelNode->IsVisible() && Utils.IsButtonEnabled(cancel))
                 {
                     if(Utils.GenericThrottle)
                     {
@@ -527,7 +545,12 @@ internal static unsafe class RetainerHandlers
     {
         if(TryGetAddonByName<AddonRetainerTaskAsk>("RetainerTaskAsk", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
-            if(addon->AtkUnitBase.UldManager.NodeList[6]->IsVisible())
+            // 🔴 NodeList[6] 原本上界與元素都沒驗。這一步是「畫面上有沒有跳錯誤訊息」的判別式,
+            //    取不到時只能回「沒偵測到錯誤」(＝落到下面的 return false),絕不能反過來當成
+            //    有錯誤而重排整條委託指派 —— 那會在版面還沒建好的每一幀無限重排。
+            //    這一步是以 timeLimitMS 輪詢的,回 false 就只是繼續等,不會卡住佇列。
+            var errorNode = Utils.GetNodeSafe(&addon->AtkUnitBase.UldManager, 6);
+            if(errorNode != null && errorNode->IsVisible())
             {
                 //An Error is on screen.
                 new AddonMaster.RetainerTaskAsk((IntPtr)addon).Return();

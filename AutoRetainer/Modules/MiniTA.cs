@@ -79,7 +79,18 @@ internal static unsafe class MiniTA
             return;
         }
         //PluginLog.Debug($"1: {selectStrAddon->AtkUnitBase.UldManager.NodeList[3]->GetAsAtkTextNode()->NodeText.ToString()}");
-        if(!Lang.SkipCutsceneStr.Contains(selectStrAddon->AtkUnitBase.UldManager.NodeList[3]->GetAsAtkTextNode()->NodeText.ToString())) return;
+        // 🔴 原本是四跳裸鏈:NodeList[3](上界與元素都沒驗,越界讀到的是相鄰記憶體不是 null)
+        //    → GetAsAtkTextNode()([MemberFunction],對 null 節點呼叫＝把 this = 0 交給原生碼)
+        //    → ->NodeText(對 null 文字節點靜默算出毒指標 0xC0,不會當場崩)
+        //    → ToString() 才真的去讀位址 0xC0 —— 崩潰現場完全指不到這一行。
+        //    ⚠️ 這裡刻意不用 Utils.TryGetNodeText:那支走 ReadSeString().GetText() 會剝掉
+        //    SeString payload,與 Lang.SkipCutsceneStr 的比對基準不同,換過去等於順手改行為。
+        //    讀不到就 return(＝這一幀不跳過過場),與「文字不在跳過清單裡」同語意;
+        //    這是每幀輪詢的路徑,所以不寫 log。
+        var entryNode = Utils.GetNodeSafe(&selectStrAddon->AtkUnitBase.UldManager, 3);
+        var entryTextNode = entryNode == null ? null : entryNode->GetAsAtkTextNode();
+        if(entryTextNode == null) return;
+        if(!Lang.SkipCutsceneStr.Contains(entryTextNode->NodeText.ToString())) return;
         if(EzThrottler.Throttle("SkipCutsceneConfirm"))
         {
             PluginLog.Debug("Selecting cutscene skipping");

@@ -82,6 +82,26 @@ public static unsafe class Utils
     }
 
     /// <summary>
+    /// 「<c>NodeList[index]</c> 這個節點現在可見嗎」的安全版本；節點取不到時一律回
+    /// <see langword="false"/>（＝視為「不可見」）。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>AtkResNode.IsVisible()</c> 是 <c>[MemberFunction]</c>（<c>this</c> 走 RCX），
+    /// 對 <c>null</c> 節點呼叫等於把 <c>this = 0</c> 交給遊戲原生碼；
+    /// AVE 在 .NET Core 是 corrupted-state exception，<c>try/catch</c> 攔不到。
+    /// <para>
+    /// 🔑 失敗方向刻意選「不可見」而不是「可見」：這個外掛裡所有 <c>IsVisible()</c> 的用途
+    /// 都是「這顆按鈕／這段錯誤訊息出現了沒」，回 <c>false</c> 只會讓自動化<b>繼續等</b>，
+    /// 回 <c>true</c> 則會對著還沒建好的版面按下去。
+    /// </para>
+    /// </remarks>
+    public static bool IsNodeVisible(AtkUldManager* uld, int index)
+    {
+        var node = GetNodeSafe(uld, index);
+        return node != null && node->IsVisible();
+    }
+
+    /// <summary>
     /// 安全地讀取一個節點的文字內容。取得到回 <see langword="true"/>；
     /// 鏈上任何一節取不到就回 <see langword="false"/>，<paramref name="text"/> 為空字串。
     /// </summary>
