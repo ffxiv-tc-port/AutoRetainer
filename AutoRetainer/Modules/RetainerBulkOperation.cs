@@ -113,7 +113,13 @@ internal static unsafe class RetainerBulkOperation
 
     private static bool? CloseRetainerAgentIfOpen()
     {
-        var agentModule = Framework.Instance()->UIModule->GetAgentModule();
+        // 🔴 Framework.Instance() 是 isPointer:true 的靜態位址，未建立單例時回 null；
+        //    Framework.UIModule 是 +0x2B68 的裸欄位，同樣可能是 null。
+        //    兩層都要擋，裸解參考的是攔不到的 AVE 而不是 NRE。
+        //    這支的語意是「開著就關掉」，讀不到＝沒開著＝這一步已完成，與下面 agent == null 同路徑。
+        var framework = Framework.Instance();
+        if(framework == null || framework->UIModule == null) return true;
+        var agentModule = framework->UIModule->GetAgentModule();
         if(agentModule == null) return true;
         var agent = agentModule->GetAgentByInternalId(AgentId.Retainer);
         if(agent == null || !agent->IsAgentActive()) return true;

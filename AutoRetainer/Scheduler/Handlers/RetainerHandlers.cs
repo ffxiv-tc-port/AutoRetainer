@@ -33,7 +33,13 @@ internal static unsafe class RetainerHandlers
 
     internal static bool? WaitForVentureListUpdate()
     {
-        if(P.ListUpdateFrame > CSFramework.Instance()->FrameCounter - 10) return true;
+        // 🔴 CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null，
+        //    裸解參考是攔不到的 AVE。⚠️ 這一處不在原掃描清單裡，是修 CloseAgentRetainer
+        //    時同檔同形一併掃到的。
+        //    讀不到就回 false ＝「還沒等到」，下一輪再試；不會謊報清單已更新。
+        var framework = CSFramework.Instance();
+        if(framework == null) return false;
+        if(P.ListUpdateFrame > framework->FrameCounter - 10) return true;
         return false;
     }
 
@@ -260,7 +266,17 @@ internal static unsafe class RetainerHandlers
 
     internal static bool? CloseAgentRetainer()
     {
-        var a = Framework.Instance()->UIModule->GetAgentModule()->GetAgentByInternalId(AgentId.Retainer);
+        // 🔴 原本是四層裸鏈：Framework.Instance()（isPointer:true，可能 null）
+        //    → UIModule（+0x2B68 裸欄位）→ GetAgentModule()（可能 null）→ 代理人（可能 null）。
+        //    任一層 null 就是攔不到的 AVE（corrupted-state exception，try/catch 無效）。
+        //    這支是「把雇員代理人關掉」的任務步驟，回 false ＝ 尚未完成、下一輪再試，
+        //    與既有的「代理人不活躍時回 false」同一條路徑（不謊報已關閉）。
+        var framework = Framework.Instance();
+        if(framework == null || framework->UIModule == null) return false;
+        var agentModule = framework->UIModule->GetAgentModule();
+        if(agentModule == null) return false;
+        var a = agentModule->GetAgentByInternalId(AgentId.Retainer);
+        if(a == null) return false;
         if(a->IsAgentActive())
         {
             a->Hide();

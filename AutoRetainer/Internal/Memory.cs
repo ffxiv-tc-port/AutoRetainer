@@ -63,6 +63,16 @@ internal unsafe class Memory : IDisposable
         {
             e.Log();
         }
+        // 🔴 這支同時是 hook 的 detour（遊戲呼叫）與 AutoRetainer 自己合成呼叫的入口。
+        //    遊戲那條路永遠帶合法的 this 指標；會是假位址的只有我們自己合成的那條
+        //    —— InventorySpaceManager.AgentRetainerItemCommandModule 取不到代理人時回 0。
+        //    把 0 / 明顯無效的低位址交給原生函式，等於叫遊戲對該位址動雇員背包，
+        //    後果是攔不到的 AVE 而不是例外。這裡是四個合成呼叫端的共同咽喉，擋一處即可。
+        if(AgentRetainerItemCommandModule < 0x10000)
+        {
+            PluginLog.Information($"RetainerItemCommandDetour: 代理人位址無效（{AgentRetainerItemCommandModule:X16}），略過 {command}（slot={slot}, type={inventoryType}）");
+            return;
+        }
         RetainerItemCommandHook.Original(AgentRetainerItemCommandModule, slot, inventoryType, a4, command);
     }
 
