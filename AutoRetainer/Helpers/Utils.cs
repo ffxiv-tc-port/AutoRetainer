@@ -1081,11 +1081,22 @@ public static unsafe class Utils
 
     internal static bool IsTitleScreenReady()
     {
-        return TryGetAddonByName<AtkUnitBase>("_TitleMenu", out var title)
-            && IsAddonReady(title)
-            && title->UldManager.NodeListCount > 3
-            && title->UldManager.NodeList[7]->IsVisible()
-            && title->UldManager.NodeList[3]->Color.A == 0xFF
+        if(!TryGetAddonByName<AtkUnitBase>("_TitleMenu", out var title) || !IsAddonReady(title)) return false;
+        if(title->UldManager.NodeList == null || title->UldManager.NodeListCount <= 3) return false;
+
+        // ⚠️ 上界刻意維持既有的 > 3：索引 7 與這個上界對不上是既有行為，收緊成 > 7
+        //    （或直接改用 GetNodeSafe，它自帶上界）會改變「標題畫面就緒」的成立條件，
+        //    也就會改變自動登入什麼時候啟動 —— 那要實機驗證才敢動，這裡不順手改。
+        // 🔴 所以這裡擋得住的只有「索引在範圍內但元素是 null」這一種：
+        //    NodeListCount 落在 4..7 時 NodeList[7] 讀到的是相鄰記憶體而不是 null，判空擋不住。
+        //    對 null 節點呼叫 IsVisible()（[MemberFunction]，this 走 RCX）＝把 this = 0 交給遊戲原生碼，
+        //    AVE 在 .NET Core 是 corrupted-state exception，try/catch 攔不到。
+        var node7 = title->UldManager.NodeList[7];
+        var node3 = title->UldManager.NodeList[3];
+        if(node7 == null || node3 == null) return false;
+
+        return node7->IsVisible()
+            && node3->Color.A == 0xFF
             && !TryGetAddonByName<AtkUnitBase>("TitleDCWorldMap", out _)
             && !TryGetAddonByName<AtkUnitBase>("TitleConnect", out _);
     }
