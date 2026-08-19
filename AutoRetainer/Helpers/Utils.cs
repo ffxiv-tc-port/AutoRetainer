@@ -134,6 +134,32 @@ public static unsafe class Utils
     public static bool TryGetNodeText(AtkUldManager* uld, int index, out string text)
         => TryGetNodeText(GetNodeSafe(uld, index), out text);
 
+    /// <summary>
+    /// 依 <paramref name="nodeId"/> 取出 <paramref name="addon"/> 裡的單選按鈕元件；
+    /// 鏈上任何一節取不到就回 <see langword="false"/>，<paramref name="button"/> 為 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>addon-&gt;GetNodeById(id)-&gt;GetAsAtkComponentRadioButton()</c> 這條鏈有
+    /// <b>兩個各自獨立的 null 路徑</b>，原本一個都沒判：
+    /// <list type="number">
+    /// <item><c>GetNodeById</c> 是 <c>[MemberFunction]</c>，<b>找不到該 id 就合法回 <c>null</c></b>。
+    /// 版面還在建、或這個版本的版面根本沒有那顆節點（寫死的 id 在台服對不對是未驗證的假設）時就是這樣。</item>
+    /// <item><c>GetAsAtkComponentRadioButton()</c> 同樣是 <c>[MemberFunction]</c>：對 <c>null</c> 節點呼叫
+    /// 等於把 <c>this = 0</c> 交給遊戲原生碼；而且<b>即使節點存在</b>，它不是單選按鈕時也會回 <c>null</c>。</item>
+    /// </list>
+    /// AVE 在 .NET Core 是 corrupted-state exception，<c>try/catch</c> 與
+    /// <c>HookSafety.ExecuteSafe</c> 都攔不到。
+    /// </remarks>
+    public static bool TryGetRadioButtonById(AtkUnitBase* addon, uint nodeId, out AtkComponentRadioButton* button)
+    {
+        button = null;
+        if(addon == null) return false;
+        var node = addon->GetNodeById(nodeId);
+        if(node == null) return false;
+        button = node->GetAsAtkComponentRadioButton();
+        return button != null;
+    }
+
     public static int FrameDelay => 10 + C.ExtraFrameDelay;
     // TC(台服)客戶端在 Dalamud 13.0.0.16 之後回報 ClientLanguage 7(TraditionalChinese),
     // 舊版回報 4(ChineseSimplified)。用數值比較才能同時相容 CI 釘的 13.0.0.6(列舉沒有 7 這個名字)與執行期新版。

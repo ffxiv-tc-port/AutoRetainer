@@ -155,8 +155,12 @@ internal static unsafe class GCContinuation
         if(!which.InRange(0, 3, false)) throw new ArgumentOutOfRangeException(nameof(which));
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanyExchange", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectGCExchangeVerticalTab"))
         {
-            var button = addon->GetNodeById((uint)(37 + which))->GetAsAtkComponentRadioButton();
-            (*button).ClickRadioButton(addon);
+            // 🔴 fail-closed：取不到按鈕就回 false（＝這一輪沒做成，下一幀重試），
+            //    不能回 true（會讓流程以為分頁已經切好而繼續往下走），
+            //    更不能回 null —— NeoTaskManager 的 bool? 是三態，null 是 Abort，會把整條佇列清掉。
+            //    這與外層 addon 還沒就緒時走的那條 return false 是同一個語意。
+            if(!Utils.TryGetRadioButtonById(addon, (uint)(37 + which), out var button)) return false;
+            button->ClickRadioButton(addon);
             return true;
         }
         return false;
@@ -167,8 +171,9 @@ internal static unsafe class GCContinuation
         if(!which.InRange(0, 4, false)) throw new ArgumentOutOfRangeException(nameof(which));
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanyExchange", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectGCExchangeHorizontalTab"))
         {
-            var button = addon->GetNodeById((uint)(44 + which))->GetAsAtkComponentRadioButton();
-            (*button).ClickRadioButton(addon);
+            // fail-closed 同上：取不到就當「這一輪沒切成」重試，不是 Abort。
+            if(!Utils.TryGetRadioButtonById(addon, (uint)(44 + which), out var button)) return false;
+            button->ClickRadioButton(addon);
             return true;
         }
         return false;
@@ -240,7 +245,8 @@ internal static unsafe class GCContinuation
         if(!which.InRange(0, 3, false)) throw new ArgumentOutOfRangeException(nameof(which));
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectGCExpertDelivery"))
         {
-            var button = addon->GetNodeById((uint)(11 + which))->GetAsAtkComponentRadioButton();
+            // fail-closed 同上：取不到就當「這一輪沒切成」重試，不是 Abort。
+            if(!Utils.TryGetRadioButtonById(addon, (uint)(11 + which), out var button)) return false;
             button->ClickRadioButton(addon);
             return true;
         }
