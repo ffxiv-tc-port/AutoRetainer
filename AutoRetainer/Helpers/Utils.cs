@@ -63,6 +63,57 @@ public static unsafe class Utils
     /// </summary>
     public static bool IsButtonEnabled(AtkComponentButton* button) => GetButtonEnabled(button) == true;
 
+    /// <summary>
+    /// 從 <paramref name="uld"/> 的 <c>NodeList</c> 取第 <paramref name="index"/> 個節點；取不到回 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>NodeList</c> 要驗的是<b>兩件事</b>，只做一半就是「半套邊界檢查」：
+    /// <list type="bullet">
+    /// <item><b>上界</b>：版面還在建（或已開始拆）的時候 <c>NodeListCount</c> 可能小於索引，
+    /// 越界讀到的是<b>相鄰記憶體而不是 null</b> —— 元素判空完全擋不住，失敗徹底靜默。</item>
+    /// <item><b>元素本身</b>：即使索引在範圍內，<c>NodeList[i]</c> 仍可能是 <c>null</c>。</item>
+    /// </list>
+    /// </remarks>
+    public static AtkResNode* GetNodeSafe(AtkUldManager* uld, int index)
+    {
+        if(uld == null || uld->NodeList == null) return null;
+        if(index < 0 || index >= uld->NodeListCount) return null;
+        return uld->NodeList[index];
+    }
+
+    /// <summary>
+    /// 安全地讀取一個節點的文字內容。取得到回 <see langword="true"/>；
+    /// 鏈上任何一節取不到就回 <see langword="false"/>，<paramref name="text"/> 為空字串。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 這裡擋的是<b>兩種不同的爆法</b>，兩種原本都攔不住：
+    /// <list type="number">
+    /// <item><c>GetAsAtkTextNode()</c> 是 <c>[MemberFunction]</c>，對 <c>null</c> 節點呼叫等於把
+    /// <c>this = 0</c> 交給遊戲原生碼，<b>當場</b> AccessViolation；AVE 在 .NET Core 是
+    /// corrupted-state exception，<c>try/catch</c> 攔不到。</item>
+    /// <item>更陰的是 <c>&amp;node-&gt;NodeText</c>：<c>NodeText</c> 位在 <c>AtkTextNode</c> 偏移 0xC0，
+    /// 節點為 <c>null</c> 時<b>不會當場崩</b>，而是靜默算出毒指標 0xC0 ——
+    /// 連 <c>ReadSeString</c> 內部的 <c>!= null</c> 判空都騙得過去，一路到真的去讀位址 0xC0 才炸，
+    /// 崩潰現場完全指不到真因。（<c>node-&gt;NodeText.GetText()</c> 這種值複製寫法是同一件事的另一面：
+    /// <c>GetText</c> 的參數是<b>傳值</b>的，複製動作發生在呼叫端，炸在那一行。）</item>
+    /// </list>
+    /// 🔑 回傳 <c>bool</c> 而不是「取不到就回空字串」，是為了讓呼叫端分得出
+    /// 「讀到空文字」與「根本沒讀到」—— 這兩者對「文字比對成不成立」的意義完全不同。
+    /// </remarks>
+    public static bool TryGetNodeText(AtkResNode* node, out string text)
+    {
+        text = "";
+        if(node == null) return false;
+        var textNode = node->GetAsAtkTextNode();
+        if(textNode == null) return false;
+        text = GenericHelpers.ReadSeString(&textNode->NodeText).GetText();
+        return true;
+    }
+
+    /// <inheritdoc cref="TryGetNodeText(AtkResNode*, out string)"/>
+    public static bool TryGetNodeText(AtkUldManager* uld, int index, out string text)
+        => TryGetNodeText(GetNodeSafe(uld, index), out text);
+
     public static int FrameDelay => 10 + C.ExtraFrameDelay;
     // TC(台服)客戶端在 Dalamud 13.0.0.16 之後回報 ClientLanguage 7(TraditionalChinese),
     // 舊版回報 4(ChineseSimplified)。用數值比較才能同時相容 CI 釘的 13.0.0.6(列舉沒有 7 這個名字)與執行期新版。
@@ -1408,9 +1459,9 @@ public static unsafe class Utils
                 if(addon == null) return null;
                 if(IsAddonReady(addon))
                 {
-                    var textNode = addon->UldManager.NodeList[15]->GetAsAtkTextNode();
-                    var text = GenericHelpers.ReadSeString(&textNode->NodeText).GetText();
-                    if(compare(text))
+                    // 取不到節點就當這個 SelectYesno「不是我們要找的那個」繼續往下掃(fail-closed):
+                    // 沒讀到文字時不能讓 compare 拿空字串去判，否則會把「讀不到」誤判成「內容為空的相符」。
+                    if(TryGetNodeText(&addon->UldManager, 15, out var text) && compare(text))
                     {
                         PluginLog.Verbose($"SelectYesno {text} addon {i} by predicate");
                         return addon;
@@ -1436,9 +1487,9 @@ public static unsafe class Utils
                 if(addon == null) return null;
                 if(IsAddonReady(addon))
                 {
-                    var textNode = addon->UldManager.NodeList[15]->GetAsAtkTextNode();
-                    var text = textNode->NodeText.GetText().Cleanup();
-                    if(text.ContainsAny(s.Select(x => x.Cleanup())))
+                    // 同上：讀不到就跳過這個 addon，不要拿空字串去做包含比對。
+                    if(TryGetNodeText(&addon->UldManager, 15, out var rawText)
+                        && rawText.Cleanup().ContainsAny(s.Select(x => x.Cleanup())))
                     {
                         PluginLog.Verbose($"SelectYesno {s.Print()} addon {i}");
                         return addon;

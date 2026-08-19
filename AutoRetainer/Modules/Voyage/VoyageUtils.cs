@@ -268,7 +268,11 @@ internal static unsafe class VoyageUtils
             {
                 return PanelType.TypeSelector;
             }
-            var text = GenericHelpers.ReadSeString(&addon->UldManager.NodeList[3]->GetAsAtkTextNode()->NodeText).GetText();
+            // 🔴 NodeList[3] 既沒驗上界也沒判元素;GetAsAtkTextNode() 是 [MemberFunction],
+            //    對 null 節點呼叫＝當場 AVE,而 &...->NodeText 是靜默的毒指標 0xC0。
+            //    讀不到面板標題就回 Unknown ＝「認不出這是哪種面板」,與既有的「三種都比不中」
+            //    同一條路徑(fail-closed:呼叫端不會據此把潛艇當飛空艇操作)。
+            if(!Utils.TryGetNodeText(&addon->UldManager, 3, out var text)) return PanelType.Unknown;
             if(text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.PanelSubmersible))
             {
                 return PanelType.Submersible;
@@ -493,8 +497,12 @@ internal static unsafe class VoyageUtils
 
     internal static VoyageType? DetectAddonType(AtkUnitBase* addon)
     {
-        var textptr = addon->UldManager.NodeList[3]->GetAsAtkTextNode()->NodeText;
-        var text = GenericHelpers.ReadSeString(&textptr).GetText();
+        // 🔴 原本先把 NodeText **整個 Utf8String 複製到區域變數**再取位址 ——
+        //    複製本身就是對毒指標 0xC0 起頭的 0x68 位元組做讀取,炸在那一行,
+        //    而不是在後面看起來有判空的 ReadSeString 裡面。判空要做在取值之前。
+        //    取不到就回 null ＝「認不出型別」,與既有的「兩個字串都比不中」同一條路徑。
+        if(addon == null) return null;
+        if(!Utils.TryGetNodeText(&addon->UldManager, 3, out var text)) return null;
         if(text.Contains("Select an airship."))
         {
             return VoyageType.Airship;

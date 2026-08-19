@@ -248,9 +248,20 @@ internal static unsafe class RetainerHandlers
         var text = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(13530).Text.ToDalamudString().GetText();
         if(TryGetAddonByName<AtkUnitBase>("RetainerItemTransferProgress", out var addon) && IsAddonReady(addon))
         {
-            var button = (AtkComponentButton*)addon->UldManager.NodeList[2]->GetComponent();
-            var nodetext = GenericHelpers.ReadSeString(&addon->UldManager.NodeList[2]->GetComponent()->UldManager.NodeList[2]->GetAsAtkTextNode()->NodeText).GetText();
-            if(nodetext == text && addon->UldManager.NodeList[2]->IsVisible() && Utils.IsButtonEnabled(button) && Utils.GenericThrottle)
+            // 🔴 原本是五跳裸鏈:NodeList[2](上界與元素都沒驗)→ GetComponent()([MemberFunction],
+            //    對 null this 呼叫＝當場 AVE)→ 回值可為 null → 內層 NodeList[2] → GetAsAtkTextNode()
+            //    → &...->NodeText(毒指標 0xC0,連 ReadSeString 的判空都騙得過去)。
+            //    任一跳取不到就當「還沒到可以按的狀態」回 false 讓下一輪重試(與既有的
+            //    addon 尚未 ready 路徑同語意),不謊報已關閉。
+            var node = Utils.GetNodeSafe(&addon->UldManager, 2);
+            var component = node == null ? null : node->GetComponent();
+            var button = (AtkComponentButton*)component;
+            if(component != null
+                && Utils.TryGetNodeText(Utils.GetNodeSafe(&component->UldManager, 2), out var nodetext)
+                && nodetext == text
+                && node->IsVisible()
+                && Utils.IsButtonEnabled(button)
+                && Utils.GenericThrottle)
             {
                 button->ClickAddonButton(addon);
                 DebugLog($"Clicked transfer progress close");
@@ -290,7 +301,12 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AtkUnitBase>("Bank", out var addon) && IsAddonReady(addon) && Utils.TryGetCurrentRetainer(out var name) && Utils.TryGetRetainerByName(name, out var retainer))
         {
             if(percent < 1 || percent > 100) throw new ArgumentOutOfRangeException(nameof(percent), percent, "Percent must be between 1 and 100");
-            if(uint.TryParse(GenericHelpers.ReadSeString(&addon->UldManager.NodeList[27]->GetAsAtkTextNode()->NodeText).GetText().RemoveOtherChars("0123456789"), out var numGil))
+            // 🔴 NodeList[27] 既沒驗上界也沒判元素;GetAsAtkTextNode() 對 null 節點是當場 AVE,
+            //    &...->NodeText 則是靜默的毒指標 0xC0。取不到就回 false 讓下一輪重試 ——
+            //    刻意不走下面那個「解析失敗＝視為完成」的 else,因為「節點還沒建好」與
+            //    「金額欄位真的不是數字」是兩件事,前者重試就會好。
+            if(!Utils.TryGetNodeText(&addon->UldManager, 27, out var gilText)) return false;
+            if(uint.TryParse(gilText.RemoveOtherChars("0123456789"), out var numGil))
             {
                 DebugLog($"Gil: {numGil}");
                 var gilToWithdraw = (uint)(percent == 100 ? numGil : numGil / 100f * percent);
@@ -577,14 +593,26 @@ internal static unsafe class RetainerHandlers
 
             if(FrameThrottler.Check("RetainerTaskSupply.InitWait") && Utils.GenericThrottle)
             {
-                if(addon->UldManager.NodeList[3]->IsVisible())
+                // 🔴 清單節點取不到時**不能**掉進下面的 else —— 那個 else 會真的送出搜尋 callback。
+                //    「讀不到」與「清單不可見」是兩件事,前者一律回 false 等下一輪重試。
+                var listNode = Utils.GetNodeSafe(&addon->UldManager, 3);
+                if(listNode == null) return false;
+                if(listNode->IsVisible())
                 {
-                    var list = addon->UldManager.NodeList[3]->GetAsAtkComponentList();
+                    var list = listNode->GetAsAtkComponentList();
+                    if(list == null) return false;
                     PluginLog.Debug($"Cnt: {list->ListLength}");
                     for(var i = 0; i < Math.Min(list->ListLength, 16); i++)
                     {
-                        var el = list->AtkComponentBase.UldManager.NodeList[2 + i];
-                        var text = GenericHelpers.ReadSeString(&el->GetAsAtkComponentNode()->Component->UldManager.NodeList[9]->GetAsAtkTextNode()->NodeText).GetText();
+                        // ⚠️ ListLength 是「清單有幾筆」,與 NodeList 的 NodeListCount 是兩個不同的量,
+                        //    拿前者當後者的上界就是半套邊界檢查(越界讀到相鄰記憶體、不是 null)。
+                        //    GetNodeSafe 會把上界與元素判空一起做掉。
+                        var el = Utils.GetNodeSafe(&list->AtkComponentBase.UldManager, 2 + i);
+                        var elNode = el == null ? null : el->GetAsAtkComponentNode();
+                        if(elNode == null || elNode->Component == null) continue;
+                        // 讀不到這一列的文字就跳過這一列(fail-closed:寧可漏配,也不要拿空字串去比對名稱,
+                        // 比中的後果是對錯的雇員任務按下去)。
+                        if(!Utils.TryGetNodeText(Utils.GetNodeSafe(&elNode->Component->UldManager, 9), out var text)) continue;
                         PluginLog.Debug($"Text: {text}, name: {name}");
                         if(text == name)
                         {

@@ -353,9 +353,14 @@ internal static unsafe class AutoGCHandin
     {
         if(TryGetAddonByName<AddonSelectYesno>("SelectYesno", out var addon) && IsAddonReady(&addon->AtkUnitBase) && Operation)
         {
-            if(Utils.IsButtonEnabled(addon->YesButton))
+            // 🔴 PromptText 是偏移 0x238 的指標欄位,開窗途中/版面未建好時為 null。
+            //    NodeText 在 AtkTextNode 偏移 0xC0,而 GetText(this Utf8String) 的參數是**傳值**的 ——
+            //    複製動作發生在呼叫端,等於直接去讀位址 0xC0,炸在這一行(不是在 GetText 裡面)。
+            //    讀不到提示文字就不按「是」(fail-closed:比對不成立就不動作,下一輪重試)。
+            var promptText = addon->PromptText;
+            if(promptText != null && Utils.IsButtonEnabled(addon->YesButton))
             {
-                var str = addon->PromptText->NodeText.GetText().Cleanup();
+                var str = GenericHelpers.ReadSeString(&promptText->NodeText).GetText().Cleanup();
                 DebugLog($"SelectYesno encountered: {str}");
                 //102434	Do you really want to trade a high-quality item?
                 if(str.Equals(GenericHelpers.GetText(Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(102434).Text).Cleanup()))
@@ -632,12 +637,14 @@ internal static unsafe class AutoGCHandin
     {
         try
         {
-            return
-                GCSupplyListAddon != null
-                && IsAddonReady(GCSupplyListAddon)
-                && GCSupplyListAddon->UldManager.NodeListCount > 20
-                && GCSupplyListAddon->UldManager.NodeList[5]->IsVisible()
-                && IsSelectedFilterValid(GCSupplyListAddon);
+            // ⚠️ 這個 try/catch 對下面的問題完全無效:AVE 在 .NET Core 是 corrupted-state exception,
+            //    攔不到。上界(NodeListCount > 20)原本就有,缺的是**元素判空** —— 兩者是兩件事,
+            //    只做上界時越界以外的失敗(元素為 null)照樣穿過去。
+            if(GCSupplyListAddon == null || !IsAddonReady(GCSupplyListAddon)) return false;
+            if(GCSupplyListAddon->UldManager.NodeListCount <= 20) return false;
+            var node = Utils.GetNodeSafe(&GCSupplyListAddon->UldManager, 5);
+            if(node == null) return false;
+            return node->IsVisible() && IsSelectedFilterValid(GCSupplyListAddon);
         }
         catch(Exception)
         {
@@ -646,14 +653,32 @@ internal static unsafe class AutoGCHandin
     }
     internal static bool IsDone(AtkUnitBase* addon)
     {
-        return addon->UldManager.NodeList[20]->IsVisible();
+        // 上界由呼叫端的 IsReadyToOperate(NodeListCount > 20)保證,但元素本身仍可為 null。
+        // 讀不到就回 false ＝「還沒完成」,維持既有的繼續操作路徑(不會謊報完成而提前收工)。
+        if(addon == null) return false;
+        var node = Utils.GetNodeSafe(&addon->UldManager, 20);
+        return node != null && node->IsVisible();
     }
     internal static bool IsSelectedFilterValid(AtkUnitBase* addon)
     {
-        var step1 = addon->UldManager.NodeList[14];
-        var step2 = step1->GetAsAtkComponentNode()->Component->UldManager.NodeList[1];
-        var step3 = step2->GetAsAtkComponentNode()->Component->UldManager.NodeList[2];
-        var text = GenericHelpers.ReadSeString(&step3->GetAsAtkTextNode()->NodeText).GetText();
+        if(addon == null) return false;
+        // 🔴 原本是六跳裸鏈,每一跳都有獨立的 null 路徑,而且兩種爆法都攔不到:
+        //    GetAsAtkComponentNode()／GetAsAtkTextNode() 是 [MemberFunction],對 null this 呼叫
+        //    等於把 this=0 交給遊戲原生碼＝當場 AVE(corrupted-state exception,try/catch 無效);
+        //    最後那個 &...->NodeText 則是靜默的毒指標 0xC0,連 ReadSeString 內部的判空都騙得過去。
+        //    NodeList 的索引另外要驗 NodeListCount 上界(越界讀到的是相鄰記憶體而不是 null),
+        //    Utils.GetNodeSafe 把上界與元素判空一起做掉。
+        //    取不到就回 false ＝「篩選條件尚未確認有效」,呼叫端會繼續等/重試,不會誤判成可以開始繳交。
+        var step1 = Utils.GetNodeSafe(&addon->UldManager, 14);
+        var comp1 = step1 == null ? null : step1->GetAsAtkComponentNode();
+        if(comp1 == null || comp1->Component == null) return false;
+
+        var step2 = Utils.GetNodeSafe(&comp1->Component->UldManager, 1);
+        var comp2 = step2 == null ? null : step2->GetAsAtkComponentNode();
+        if(comp2 == null || comp2->Component == null) return false;
+
+        var step3 = Utils.GetNodeSafe(&comp2->Component->UldManager, 2);
+        if(!Utils.TryGetNodeText(step3, out var text)) return false;
         //4619	Hide Armoury Chest Items
         //4618	Hide Gear Set Items
         //4617	Show All Items
