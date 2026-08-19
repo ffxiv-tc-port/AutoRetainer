@@ -10,8 +10,14 @@ internal static unsafe class FPSLimiter
     {
         if(MultiMode.Active)
         {
+            // CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null。
+            // 這段每幀跑（掛在 UiBuilder.Draw），所以取一次、判一次，絕不寫 log。
+            // 讀不到就把 WindowInactive 當 false ＝ 保守地「不做 FPS 限制」，
+            // 而不是拿 null 去解參考。
+            var framework = CSFramework.Instance();
+            var windowInactive = framework != null && framework->WindowInactive;
             if(
-                (!C.NoFPSLockWhenActive || CSFramework.Instance()->WindowInactive)
+                (!C.NoFPSLockWhenActive || windowInactive)
                 && (!C.FpsLockOnlyShutdownTimer || Shutdown.Active || (C.NightMode && C.NightModeFPSLimit))
                 )
             {
@@ -33,7 +39,7 @@ internal static unsafe class FPSLimiter
                         var targetMSPT = C.TargetMSPTIdle;
                         if(C.NightMode && Utils.CanAutoLogin() && MultiMode.Active)
                         {
-                            targetMSPT = CSFramework.Instance()->WindowInactive ? 5000 : 100;
+                            targetMSPT = windowInactive ? 5000 : 100;
                         }
                         var ms = (int)(targetMSPT - Stopwatch.ElapsedMilliseconds);
                         if(ms > 0 && ms <= targetMSPT)

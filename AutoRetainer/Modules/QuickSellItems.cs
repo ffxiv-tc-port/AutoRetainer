@@ -89,7 +89,10 @@ public unsafe class QuickSellItems : IDisposable
     internal bool GetAction(out List<string> text)
     {
         text = [];
-        if(CSFramework.Instance()->WindowInactive) return false;
+        // CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null。
+        // 這支是從 hook detour 呼叫進來的，讀不到就直接回 false ＝ 不做快捷操作（fail-closed）。
+        var framework = CSFramework.Instance();
+        if(framework == null || framework->WindowInactive) return false;
         if(IsKeyPressed(C.SellKey))
         {
             text.Add(retainerSellText);
@@ -129,7 +132,13 @@ public unsafe class QuickSellItems : IDisposable
                         {
                             var addonId = agent->AgentInterface.GetAddonId();
                             if(addonId == 0) return retVal;
-                            var addon = AtkStage.Instance()->RaptureAtkUnitManager->GetAddonById((ushort)addonId);
+                            // 🔴 半套判空：下面那行 addon == null 護的是**回傳值**，
+                            //    護不到 AtkStage.Instance()（isPointer:true，合法回 null）
+                            //    與它的 RaptureAtkUnitManager 欄位（+0x20 裸指標）。
+                            //    這裡在 hook detour 內，任一層 null 都是攔不到的 AVE。
+                            var stage = AtkStage.Instance();
+                            if(stage == null || stage->RaptureAtkUnitManager == null) return retVal;
+                            var addon = stage->RaptureAtkUnitManager->GetAddonById((ushort)addonId);
                             if(addon == null) return retVal;
 
                             for(var i = 0; i < agent->ContextItemCount; i++)

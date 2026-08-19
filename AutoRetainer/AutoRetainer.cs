@@ -778,7 +778,11 @@ public unsafe class AutoRetainer : IDalamudPlugin
                         else
                         {
                             var bellBehavior = Utils.IsAnyRetainersCompletedVenture() ? C.OpenBellBehaviorWithVentures : C.OpenBellBehaviorNoVentures;
-                            if(bellBehavior != OpenBellBehavior.Pause_AutoRetainer && IsKeyPressed(C.Suppress) && !CSFramework.Instance()->WindowInactive)
+                            // CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null。
+                            // 讀不到就當作「視窗非作用中」＝不取消開鈴動作，維持原本的行為
+                            // （抑制鍵是額外的覆寫，拿不到狀態時不要擅自覆寫）。
+                            var framework = CSFramework.Instance();
+                            if(bellBehavior != OpenBellBehavior.Pause_AutoRetainer && IsKeyPressed(C.Suppress) && framework != null && !framework->WindowInactive)
                             {
                                 bellBehavior = OpenBellBehavior.Do_nothing;
                                 Notify.Info($"Open bell action cancelled");

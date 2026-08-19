@@ -42,8 +42,11 @@ internal static unsafe class BailoutManager
             {
                 if(MultiMode.Enabled)
                 {
+                    // AgentLobby 取得器合法回 null；下面會讀 lobby->AgentInterface / TemporaryLocked。
+                    // 拿不到就整段條件不成立 ⇒ 走 else 分支重設卡住計時，等於「這一輪不脫困」，
+                    // 不會拿 null 去解參考。
                     var lobby = AgentLobby.Instance();
-                    if(!Utils.IsBusy && !TryGetAddonByName<AtkUnitBase>("SelectOk", out _) && TryGetAddonByName<AtkUnitBase>("_CharaSelectReturn", out var addon) && IsAddonReady(addon) && (!lobby->AgentInterface.IsAgentActive() || !lobby->TemporaryLocked))
+                    if(lobby != null && !Utils.IsBusy && !TryGetAddonByName<AtkUnitBase>("SelectOk", out _) && TryGetAddonByName<AtkUnitBase>("_CharaSelectReturn", out var addon) && IsAddonReady(addon) && (!lobby->AgentInterface.IsAgentActive() || !lobby->TemporaryLocked))
                     {
                         if(Environment.TickCount64 - CharaSelectStuck > 10 * 1000)
                         {

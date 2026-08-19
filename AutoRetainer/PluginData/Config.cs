@@ -245,7 +245,12 @@ internal unsafe class Config
     {
         get
         {
-            return _dontReassign || (C.TempCollectB != LimitedKeys.None && IsKeyPressed(C.TempCollectB) && !CSFramework.Instance()->WindowInactive);
+            if(_dontReassign) return true;
+            if(C.TempCollectB == LimitedKeys.None || !IsKeyPressed(C.TempCollectB)) return false;
+            // CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null。
+            // 讀不到就當作「視窗非作用中」＝不啟用暫停指派。
+            var framework = CSFramework.Instance();
+            return framework != null && !framework->WindowInactive;
         }
         set
         {

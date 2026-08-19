@@ -945,6 +945,11 @@ public static unsafe class Utils
             }
         }*/
         var agent = AgentLobby.Instance();
+        // AgentLobby.Instance() 是 AgentGetterGenerator 產出的兩層可空取得器
+        // （agentModule == null ? null : GetAgentByInternalId(...)），合法回 null。
+        // 拿不到就回空清單：呼叫端 TryGetCharacterIndex 會得到 index < 0 ＝「找不到角色」，
+        // 與「代理人不活躍」走同一條路徑，不會謊報有角色。
+        if(agent == null) return ret;
         if(agent->AgentInterface.IsAgentActive())
         {
             var charaSpan = agent->LobbyData.CharaSelectEntries.AsSpan();

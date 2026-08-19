@@ -35,7 +35,19 @@ internal enum RoutePointPickResult
 
 internal static unsafe class VoyageUtils
 {
-    internal static bool DontReassign => (C.TempCollectB != LimitedKeys.None && IsKeyPressed(C.TempCollectB) && !CSFramework.Instance()->WindowInactive);
+    /// <remarks>
+    /// CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null，裸解參考是攔不到的 AVE。
+    /// 讀不到就當作「視窗非作用中」＝不啟用暫停指派（不擅自覆寫使用者原本的行為）。
+    /// </remarks>
+    internal static bool DontReassign
+    {
+        get
+        {
+            if(C.TempCollectB == LimitedKeys.None || !IsKeyPressed(C.TempCollectB)) return false;
+            var framework = CSFramework.Instance();
+            return framework != null && !framework->WindowInactive;
+        }
+    }
 
     internal static uint[] Workshops = [Houses.Company_Workshop_Empyreum, Houses.Company_Workshop_The_Goblet, Houses.Company_Workshop_Mist, Houses.Company_Workshop_Shirogane, Houses.Company_Workshop_The_Lavender_Beds];
 

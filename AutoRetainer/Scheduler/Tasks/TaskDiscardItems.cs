@@ -174,11 +174,20 @@ public static unsafe class TaskDiscardItems
             LastAttemptCount = 1;
         }
 
+        // AgentInventoryContext.Instance() 是產生器產出的兩層可空取得器，合法回 null。
+        // 拿不到就這輪不丟（不開確認視窗、不寫記錄）——「少丟一件」永遠比「對 null 解參考」好，
+        // 而且與本檔既有的「讀不到的容器一律跳過 ⇒ 只可能少列」是同一個保守方向。
+        var invCtx = AgentInventoryContext.Instance();
+        if(invCtx == null)
+        {
+            PluginLog.Information("AgentInventoryContext 尚未就緒，這一輪不丟棄道具。");
+            return false;
+        }
         PluginLog.Information($"Discarding {ExcelItemHelper.GetName(item->ItemId)}x{item->Quantity} [Container={type},Slot={slot}]");
         // 第 4 引數 addonId＝0：不綁定任何擁有者 addon（我們不是從背包 UI 的右鍵選單發起的）。
         // 第 5 引數 position 是 YesNoPosition，-1＝讓遊戲用預設位置；明寫出來不靠預設值，
         // 免得日後有人以為這個參數有別的語意。
-        AgentInventoryContext.Instance()->DiscardItem(item, type, (int)slot, 0, -1);
+        invCtx->DiscardItem(item, type, (int)slot, 0, -1);
         ConfirmWindowUntil = Environment.TickCount64 + ConfirmWindowMS;
         InventorySpaceManager.Log.Add($"[{DateTime.Now}] Discarded {ExcelItemHelper.GetName(itemId)}x{quantity} on {Data.Name}");
         return false;

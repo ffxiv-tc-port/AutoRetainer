@@ -516,7 +516,14 @@ internal static unsafe class VentureUtils
         // 取不到名字 → 指定探險永遠比對不到 → 走「Can not find venture id」那條路徑。
         // 🔴 改成引用出貨 CS 的列舉而不是換一個新的魔術數字：下次版本再位移時它會自己跟著動。
         // ⚠️ 這裡一定要完整命名空間 —— 本檔的 RetainerTask 是 Lumina 的表格型別，會撞名。
-        var data = CSFramework.Instance()->UIModule->GetRaptureAtkModule()->AtkModule.GetStringArrayData(
+        // 🔴 這是四層裸鏈：Framework（isPointer:true，可能 null）→ UIModule（裸欄位）
+        //    → GetRaptureAtkModule()（可能 null）→ 陣列。任一層 null 就是攔不到的 AVE。
+        //    讀不到就回空清單 —— 呼叫端本來就要處理「找不到探險名字」那條路徑。
+        var framework = CSFramework.Instance();
+        if(framework == null || framework->UIModule == null) return ret;
+        var atkModule = framework->UIModule->GetRaptureAtkModule();
+        if(atkModule == null) return ret;
+        var data = atkModule->AtkModule.GetStringArrayData(
             (int)FFXIVClientStructs.FFXIV.Component.GUI.StringArrayType.RetainerTask);
         if(data != null)
         {

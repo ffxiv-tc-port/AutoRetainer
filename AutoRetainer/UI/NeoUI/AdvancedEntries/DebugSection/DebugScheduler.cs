@@ -143,14 +143,16 @@ internal unsafe class DebugScheduler : DebugSectionBase
             DuoLog.Information($"{RetainerListHandlers.SelectRetainerByName(dbgRetName)}");
         }
 
+        // AtkStage.Instance() 是 isPointer:true 的靜態位址，合法回 null；下面兩個按鈕都要判。
         if(ImGui.Button("AtkStage get focus"))
         {
-            var ptr = (nint)AtkStage.Instance()->GetFocus();
-            Svc.Chat.Print($"Stage focus: {ptr}");
+            var stage = AtkStage.Instance();
+            Svc.Chat.Print(stage == null ? "Stage focus: AtkStage 尚未就緒" : $"Stage focus: {(nint)stage->GetFocus()}");
         }
         if(ImGui.Button("AtkStage clear focus"))
         {
-            AtkStage.Instance()->ClearFocus();
+            var stage = AtkStage.Instance();
+            if(stage != null) stage->ClearFocus();
         }
         if(ImGui.Button("Try retrieve current retainer name"))
         {

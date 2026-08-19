@@ -110,7 +110,10 @@ internal unsafe class DebugMisc : DebugSectionBase
         if(ImGui.Button("Disable callback hook")) Callback.UninstallHook();
         ImGuiEx.TextCopy($"{(nint)(&TargetSystem.Instance()->Target):X16}");
         ImGui.Checkbox($"Log opcodes", ref P.LogOpcodes);
-        ImGuiEx.Text($"CSFramework.Instance()->FrameCounter: {CSFramework.Instance()->FrameCounter}");
+        // CSFramework.Instance() 是 isPointer:true 的靜態位址，合法回 null。
+        // 拿不到印 "?"，不要把「不知道」畫成 0。
+        var dbgFramework = CSFramework.Instance();
+        ImGuiEx.Text($"CSFramework.Instance()->FrameCounter: {(dbgFramework == null ? "?" : $"{dbgFramework->FrameCounter}")}");
         if(ImGui.Button("Test entrust dup"))
         {
             if(TryGetAddonByName<AtkUnitBase>("RetainerItemTransferList", out var addon))
@@ -128,7 +131,7 @@ internal unsafe class DebugMisc : DebugSectionBase
             FPSManager.UnlockChillFrames();
         }
         ImGui.Separator();
-        ImGuiEx.Text($"CSFramework.Instance()->WindowInactive: {CSFramework.Instance()->WindowInactive}");
+        ImGuiEx.Text($"CSFramework.Instance()->WindowInactive: {(dbgFramework == null ? "?" : $"{dbgFramework->WindowInactive}")}");
         ImGuiEx.Text($"IsKeyPressed(C.TempCollectB): {IsKeyPressed(C.TempCollectB)}");
         ImGuiEx.Text($"Bitmask.IsBitSet(User32.GetKeyState((int)C.TempCollectB), 15): {Bitmask.IsBitSet(FXWindows.GetKeyState((int)C.TempCollectB), 15)}");
         ImGuiEx.Text($"DontReassign: {C.DontReassign}, key {C.TempCollectB}/{(int)C.TempCollectB}");

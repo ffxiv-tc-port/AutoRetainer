@@ -164,7 +164,10 @@ internal static unsafe class MultiMode
             {
                 if(!Player.Available && Utils.CanAutoLogin())
                 {
-                    AgentLobby.Instance()->IdleTime = 0;
+                    // 🔴 這是**寫入**：AgentLobby 取得器合法回 null，裸寫等於往位址 0 寫。
+                    //    拿不到就跳過歸零（下一幀還會再來一次），不要在這裡丟例外。
+                    var lobby = AgentLobby.Instance();
+                    if(lobby != null) lobby->IdleTime = 0;
                     var next = GetCurrentTargetCharacter();
                     if(next != null)
                     {

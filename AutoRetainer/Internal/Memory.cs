@@ -84,7 +84,12 @@ internal unsafe class Memory : IDisposable
     {
         var ret = ReceiveRetainerVentureListUpdateHook.OriginalDisposeSafe(a1, a2, a3);
         PluginLog.Debug($"{a1:X16}, {a2:X8}, {a3:X16}");
-        P.ListUpdateFrame = CSFramework.Instance()->FrameCounter;
+        // 🔴 這裡是 hook detour 內。CSFramework.Instance() 是 isPointer:true 的靜態位址，
+        //    合法回 null；在 detour 裡對 null 解參考是攔不到的 AVE（corrupted-state exception）。
+        //    讀不到就不更新這個幀號 —— 消費端 RetainerHandlers.WaitForVentureListUpdate
+        //    會繼續回「還沒等到」並重試，不會謊報清單已更新。
+        var framework = CSFramework.Instance();
+        if(framework != null) P.ListUpdateFrame = framework->FrameCounter;
         return ret;
     }
 

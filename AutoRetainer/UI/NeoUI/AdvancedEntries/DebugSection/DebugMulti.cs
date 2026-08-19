@@ -55,7 +55,9 @@ internal unsafe class DebugMulti : DebugSectionBase
         {
             DalamudReflector.DeleteSharedData("AutoRetainer.WasLoaded");
         }
-        ImGuiEx.Text($"Moving: {AgentMap.Instance()->IsPlayerMoving}");
+        // AgentMap 取得器合法回 null。拿不到印 "?"，不要把「不知道」畫成 False。
+        var dbgMap = AgentMap.Instance();
+        ImGuiEx.Text($"Moving: {(dbgMap == null ? "?" : $"{dbgMap->IsPlayerMoving}")}");
         ImGuiEx.Text($"Occupied: {IsOccupied()}");
         ImGuiEx.Text($"Casting: {Player.Object?.IsCasting}");
         ImGuiEx.TextCopy($"CID: {Player.CID}");

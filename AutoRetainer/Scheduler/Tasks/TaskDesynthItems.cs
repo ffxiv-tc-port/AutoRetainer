@@ -95,13 +95,24 @@ public static unsafe class TaskDesynthItems
 
     private static void DesynthItem(InventoryItem* item)
     {
+        // AgentSalvage.Instance() 是 AgentGetterGenerator 產出的兩層可空取得器，合法回 null。
+        // 🔴 取一次用到底：分解與後面那個「確認」事件必須送到同一個代理人，
+        //    分兩次取有可能一次拿到、一次拿不到，變成「送了分解沒送確認」。
+        //    拿不到就整個不做 —— 這輪不分解，下一輪重試，不會有半套操作。
+        var salvage = AgentSalvage.Instance();
+        if(salvage == null)
+        {
+            // 使用者跑 LogLevel 2，這種「該做的事沒做」要看得見。這裡不是每幀路徑。
+            Svc.Log.Information("AgentSalvage 尚未就緒，這一輪不分解。");
+            return;
+        }
         Svc.Log.Info($"Desynthing {ExcelItemHelper.GetName(ExcelItemHelper.Get(item->ItemId), true)} [Container={item->Container},Slot={item->Slot}]");
-        AgentSalvage.Instance()->SalvageItem(item);
+        salvage->SalvageItem(item);
         var retval = new AtkValue();
         Span<AtkValue> param = [
             new AtkValue { Type = ValueType.Int, Int = 0 },
             new AtkValue { Type = ValueType.Bool, Byte = 1 }
         ];
-        AgentSalvage.Instance()->AgentInterface.ReceiveEvent(&retval, param.GetPointer(0), 2, 1);
+        salvage->AgentInterface.ReceiveEvent(&retval, param.GetPointer(0), 2, 1);
     }
 }
