@@ -1027,6 +1027,16 @@ public static unsafe class Utils
             for(var i = 0; i < charaSpan.Length; i++)
             {
                 var s = charaSpan[i];
+                // 🔴 元素本身是可為 null 的指標（項目還沒填完就是 null），
+                // 直接 s.Value->Name.Read() 是 AccessViolation（try/catch 攔不到）。
+                // 🔴 但不能用 continue 跳過：本清單的「索引」就是 TryGetCharacterIndex 回傳的
+                // 角色選擇索引，少一項會讓後面每個角色往前位移一格 ⇒ 選到錯的角色。
+                // 填一個永遠不會被 IndexOf 命中的佔位項（空名字＋世界 0）保住位置對齊。
+                if(s.Value == null)
+                {
+                    ret.Add(("", (ushort)0));
+                    continue;
+                }
                 ret.Add(($"{s.Value->Name.Read()}", s.Value->HomeWorldId));
             }
         }
