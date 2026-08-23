@@ -193,6 +193,7 @@
   "Contingency": "應急設定",
   "Copy": "複製",
   "Copy entrust plan to...": "複製委託計畫到...",
+  "Copy Gil settings to...": "複製存取 Gil 設定到...",
   "Copy plan settings": "複製計畫設定",
   "Copy to Clipboard": "複製到剪貼簿",
   "Could not import plan: {0}": "無法匯入計畫：{0}",

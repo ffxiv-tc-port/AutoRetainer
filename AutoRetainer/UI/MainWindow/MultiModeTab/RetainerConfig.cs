@@ -109,6 +109,47 @@ public static unsafe class RetainerConfig
             ImGuiEx.SetNextItemWidthScaled(200f);
             ImGui.InputInt(Loc.T("Amount, %"), ref adata.WithdrawGilPercent.ValidateRange(1, 100), 1, 10);
         }
+        // 📌 批量套用存取 Gil（2026-08-24 使用者需求「批量管理雇員 讓他可以開全部得存取gil」）：
+        //    照上面「複製委託計畫到...」的先例，把**目前這位**的三個欄位（開關／提取或存入／百分比）
+        //    複製到本角色或所有角色的全部僱員。要「全開」＝先把這一位設成想要的樣子再按套用。
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Copy, Loc.T("Copy Gil settings to...")))
+        {
+            ImGui.OpenPopup($"CopyGilSettingsTo");
+        }
+        if(ImGui.BeginPopup("CopyGilSettingsTo"))
+        {
+            if(ImGui.Selectable(Loc.T("To all other retainers of this character")))
+            {
+                var cnt = 0;
+                foreach(var x in data.RetainerData)
+                {
+                    var a = Utils.GetAdditionalData(data.CID, x.Name);
+                    a.WithdrawGil = adata.WithdrawGil;
+                    a.Deposit = adata.Deposit;
+                    a.WithdrawGilPercent = adata.WithdrawGilPercent;
+                    cnt++;
+                }
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
+            }
+            if(ImGui.Selectable(Loc.T("To all other retainers of ALL characters")))
+            {
+                var cnt = 0;
+                foreach(var offlineData in C.OfflineData)
+                {
+                    foreach(var x in offlineData.RetainerData)
+                    {
+                        // 🔴 CID 跟著外圈 offlineData 走（見上方委託計畫同款修正註解）。
+                        var a = Utils.GetAdditionalData(offlineData.CID, x.Name);
+                        a.WithdrawGil = adata.WithdrawGil;
+                        a.Deposit = adata.Deposit;
+                        a.WithdrawGilPercent = adata.WithdrawGilPercent;
+                        cnt++;
+                    }
+                }
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
+            }
+            ImGui.EndPopup();
+        }
         ImGui.Separator();
         Svc.PluginInterface.GetIpcProvider<ulong, string, object>(ApiConsts.OnRetainerSettingsDraw).SendMessage(data.CID, ret.Name);
         if(C.Verbose)
