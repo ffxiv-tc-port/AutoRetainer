@@ -222,6 +222,22 @@ internal static unsafe class VoyageUtils
                 ret.Add((x.Value.Point, $"{VoyageUtils.GetSubmarineExplorationName(x.Key)} not unlocked"));
             }
         }
+
+        // 補跑「已解鎖但未探索」的點(使用者要求:全航線解鎖不只解鎖,還要跑過一次打勾)。
+        // 🔴 預設關(C.UnlockRouteAlsoExploreUnexplored=false)=沿用既有行為;開啟才補跑。
+        // 一律排在解鎖點之後(較低優先),只有沒有新點可解鎖時才會被選到。與上面同樣受單一海圖約束:
+        // 一趟航行只能選同一張海圖上的點,清單累積起點所在海圖後,遇到別張海圖就中止(潛艇會逐圖清完)。
+        if(C.UnlockRouteAlsoExploreUnexplored)
+        {
+            foreach(var x in Unlocks.PointToUnlockPoint.Where(z => z.Value.Point < 9000 && !plan.ExcludedRoutes.Contains(z.Key)))
+            {
+                if(ret.Count > 0 && Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(ret.First().point).Map.RowId != Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(x.Key).Map.RowId) break;
+                if(P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Key, true) && !P.SubmarineUnlockPlanUI.IsMapExplored(x.Key, true) && !ret.Any(z => z.point == x.Key))
+                {
+                    ret.Add((x.Key, $"{VoyageUtils.GetSubmarineExplorationName(x.Key)} unlocked but not explored"));
+                }
+            }
+        }
         return ret;
     }
 

@@ -229,6 +229,11 @@ internal unsafe class Config
     public bool LeastMBSFirst = false;
 
     public string DefaultSubmarineUnlockPlan = "";
+    // 解鎖模式(SpamOne/MultiSelect)只會把「探索後能解鎖新點」的點跑過一次,終端(葉)點位
+    // 被解鎖成可選之後不會自己被跑過一次,因此不會打勾(explored)。開啟此項後,解鎖清單在
+    // 沒有新點可解鎖時,會繼續把「已解鎖但未探索」的點排進去跑,直到全部打勾。
+    // 🔴 預設 false = 沿用既有行為(只解鎖不補跑);既有使用者的設定檔沒有此鍵,載入後維持 false。
+    public bool UnlockRouteAlsoExploreUnexplored = false;
     public bool AcceptedDisclamer = false;
     public bool AllowManualPostprocess = false;
     public bool AllowSimpleTeleport = false;

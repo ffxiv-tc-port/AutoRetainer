@@ -216,6 +216,9 @@ internal unsafe class SubmarineUnlockPlanUI : Window
                 ImGui.Checkbox(Loc.T("Enforce Spam one destination mode in Deep sea site."), ref SelectedPlan.EnforceDSSSinglePoint);
                 ImGui.Checkbox(Loc.T("Set this plan as enforced."), ref SelectedPlan.EnforcePlan);
                 ImGuiEx.HelpMarker(Loc.T("Any point selected for unlock in this map will be executed by every single eligible submarine until everything is actually unlocked"));
+                // 全域開關(非本計畫專屬):解鎖模式在沒有新點可解鎖後,繼續把已解鎖但未探索的點跑過一次打勾。
+                ImGui.Checkbox(Loc.T("Also explore unlocked-but-unexplored points (global)"), ref C.UnlockRouteAlsoExploreUnexplored);
+                ImGuiEx.HelpMarker(Loc.T("Applies to all unlock plans. Unlock mode only visits points needed to unlock others, so terminal points get unlocked but never explored (checkmarked). With this on, once there is nothing left to unlock the submarine keeps running unlocked-but-unexplored points until every point is explored."));
                 if(ImGui.BeginTable("##planTable", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
                 {
                     ImGui.TableSetupColumn(Loc.T("Zone"), ImGuiTableColumnFlags.WidthStretch);
