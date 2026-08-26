@@ -352,6 +352,18 @@ internal unsafe class Config
     public Vector2 WindowSize;
     public Vector2 WindowPos;
     public bool PinWindow = false;
+    /// <summary>Main window background opacity override. Off by default, and the default must stay off:
+    /// while this is off, AutoRetainerWindow leaves Dalamud's Window.BgAlpha at null, which is exactly what
+    /// the window did before this option existed - the active ImGui style's WindowBg alpha is used as-is.
+    /// Note that WindowBgAlphaPercent = 100 is NOT the same as "off": the stock Dalamud style's WindowBg
+    /// alpha is below 1.0, so forcing 100% would make the window more opaque than it is today.</summary>
+    public bool CustomWindowBgAlpha = false;
+    /// <summary>Background opacity of the main window, in percent, applied only while
+    /// <see cref="CustomWindowBgAlpha"/> is on. Only the window background is affected - text and widgets
+    /// stay fully opaque, unlike Dalamud's own per-window "Opacity" slider (title bar context menu) which
+    /// pushes ImGuiStyleVar.Alpha and fades the whole window including its contents. Clamped at 20% for the
+    /// same reason Dalamud clamps its own slider there: a window at 0% background is hard to find again.</summary>
+    public int WindowBgAlphaPercent = 100;
     public bool DisplayOnStart = false;
 
     public bool ResolveConnectionErrors = false;

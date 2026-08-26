@@ -62,6 +62,13 @@ internal unsafe class AutoRetainerWindow : Window
             ImGuiHelpers.SetNextWindowPosRelativeMainViewport(C.WindowPos);
             ImGui.SetNextWindowSize(C.WindowSize);
         }
+        // Dalamud reads Window.BgAlpha in ApplyConditionals(), which it calls immediately after PreDraw()
+        // in the same frame, so assigning it here takes effect right away - no one-frame lag. Assigning it
+        // unconditionally (rather than only when the option is on) is what restores the stock look the
+        // moment the option is switched back off. null means "do not call SetNextWindowBgAlpha at all",
+        // i.e. the ImGui style decides, which is the pre-existing behaviour.
+        // Only the background is affected; window contents keep their normal alpha.
+        BgAlpha = C.CustomWindowBgAlpha ? Math.Clamp(C.WindowBgAlphaPercent, 20, 100) / 100f : null;
     }
 
     private string FormatToken(TimeSpan time)

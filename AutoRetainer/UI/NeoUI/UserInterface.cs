@@ -26,6 +26,10 @@ public sealed unsafe class UserInterface : NeoUIEntry
         .Checkbox(Loc.T("Enable title screen button (requires plugin restart)"), () => ref C.UseTitleScreenButton)
         .Checkbox(Loc.T("Hide character search"), () => ref C.NoCharaSearch)
         .Checkbox(Loc.T("Don't flash background of characters that are complete"), () => ref C.NoGradient)
+        .Checkbox(Loc.T("Adjust main window background opacity"), () => ref C.CustomWindowBgAlpha, Loc.T("Lets you make the background of the main AutoRetainer window see-through. Only the background is affected; text and buttons stay fully readable. While this is off, the window uses whatever your current Dalamud style specifies, exactly as before."))
+        .If(() => C.CustomWindowBgAlpha)
+        .SliderInt(120f, Loc.T("Main window background opacity, %"), () => ref C.WindowBgAlphaPercent.ValidateRange(20, 100), 20, 100, Loc.T("100% is a fully opaque background; the lower the value, the more the game shows through. Only the main window is affected - the settings window and the overlays are not."))
+        .EndIf()
         .Checkbox(Loc.T("Do not warn about second game instance running from same directory"), () => ref C.No2ndInstanceNotify, "This will automatically skip AutoRetainer's loading on second instance of the game and you will have no way of loading it until you disable this option in primary instance")
 
         .Section(Loc.T("Character sorting in Retainer tab"))
