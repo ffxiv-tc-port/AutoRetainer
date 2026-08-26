@@ -855,5 +855,11 @@
   "調達依頼：漁猟　　（必要ベンチャースクリップ：1枚）": "調達依頼：漁猟\\u3000\\u3000（必要ベンチャースクリップ：1枚）",
   "Inventory is full - running the pending entrust/auto-vendor pass first to try to free up space.": "背包空間不足：先執行尚未完成的存入／自動賣出批次，嘗試騰出空間。",
   "Not collected this run ({0}): {1}": "本輪未收取（{0} 名僱員）：{1}",
-  "Venture results stay on the retainer until they are collected, so nothing is lost - free up inventory space and they will be picked up on the next run.": "探險成果會一直留在僱員身上直到收取為止，不會遺失；騰出背包空間後下一輪就會自動補收。"
+  "Venture results stay on the retainer until they are collected, so nothing is lost - free up inventory space and they will be picked up on the next run.": "探險成果會一直留在僱員身上直到收取為止，不會遺失；騰出背包空間後下一輪就會自動補收。",
+  "Slots": "空格",
+  "No inventory data has been recorded for this retainer yet.\nIt comes from the retainer list, so logging in on this character once is enough - you do not need to open the retainer.": "尚未記錄過這名僱員的背包資料。\n這個數字來自僱員清單，所以只要用這個角色登入一次就會有值，不需要特地開啟該僱員。",
+  "Free inventory slots": "背包剩餘空格",
+  "Items held": "持有道具格數",
+  "Listed on market board": "寄售中",
+  "Snapshot taken the last time this character was logged in.": "這是該角色最後一次登入時的數值。"
 }
