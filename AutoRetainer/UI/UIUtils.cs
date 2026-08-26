@@ -1,5 +1,6 @@
 ﻿global using OverlayTextData = (System.Numerics.Vector2 Curpos, (bool Warning, string Text)[] Texts);
 using AutoRetainerAPI.Configuration;
+using AutoRetainer.Services.Lifestream;
 using ECommons.GameHelpers;
 using ECommons.Interop;
 using Lumina.Excel.Sheets;
@@ -93,7 +94,7 @@ internal static class UIUtils
     {
         var offlineData = C.OfflineData.FirstOrDefault(x => x.CID == cid);
         if(offlineData == null) return;
-        var data = S.LifestreamIPC.GetHousePathData(cid);
+        var data = LifestreamHousePath.Get(cid);
         if(offlineData.GetAllowFcTeleportForSubs() || offlineData.GetAllowFcTeleportForRetainers())
         {
             string error = null;
@@ -189,6 +190,39 @@ internal static class UIUtils
     {
         return frameTime == 0 ? 60 : (int)(1000f / frameTime);
     }
+
+    /// <summary>
+    /// 判斷「按住修飾鍵」型的快捷鍵目前是否成立。這些功能改成可設定之前是硬編 ImGui 的
+    /// KeyShift/KeyCtrl/KeyAlt，有兩個性質必須一併保留，否則就是靜默的行為回退：
+    /// <list type="number">
+    /// <item>ImGui 的修飾鍵狀態<b>不分左右</b>。LimitedKeys 沒有合併的 Shift/Ctrl/Alt(只有 Left*/Right*)，
+    /// 所以選到左側修飾鍵時右側同樣算數——預設值就是左側，慣用右側 Shift 的人升級後不會失去功能。
+    /// 想嚴格只認單邊就選右側的那一個。</item>
+    /// <item>遊戲視窗失焦時 ImGui 收不到按鍵。這裡改用 winapi 的 GetAsyncKeyState(IsKeyPressed)，
+    /// 它<b>連別的程式裡按的鍵都讀得到</b>，所以必須自己補上 WindowInactive 閘門，
+    /// 否則「alt-tab 出去時剛好按著 Shift」會讓上一次 hover 的道具被加進清單。</item>
+    /// </list>
+    /// LimitedKeys.None ＝ 停用該動作，不是「不按任何鍵就觸發」。
+    /// </summary>
+    internal static unsafe bool IsHotkeyHeld(LimitedKeys key)
+    {
+        if(key == LimitedKeys.None) return false;
+        var framework = CSFramework.Instance();
+        if(framework == null || framework->WindowInactive) return false;
+        return key switch
+        {
+            LimitedKeys.LeftShiftKey => IsKeyPressed(LimitedKeys.LeftShiftKey) || IsKeyPressed(LimitedKeys.RightShiftKey),
+            LimitedKeys.LeftControlKey => IsKeyPressed(LimitedKeys.LeftControlKey) || IsKeyPressed(LimitedKeys.RightControlKey),
+            LimitedKeys.LeftAltKey => IsKeyPressed(LimitedKeys.LeftAltKey) || IsKeyPressed(LimitedKeys.RightAltKey),
+            _ => IsKeyPressed(key),
+        };
+    }
+
+    /// <summary>
+    /// 快捷鍵在提示文字裡的顯示名稱。未綁定時要在列上看得見「這個動作是停用的」，
+    /// 不能只是把提示變灰——變灰看起來像「現在沒按著」。
+    /// </summary>
+    internal static string HotkeyName(LimitedKeys key) => key == LimitedKeys.None ? Loc.T("(unbound - disabled)") : key.ToString();
 
     internal static void QRA(string text, ref LimitedKeys key)
     {

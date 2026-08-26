@@ -15,7 +15,15 @@ namespace AutoRetainer.Modules;
 public unsafe class QuickSellItems : IDisposable
 {
     internal delegate void* OpenInventoryContext(AgentInventoryContext* agent, InventoryType inventory, ushort slot, int a4, ushort a5, byte a6);
-    [Signature("83 B9 ?? ?? ?? ?? ?? 7E 11", DetourName = nameof(OpenInventoryContextDetour), Fallibility = Fallibility.Fallible)]
+    // 🔴 原上游特徵碼 "83 B9 ?? ?? ?? ?? ?? 7E 11"(cmp [rcx+disp], imm; jle)在台服 7.20 命中 2 個位址:
+    //    0x140470940(正解 OpenInventoryContext,函式起點、前接 16 個 int3 pad)與 0x140F072E1(某函式的
+    //    函式中段,根本不是函式起點)。Dalamud [Signature] 取位址最低者,目前碰巧是正解,但那是運氣——
+    //    台服下次改版排序一變就會靜默把 hook 掛到中段位址上。這裡是「原生程式碼直呼受管理 detour」的 hook,
+    //    掛錯位址時 detour 會把別的函式的引數當成 AgentInventoryContext* 解參考(AVE 攔不到)。
+    //    延長到鎖進 OpenInventoryContext 專有的引數驗證序列:cmp [rcx+0x6e4],0 / cmp [rcx+0x6dc],edx(=InventoryType)/
+    //    cmp [rcx+0x6e0],r8d(=slot)——全部是結構位移常數,不含 rip 相對位移;離線驗證台服 7.20 全映像唯一命中 0x140470940。
+    //    jle/jne/je 的 rel8 位移用 ?? 遮罩(允許中段程式碼微調)。特徵碼失配時 Fallible 讓 hook 留 null=功能靜默停用(fail-closed)。
+    [Signature("83 B9 E4 06 00 00 00 7E ?? 39 91 DC 06 00 00 75 ?? 44 39 81 E0 06 00 00 74 ??", DetourName = nameof(OpenInventoryContextDetour), Fallibility = Fallibility.Fallible)]
     internal Hook<OpenInventoryContext> openInventoryContextHook;
 
     public InventoryType[] CanSellFrom = [
@@ -89,7 +97,10 @@ public unsafe class QuickSellItems : IDisposable
     internal bool GetAction(out List<string> text)
     {
         text = [];
-        if(CSFramework.Instance()->WindowInactive) return false;
+        // CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null。
+        // 這支是從 hook detour 呼叫進來的，讀不到就直接回 false ＝ 不做快捷操作（fail-closed）。
+        var framework = CSFramework.Instance();
+        if(framework == null || framework->WindowInactive) return false;
         if(IsKeyPressed(C.SellKey))
         {
             text.Add(retainerSellText);
@@ -111,7 +122,7 @@ public unsafe class QuickSellItems : IDisposable
 
     private void* OpenInventoryContextDetour(AgentInventoryContext* agent, InventoryType inventoryType, ushort slot, int a4, ushort a5, byte a6)
     {
-        var retVal = openInventoryContextHook.Original(agent, inventoryType, slot, a4, a5, a6);
+        var retVal = openInventoryContextHook.OriginalDisposeSafe(agent, inventoryType, slot, a4, a5, a6);
         InternalLog.Verbose($"Inventory hook: {inventoryType}, {slot}");
         try
         {
@@ -129,7 +140,13 @@ public unsafe class QuickSellItems : IDisposable
                         {
                             var addonId = agent->AgentInterface.GetAddonId();
                             if(addonId == 0) return retVal;
-                            var addon = AtkStage.Instance()->RaptureAtkUnitManager->GetAddonById((ushort)addonId);
+                            // 🔴 半套判空：下面那行 addon == null 護的是**回傳值**，
+                            //    護不到 AtkStage.Instance()（isPointer:true，合法回 null）
+                            //    與它的 RaptureAtkUnitManager 欄位（+0x20 裸指標）。
+                            //    這裡在 hook detour 內，任一層 null 都是攔不到的 AVE。
+                            var stage = AtkStage.Instance();
+                            if(stage == null || stage->RaptureAtkUnitManager == null) return retVal;
+                            var addon = stage->RaptureAtkUnitManager->GetAddonById((ushort)addonId);
                             if(addon == null) return retVal;
 
                             for(var i = 0; i < agent->ContextItemCount; i++)

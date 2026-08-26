@@ -26,7 +26,9 @@ internal static unsafe class TaskCalculateAndPickBestExpRoute
         Calculating = true;
         var calc = new Calculator();
         var curSubMaps = CurrentSubmarine.GetMaps();
-        var curSubRank = CurrentSubmarine.Get()->RankId;
+        var curSub = CurrentSubmarine.Get();
+        if(curSub == null) throw new InvalidOperationException(CurrentSubmarine.Unavailable);
+        var curSubRank = curSub->RankId;
         var prioList = unlock?.GetPrioritizedPointList();
         void Run()
         {

@@ -2,6 +2,7 @@
 using AutoRetainer.Modules.Voyage;
 using AutoRetainer.Scheduler.Handlers;
 using AutoRetainer.Scheduler.Tasks;
+using AutoRetainer.Services;
 using AutoRetainerAPI.Configuration;
 using Dalamud.Game;
 using Dalamud.Game.ClientState.Conditions;
@@ -13,6 +14,7 @@ using ECommons.Events;
 using ECommons.ExcelServices;
 using ECommons.ExcelServices.TerritoryEnumeration;
 using ECommons.GameHelpers;
+using ECommons.IPC;
 using ECommons.MathHelpers;
 using ECommons.Reflection;
 using ECommons.Throttlers;
@@ -33,11 +35,167 @@ namespace AutoRetainer.Helpers;
 
 public static unsafe class Utils
 {
+    /// <summary>
+    /// 安全地讀取按鈕的啟用狀態，無法判定時回傳 null。
+    /// <para>
+    /// 🔴 ClientStructs 的 <c>AtkComponentButton.IsEnabled</c> 實作是
+    /// <c>AtkComponentBase.OwnerNode-&gt;AtkResNode.NodeFlags.HasFlag(...)</c>，
+    /// 對 <c>OwnerNode</c> <b>零 null 檢查</b>。按鈕還沒建構完成（或已被遊戲拆掉）時
+    /// <c>OwnerNode</c> 是 null，直接讀 <c>IsEnabled</c> 會丟 AccessViolationException。
+    /// AVE 在 .NET Core 是 corrupted-state exception，<b><c>try/catch</c> 攔不到</b>，
+    /// 結果是整個遊戲當場崩潰。
+    /// </para>
+    /// <para>
+    /// ⚠️ <c>AtkComponentBase</c> 有<b>兩個</b>指標欄位：<c>AtkResNode</c>(0xA0) 與 <c>OwnerNode</c>(0xA8)。
+    /// <c>IsEnabled</c> 解的是 <c>OwnerNode</c>，所以檢查 <c>AtkResNode</c> <b>不算守衛</b>。
+    /// </para>
+    /// </summary>
+    public static bool? GetButtonEnabled(AtkComponentButton* button)
+    {
+        if(button == null) return null;
+        if(button->AtkComponentBase.OwnerNode == null) return null;
+        return button->IsEnabled;
+    }
+
+    /// <summary>
+    /// <see cref="GetButtonEnabled"/> 的自動化用版本：按鈕還沒準備好時一律視為「不可按」，
+    /// 讓呼叫端走既有的等待／重試路徑，而不是中止整條任務佇列。
+    /// </summary>
+    public static bool IsButtonEnabled(AtkComponentButton* button) => GetButtonEnabled(button) == true;
+
+    /// <summary>
+    /// 從 <paramref name="uld"/> 的 <c>NodeList</c> 取第 <paramref name="index"/> 個節點；取不到回 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>NodeList</c> 要驗的是<b>兩件事</b>，只做一半就是「半套邊界檢查」：
+    /// <list type="bullet">
+    /// <item><b>上界</b>：版面還在建（或已開始拆）的時候 <c>NodeListCount</c> 可能小於索引，
+    /// 越界讀到的是<b>相鄰記憶體而不是 null</b> —— 元素判空完全擋不住，失敗徹底靜默。</item>
+    /// <item><b>元素本身</b>：即使索引在範圍內，<c>NodeList[i]</c> 仍可能是 <c>null</c>。</item>
+    /// </list>
+    /// </remarks>
+    public static AtkResNode* GetNodeSafe(AtkUldManager* uld, int index)
+    {
+        if(uld == null || uld->NodeList == null) return null;
+        if(index < 0 || index >= uld->NodeListCount) return null;
+        return uld->NodeList[index];
+    }
+
+    /// <summary>
+    /// 「<c>NodeList[index]</c> 這個節點現在可見嗎」的安全版本；節點取不到時一律回
+    /// <see langword="false"/>（＝視為「不可見」）。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>AtkResNode.IsVisible()</c> 是 <c>[MemberFunction]</c>（<c>this</c> 走 RCX），
+    /// 對 <c>null</c> 節點呼叫等於把 <c>this = 0</c> 交給遊戲原生碼；
+    /// AVE 在 .NET Core 是 corrupted-state exception，<c>try/catch</c> 攔不到。
+    /// <para>
+    /// 🔑 失敗方向刻意選「不可見」而不是「可見」：這個外掛裡所有 <c>IsVisible()</c> 的用途
+    /// 都是「這顆按鈕／這段錯誤訊息出現了沒」，回 <c>false</c> 只會讓自動化<b>繼續等</b>，
+    /// 回 <c>true</c> 則會對著還沒建好的版面按下去。
+    /// </para>
+    /// </remarks>
+    public static bool IsNodeVisible(AtkUldManager* uld, int index)
+    {
+        var node = GetNodeSafe(uld, index);
+        return node != null && node->IsVisible();
+    }
+
+    /// <summary>
+    /// 安全地讀取一個節點的文字內容。取得到回 <see langword="true"/>；
+    /// 鏈上任何一節取不到就回 <see langword="false"/>，<paramref name="text"/> 為空字串。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 這裡擋的是<b>兩種不同的爆法</b>，兩種原本都攔不住：
+    /// <list type="number">
+    /// <item><c>GetAsAtkTextNode()</c> 是 <c>[MemberFunction]</c>，對 <c>null</c> 節點呼叫等於把
+    /// <c>this = 0</c> 交給遊戲原生碼，<b>當場</b> AccessViolation；AVE 在 .NET Core 是
+    /// corrupted-state exception，<c>try/catch</c> 攔不到。</item>
+    /// <item>更陰的是 <c>&amp;node-&gt;NodeText</c>：<c>NodeText</c> 位在 <c>AtkTextNode</c> 偏移 0xC0，
+    /// 節點為 <c>null</c> 時<b>不會當場崩</b>，而是靜默算出毒指標 0xC0 ——
+    /// 連 <c>ReadSeString</c> 內部的 <c>!= null</c> 判空都騙得過去，一路到真的去讀位址 0xC0 才炸，
+    /// 崩潰現場完全指不到真因。（<c>node-&gt;NodeText.GetText()</c> 這種值複製寫法是同一件事的另一面：
+    /// <c>GetText</c> 的參數是<b>傳值</b>的，複製動作發生在呼叫端，炸在那一行。）</item>
+    /// </list>
+    /// 🔑 回傳 <c>bool</c> 而不是「取不到就回空字串」，是為了讓呼叫端分得出
+    /// 「讀到空文字」與「根本沒讀到」—— 這兩者對「文字比對成不成立」的意義完全不同。
+    /// </remarks>
+    public static bool TryGetNodeText(AtkResNode* node, out string text)
+    {
+        text = "";
+        if(node == null) return false;
+        var textNode = node->GetAsAtkTextNode();
+        if(textNode == null) return false;
+        text = GenericHelpers.ReadSeString(&textNode->NodeText).GetText();
+        return true;
+    }
+
+    /// <inheritdoc cref="TryGetNodeText(AtkResNode*, out string)"/>
+    public static bool TryGetNodeText(AtkUldManager* uld, int index, out string text)
+        => TryGetNodeText(GetNodeSafe(uld, index), out text);
+
+    /// <summary>
+    /// 依 <paramref name="nodeId"/> 取出 <paramref name="addon"/> 裡的單選按鈕元件；
+    /// 鏈上任何一節取不到就回 <see langword="false"/>，<paramref name="button"/> 為 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>addon-&gt;GetNodeById(id)-&gt;GetAsAtkComponentRadioButton()</c> 這條鏈有
+    /// <b>兩個各自獨立的 null 路徑</b>，原本一個都沒判：
+    /// <list type="number">
+    /// <item><c>GetNodeById</c> 是 <c>[MemberFunction]</c>，<b>找不到該 id 就合法回 <c>null</c></b>。
+    /// 版面還在建、或這個版本的版面根本沒有那顆節點（寫死的 id 在台服對不對是未驗證的假設）時就是這樣。</item>
+    /// <item><c>GetAsAtkComponentRadioButton()</c> 同樣是 <c>[MemberFunction]</c>：對 <c>null</c> 節點呼叫
+    /// 等於把 <c>this = 0</c> 交給遊戲原生碼；而且<b>即使節點存在</b>，它不是單選按鈕時也會回 <c>null</c>。</item>
+    /// </list>
+    /// AVE 在 .NET Core 是 corrupted-state exception，<c>try/catch</c> 與
+    /// <c>HookSafety.ExecuteSafe</c> 都攔不到。
+    /// </remarks>
+    public static bool TryGetRadioButtonById(AtkUnitBase* addon, uint nodeId, out AtkComponentRadioButton* button)
+    {
+        button = null;
+        if(addon == null) return false;
+        var node = addon->GetNodeById(nodeId);
+        if(node == null) return false;
+        button = node->GetAsAtkComponentRadioButton();
+        return button != null;
+    }
+
     public static int FrameDelay => 10 + C.ExtraFrameDelay;
     // TC(台服)客戶端在 Dalamud 13.0.0.16 之後回報 ClientLanguage 7(TraditionalChinese),
     // 舊版回報 4(ChineseSimplified)。用數值比較才能同時相容 CI 釘的 13.0.0.6(列舉沒有 7 這個名字)與執行期新版。
     public static bool IsCN => (int)Svc.ClientState.ClientLanguage is 4 or 5 or 7;
-    public static int FCPoints => *(int*)((nint)AgentModule.Instance()->GetAgentByInternalId(AgentId.FreeCompanyCreditShop) + 256);
+    /// <summary>
+    /// 部隊點數。⚠️ 取不到時回 <c>0</c> —— 0 同時代表「真的沒有點數」與「讀不到」,
+    /// 這與呼叫端既有語意一致(<c>OfflineDataManager</c> 本來就用 <c>!= 0</c> 當「有資料才寫入」的閘門)。
+    /// 要區分兩者請改用 <see cref="TryGetFCPoints"/>。
+    /// </summary>
+    public static int FCPoints => TryGetFCPoints(out var points) ? points : 0;
+
+    /// <summary>
+    /// 讀部隊點數,並回報「這次到底有沒有讀到」。
+    /// </summary>
+    /// <remarks>
+    /// 原本是 <c>*(int*)((nint)AgentModule.Instance()-&gt;GetAgentByInternalId(...) + 256)</c>,
+    /// 整條鏈零判空。兩層都有真實的 null 路徑:
+    /// <list type="bullet">
+    /// <item>AgentModule.Instance() 是 CS 手寫的,逐字為 <c>uiModule == null ? null : uiModule-&gt;GetAgentModule()</c>
+    /// —— 登入前 / 卸載期間 UIModule 還沒建立就回 null。</item>
+    /// <item>GetAgentByInternalId 對尚未建立的代理人回 null(部隊點數商店在沒開過部隊介面前就是這樣)。</item>
+    /// </list>
+    /// ⚠️ 這次只補判空。<c>+256</c> 這個未文件化的原生偏移本身沒有動(另案處理),
+    /// 它在台服對不對仍然是未驗證的假設 —— 但偏移錯的失敗形式是「數字不對」,不是崩潰;
+    /// 而少了上面兩層判空的失敗形式是攔不到的 AccessViolationException。
+    /// </remarks>
+    public static bool TryGetFCPoints(out int points)
+    {
+        points = 0;
+        var agentModule = AgentModule.Instance();
+        if(agentModule == null) return false;
+        var agent = agentModule->GetAgentByInternalId(AgentId.FreeCompanyCreditShop);
+        if(agent == null) return false;
+        points = *(int*)((nint)agent + 256);
+        return true;
+    }
     public static float AnimationLock => Player.AnimationLock;
 
     public static uint[] WeaponsUICategories
@@ -837,7 +995,7 @@ public static unsafe class Utils
     }
 
     internal static bool MultiModeOrArtisan => MultiMode.Active || (SchedulerMain.PluginEnabled && SchedulerMain.Reason == PluginEnableReason.Artisan);
-    internal static bool IsBusy => P.TaskManager.IsBusy || AutoGCHandin.Operation || S.LifestreamIPC.IsBusy();
+    internal static bool IsBusy => P.TaskManager.IsBusy || AutoGCHandin.Operation || ECommonsIPC.Lifestream.IsBusy();
     internal static AtkValue ZeroAtkValue = new() { Type = 0, Int = 0 };
 
     internal static IEnumerable<string> GetEObjNames(params uint[] values)
@@ -884,12 +1042,27 @@ public static unsafe class Utils
             }
         }*/
         var agent = AgentLobby.Instance();
+        // AgentLobby.Instance() 是 AgentGetterGenerator 產出的兩層可空取得器
+        // （agentModule == null ? null : GetAgentByInternalId(...)），合法回 null。
+        // 拿不到就回空清單：呼叫端 TryGetCharacterIndex 會得到 index < 0 ＝「找不到角色」，
+        // 與「代理人不活躍」走同一條路徑，不會謊報有角色。
+        if(agent == null) return ret;
         if(agent->AgentInterface.IsAgentActive())
         {
             var charaSpan = agent->LobbyData.CharaSelectEntries.AsSpan();
             for(var i = 0; i < charaSpan.Length; i++)
             {
                 var s = charaSpan[i];
+                // 🔴 元素本身是可為 null 的指標（項目還沒填完就是 null），
+                // 直接 s.Value->Name.Read() 是 AccessViolation（try/catch 攔不到）。
+                // 🔴 但不能用 continue 跳過：本清單的「索引」就是 TryGetCharacterIndex 回傳的
+                // 角色選擇索引，少一項會讓後面每個角色往前位移一格 ⇒ 選到錯的角色。
+                // 填一個永遠不會被 IndexOf 命中的佔位項（空名字＋世界 0）保住位置對齊。
+                if(s.Value == null)
+                {
+                    ret.Add(("", (ushort)0));
+                    continue;
+                }
                 ret.Add(($"{s.Value->Name.Read()}", s.Value->HomeWorldId));
             }
         }
@@ -934,11 +1107,22 @@ public static unsafe class Utils
 
     internal static bool IsTitleScreenReady()
     {
-        return TryGetAddonByName<AtkUnitBase>("_TitleMenu", out var title)
-            && IsAddonReady(title)
-            && title->UldManager.NodeListCount > 3
-            && title->UldManager.NodeList[7]->IsVisible()
-            && title->UldManager.NodeList[3]->Color.A == 0xFF
+        if(!TryGetAddonByName<AtkUnitBase>("_TitleMenu", out var title) || !IsAddonReady(title)) return false;
+        if(title->UldManager.NodeList == null || title->UldManager.NodeListCount <= 3) return false;
+
+        // ⚠️ 上界刻意維持既有的 > 3：索引 7 與這個上界對不上是既有行為，收緊成 > 7
+        //    （或直接改用 GetNodeSafe，它自帶上界）會改變「標題畫面就緒」的成立條件，
+        //    也就會改變自動登入什麼時候啟動 —— 那要實機驗證才敢動，這裡不順手改。
+        // 🔴 所以這裡擋得住的只有「索引在範圍內但元素是 null」這一種：
+        //    NodeListCount 落在 4..7 時 NodeList[7] 讀到的是相鄰記憶體而不是 null，判空擋不住。
+        //    對 null 節點呼叫 IsVisible()（[MemberFunction]，this 走 RCX）＝把 this = 0 交給遊戲原生碼，
+        //    AVE 在 .NET Core 是 corrupted-state exception，try/catch 攔不到。
+        var node7 = title->UldManager.NodeList[7];
+        var node3 = title->UldManager.NodeList[3];
+        if(node7 == null || node3 == null) return false;
+
+        return node7->IsVisible()
+            && node3->Color.A == 0xFF
             && !TryGetAddonByName<AtkUnitBase>("TitleDCWorldMap", out _)
             && !TryGetAddonByName<AtkUnitBase>("TitleConnect", out _);
     }
@@ -1014,7 +1198,7 @@ public static unsafe class Utils
     internal static bool IsAnyRetainersCompletedVenture()
     {
         if(!ProperOnLogin.PlayerPresent) return false;
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
             var selectedRetainers = data.GetEnabledRetainers().Where(z => z.HasVenture);
             return selectedRetainers.Any(z => z.GetVentureSecondsRemaining() <= 10);
@@ -1024,7 +1208,7 @@ public static unsafe class Utils
 
     internal static bool IsAllCurrentCharacterRetainersHaveMoreThan5Mins()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
             foreach(var z in data.GetEnabledRetainers())
             {
@@ -1067,7 +1251,7 @@ public static unsafe class Utils
         {
             if(x.IsTargetable && (x.ObjectKind == ObjectKind.Housing || x.ObjectKind == ObjectKind.EventObj) && x.Name.ToString().EqualsIgnoreCaseAny(Lang.BellName))
             {
-                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
                 if(distance < currentDistance)
                 {
                     currentDistance = distance;
@@ -1088,7 +1272,7 @@ public static unsafe class Utils
             if((x.ObjectKind == ObjectKind.Housing || x.ObjectKind == ObjectKind.EventObj) && x.Name.ToString().EqualsIgnoreCaseAny(Lang.BellName))
             {
                 var distance = extend && VoyageUtils.Workshops.Contains(Svc.ClientState.TerritoryType) ? 20f : GetValidInteractionDistance(x);
-                if(Vector3.Distance(x.Position, Svc.ClientState.LocalPlayer.Position) < distance && x.IsTargetable)
+                if(Vector3.Distance(x.Position, Svc.Objects.LocalPlayer.Position) < distance && x.IsTargetable)
                 {
                     return x;
                 }
@@ -1109,7 +1293,7 @@ public static unsafe class Utils
         {
             if(x.IsTargetable && x.Name.ToString().ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.AdventurerDollNamePart))
             {
-                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
                 if(distance < currentDistance)
                 {
                     currentDistance = distance;
@@ -1128,7 +1312,7 @@ public static unsafe class Utils
         {
             if(x.Name.ToString().ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.AdventurerDollNamePart))
             {
-                if(Vector3.Distance(x.Position, Svc.ClientState.LocalPlayer.Position) < GetValidInteractionDistance(x) && x.IsTargetable)
+                if(Vector3.Distance(x.Position, Svc.Objects.LocalPlayer.Position) < GetValidInteractionDistance(x) && x.IsTargetable)
                 {
                     return x;
                 }
@@ -1141,7 +1325,7 @@ public static unsafe class Utils
 
     internal static bool AnyRetainersAvailableCurrentChara()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
             return data.GetEnabledRetainers().Any(z => z.GetVentureSecondsRemaining() <= C.UnsyncCompensation);
         }
@@ -1286,7 +1470,7 @@ public static unsafe class Utils
 
     internal static float GetAngleTo(Vector2 pos)
     {
-        return (MathHelper.GetRelativeAngle(Svc.ClientState.LocalPlayer.Position.ToVector2(), pos) + Svc.ClientState.LocalPlayer.Rotation.RadToDeg()) % 360;
+        return (MathHelper.GetRelativeAngle(Svc.Objects.LocalPlayer.Position.ToVector2(), pos) + Svc.Objects.LocalPlayer.Rotation.RadToDeg()) % 360;
     }
 
     internal static bool IsApartmentEntrance(this IGameObject obj)
@@ -1303,7 +1487,7 @@ public static unsafe class Utils
         {
             if(x.IsTargetable && x.Name.ToString().EqualsIgnoreCaseAny([.. Lang.Entrance/*, Lang.ApartmentEntrance*/]))
             {
-                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
                 if(distance < currentDistance)
                 {
                     currentDistance = distance;
@@ -1342,9 +1526,9 @@ public static unsafe class Utils
                 if(addon == null) return null;
                 if(IsAddonReady(addon))
                 {
-                    var textNode = addon->UldManager.NodeList[15]->GetAsAtkTextNode();
-                    var text = GenericHelpers.ReadSeString(&textNode->NodeText).GetText();
-                    if(compare(text))
+                    // 取不到節點就當這個 SelectYesno「不是我們要找的那個」繼續往下掃(fail-closed):
+                    // 沒讀到文字時不能讓 compare 拿空字串去判，否則會把「讀不到」誤判成「內容為空的相符」。
+                    if(TryGetNodeText(&addon->UldManager, 15, out var text) && compare(text))
                     {
                         PluginLog.Verbose($"SelectYesno {text} addon {i} by predicate");
                         return addon;
@@ -1370,9 +1554,9 @@ public static unsafe class Utils
                 if(addon == null) return null;
                 if(IsAddonReady(addon))
                 {
-                    var textNode = addon->UldManager.NodeList[15]->GetAsAtkTextNode();
-                    var text = textNode->NodeText.GetText().Cleanup();
-                    if(text.ContainsAny(s.Select(x => x.Cleanup())))
+                    // 同上：讀不到就跳過這個 addon，不要拿空字串去做包含比對。
+                    if(TryGetNodeText(&addon->UldManager, 15, out var rawText)
+                        && rawText.Cleanup().ContainsAny(s.Select(x => x.Cleanup())))
                     {
                         PluginLog.Verbose($"SelectYesno {s.Print()} addon {i}");
                         return addon;
@@ -1405,12 +1589,12 @@ public static unsafe class Utils
 
     internal static bool IsCurrentRetainerEnabled()
     {
-        return TryGetCurrentRetainer(out var ret) && C.SelectedRetainers.TryGetValue(Svc.ClientState.LocalContentId, out var rets) && rets.Contains(ret);
+        return TryGetCurrentRetainer(out var ret) && C.SelectedRetainers.TryGetValue(SvcEx.PlayerState.ContentId, out var rets) && rets.Contains(ret);
     }
 
     internal static bool TryGetCurrentRetainer(out string name)
     {
-        if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && ProperOnLogin.PlayerPresent && Svc.Objects.Where(x => x.ObjectKind == ObjectKind.Retainer).OrderBy(x => Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position)).TryGetFirst(out var obj))
+        if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && ProperOnLogin.PlayerPresent && Svc.Objects.Where(x => x.ObjectKind == ObjectKind.Retainer).OrderBy(x => Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position)).TryGetFirst(out var obj))
         {
             name = obj.Name.ToString();
             return true;
@@ -1596,7 +1780,7 @@ public static unsafe class Utils
             Utils.ExtraLog($"GetNearestWorkshopEntrance: Scanning object table: object={x}, targetable={x.IsTargetable}");
             if(x.IsTargetable && x.Name.ToString().EqualsIgnoreCaseAny(Lang.AdditionalChambersEntrance))
             {
-                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
                 Utils.ExtraLog($"GetNearestWorkshopEntrance: check passed, object={x}, targetable={x.IsTargetable}, distance={distance}");
                 if(distance < currentDistance)
                 {

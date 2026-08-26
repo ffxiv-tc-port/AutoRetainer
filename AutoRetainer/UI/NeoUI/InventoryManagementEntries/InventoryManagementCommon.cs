@@ -244,51 +244,6 @@ public static unsafe class InventoryManagementCommon
         }
     }
 
-    public static void ImportFromArDiscard(List<uint> target)
-    {
-        if(ImGuiEx.Button(Loc.T("Import discard entries from Discard Helper"), ImGuiEx.Ctrl))
-        {
-            try
-            {
-                foreach(var x in EzConfig.LoadConfiguration<ARDiscardMiniConfig>(System.IO.Path.Combine(Svc.PluginInterface.ConfigDirectory.Parent.FullName, "ARDiscard.json")).DiscardingItems)
-                {
-                    if(!target.Contains(x) && !InventoryCleanupCommon.SelectedPlan.IMProtectList.Contains(x))
-                    {
-                        target.Add(x);
-                    }
-                }
-            }
-            catch(Exception ex)
-            {
-                ex.Log();
-            }
-        }
-        ImGuiEx.HelpMarker(Loc.T("If you're using Discard Helper plugin, you may import entries from it using this button. They will be merged with your existing entries. Hold CTRL and click."));
-    }
-
-    public static void ImportBlacklistFromArDiscard()
-    {
-        var s = InventoryCleanupCommon.SelectedPlan;
-        if(ImGuiEx.Button(Loc.T("Import blacklisted entries from Discard Helper"), ImGuiEx.Ctrl))
-        {
-            try
-            {
-                foreach(var x in EzConfig.LoadConfiguration<ARDiscardMiniConfig>(System.IO.Path.Combine(Svc.PluginInterface.ConfigDirectory.Parent.FullName, "ARDiscard.json")).DiscardingItems)
-                {
-                    if(!s.IMProtectList.Contains(x))
-                    {
-                        s.IMProtectList.Add(x);
-                    }
-                }
-            }
-            catch(Exception ex)
-            {
-                ex.Log();
-            }
-        }
-        ImGuiEx.HelpMarker(Loc.T("If you're using Discard Helper plugin, you may import entries from it using this button. They will be merged with your existing entries. Hold CTRL and click."));
-    }
-
     private static void DrawListOfItems(List<uint> ItemList)
     {
         Dictionary<uint, List<Item>> ListByCategories = [];

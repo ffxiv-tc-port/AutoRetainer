@@ -63,6 +63,16 @@ internal unsafe class Memory : IDisposable
         {
             e.Log();
         }
+        // 🔴 這支同時是 hook 的 detour（遊戲呼叫）與 AutoRetainer 自己合成呼叫的入口。
+        //    遊戲那條路永遠帶合法的 this 指標；會是假位址的只有我們自己合成的那條
+        //    —— InventorySpaceManager.AgentRetainerItemCommandModule 取不到代理人時回 0。
+        //    把 0 / 明顯無效的低位址交給原生函式，等於叫遊戲對該位址動雇員背包，
+        //    後果是攔不到的 AVE 而不是例外。這裡是四個合成呼叫端的共同咽喉，擋一處即可。
+        if(AgentRetainerItemCommandModule < 0x10000)
+        {
+            PluginLog.Information($"RetainerItemCommandDetour: 代理人位址無效（{AgentRetainerItemCommandModule:X16}），略過 {command}（slot={slot}, type={inventoryType}）");
+            return;
+        }
         RetainerItemCommandHook.Original(AgentRetainerItemCommandModule, slot, inventoryType, a4, command);
     }
 
@@ -72,15 +82,20 @@ internal unsafe class Memory : IDisposable
 
     private nint ReceiveRetainerVentureListUpdateDetour(nint a1, int a2, nint a3)
     {
-        var ret = ReceiveRetainerVentureListUpdateHook.Original(a1, a2, a3);
+        var ret = ReceiveRetainerVentureListUpdateHook.OriginalDisposeSafe(a1, a2, a3);
         PluginLog.Debug($"{a1:X16}, {a2:X8}, {a3:X16}");
-        P.ListUpdateFrame = CSFramework.Instance()->FrameCounter;
+        // 🔴 這裡是 hook detour 內。CSFramework.Instance() 是 isPointer:true 的靜態位址，
+        //    合法回 null；在 detour 裡對 null 解參考是攔不到的 AVE（corrupted-state exception）。
+        //    讀不到就不更新這個幀號 —— 消費端 RetainerHandlers.WaitForVentureListUpdate
+        //    會繼續回「還沒等到」並重試，不會謊報清單已更新。
+        var framework = CSFramework.Instance();
+        if(framework != null) P.ListUpdateFrame = framework->FrameCounter;
         return ret;
     }
 
     private nint AddonItemSearchResult_OnRequestedUpdateDelegateDetour(nint a1, nint data)
     {
-        var ret = OnReceiveMarketPricePacketHook.Original(a1, data);
+        var ret = OnReceiveMarketPricePacketHook.OriginalDisposeSafe(a1, data);
         P.MarketCooldownOverlay.UnlockAt = Environment.TickCount64 + 2000;
         return ret;
     }

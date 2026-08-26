@@ -19,7 +19,10 @@ internal unsafe class DebugVoyage : DebugSectionBase
         {
             try
             {
-                var h = HousingManager.Instance()->WorkshopTerritory;
+                // 不用三元：指標與 null 字面值之間沒有隱含轉換（CS0173）。
+                WorkshopTerritory* h = null;
+                var housing = HousingManager.Instance();
+                if(housing != null) h = housing->WorkshopTerritory;
                 if(h != null)
                 {
                     foreach(var x in h->Submersible.Data)
@@ -74,8 +77,14 @@ internal unsafe class DebugVoyage : DebugSectionBase
                 ImGuiEx.Text($"Panel type: {VoyageUtils.GetCurrentWorkshopPanelType()}");
                 if(TryGetAddonByName<AtkUnitBase>("AirShipExplorationResult", out var addon) && IsAddonReady(addon))
                 {
-                    var button = addon->UldManager.NodeList[3]->GetAsAtkComponentButton();
-                    ImGuiEx.Text($"Button: {button->IsEnabled}");
+                    // 🔴 NodeList[3] 原本上界與元素都沒驗;GetAsAtkComponentButton() 是
+                    //    [MemberFunction],對 null 節點呼叫等於把 this = 0 交給原生碼。
+                    //    外層雖然有 try/catch，但 AVE 是 corrupted-state exception，攔不到。
+                    //    取不到時 button 為 null,GetButtonEnabled 回 null → 這一列顯示 "?"
+                    //    (既有行為就是用 "?" 表示「讀不到」,這裡沿用)。
+                    var resultNode = Utils.GetNodeSafe(&addon->UldManager, 3);
+                    var button = resultNode == null ? null : resultNode->GetAsAtkComponentButton();
+                    ImGuiEx.Text($"Button: {Utils.GetButtonEnabled(button)?.ToString() ?? "?"}");
                 }
                 if(ImGui.Button("Interact with nearest panel"))
                 {
@@ -119,13 +128,15 @@ internal unsafe class DebugVoyage : DebugSectionBase
             }
             var curPlotId = (long*)(Process.GetCurrentProcess().MainModule.BaseAddress + 0x215FB68);
             ImGuiEx.TextCopy($"Plot ID: {*curPlotId:X16}");
-            ImGuiEx.Text($"HID: {HousingManager.Instance()->GetCurrentIndoorHouseId()}");
-            if(HousingManager.Instance()->WorkshopTerritory != null)
+            var housing = HousingManager.Instance();
+            // 讀不到就寫 ?，不要畫成 0 —— 0 是合法的房屋識別碼與船隻數量。
+            ImGuiEx.Text($"HID: {(housing == null ? "?" : housing->GetCurrentIndoorHouseId().ToString())}");
+            if(housing != null && housing->WorkshopTerritory != null)
             {
-                ImGuiEx.Text($"Num air: {HousingManager.Instance()->WorkshopTerritory->Airship.AirshipCount}");
-                //ImGuiEx.Text($"Num w: {HousingManager.Instance()->WorkshopTerritory->Submersible.DataList}");
+                ImGuiEx.Text($"Num air: {housing->WorkshopTerritory->Airship.AirshipCount}");
+                //ImGuiEx.Text($"Num w: {housing->WorkshopTerritory->Submersible.DataList}");
                 {
-                    var data = HousingManager.Instance()->WorkshopTerritory->Airship.Data;
+                    var data = housing->WorkshopTerritory->Airship.Data;
                     for(var i = 0; i < data.Length; i++)
                     {
                         var d = data[i];
@@ -133,7 +144,7 @@ internal unsafe class DebugVoyage : DebugSectionBase
                     }
                 }
                 {
-                    var data = HousingManager.Instance()->WorkshopTerritory->Submersible.Data;
+                    var data = housing->WorkshopTerritory->Submersible.Data;
                     for(var i = 0; i < data.Length; i++)
                     {
                         var d = data[i];

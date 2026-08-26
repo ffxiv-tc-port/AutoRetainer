@@ -1,4 +1,5 @@
-﻿using AutoRetainerAPI.Configuration;
+﻿using AutoRetainer.Services;
+using AutoRetainerAPI.Configuration;
 using Dalamud.Plugin.Ipc.Exceptions;
 using ECommons.Throttlers;
 
@@ -76,7 +77,7 @@ internal static class Artisan
 
     internal static bool AnyRetainersAvailable()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
             return data.GetEnabledRetainers().Any(z => z.GetVentureSecondsRemaining() <= C.UnsyncCompensation);
         }

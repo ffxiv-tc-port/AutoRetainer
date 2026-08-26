@@ -35,7 +35,7 @@ public static unsafe class PartSwapperTasks
         {
             if(Utils.GenericThrottle)
             {
-                if(addon.CloseButton->IsEnabled)
+                if(Utils.IsButtonEnabled(addon.CloseButton))
                 {
                     Log("Registering sub");
                     addon.Close();
@@ -91,7 +91,16 @@ public static unsafe class PartSwapperTasks
                 // frame. Comparison is OrdinalIgnoreCase rather than ToLower() == ToLower() so it
                 // does not depend on CurrentCulture (both sides go through ExtractText, and on TC
                 // every submersible part name is pure CJK, so this is behaviour-identical there).
-                var partName = Svc.Data.Excel.GetSheet<Item>().GetRow(componentId).Name.ToString();
+                // componentId 來自換件計畫(存在設定檔裡),不是遊戲當下讀出來的,所以可能指向
+                // 本地 Item 表沒有的列。裸 GetRow 在這裡擲例外的後果與下面那段註解描述的一樣:
+                // TaskManager 預設 abortOnError,整條佇列會被清掉,CompanyCraftSupply 會蓋在
+                // 航行選單上不再消失。回 false 只是讓這一格換件失敗,是既有的可容忍路徑。
+                if(!Svc.Data.Excel.GetSheet<Item>().TryGetRow(componentId, out var componentRow))
+                {
+                    PluginLog.Information($"[AutoRetainer] 換件計畫指定的零件 ID {componentId} 不存在於本地 Item 資料表,略過 slot {slot} 的換件。");
+                    return false;
+                }
+                var partName = componentRow.Name.ToString();
                 var matched = false;
 
                 for(var i = 0; i < availablePartAmount.UInt; i++)

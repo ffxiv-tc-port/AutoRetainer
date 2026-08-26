@@ -117,33 +117,23 @@ internal unsafe class AutoRetainerWindow : Window
             return;
         }
         var e = SchedulerMain.PluginEnabledInternal;
-        var disabled = MultiMode.Active && !ImGui.GetIO().KeyCtrl;
 
-        if(disabled)
-        {
-            ImGui.BeginDisabled();
-        }
+        // 多角模式執行中這些控制項原本是灰的、要按住 CTRL 才點得動。使用者裁定改成永遠可介入:
+        // 「整理包包時沒注意到被鎖住，一直重複點」。介入之後排程器不會卡住的理由見
+        // SchedulerMain.SetEnabledByUser 的註解(關鍵是不要把 Reason 從 MultiMode 覆蓋掉)。
         if(ImGui.Checkbox(Loc.T($"Enable {P.Name}"), ref e))
         {
             P.WasEnabled = false;
-            if(e)
-            {
-                SchedulerMain.EnablePlugin(PluginEnableReason.Auto);
-            }
-            else
-            {
-                SchedulerMain.DisablePlugin();
-            }
+            SchedulerMain.SetEnabledByUser(e, PluginEnableReason.Auto);
         }
         if(C.ShowDeployables && (VoyageUtils.Workshops.Contains(Svc.ClientState.TerritoryType) || VoyageScheduler.Enabled))
         {
             ImGui.SameLine();
             ImGui.Checkbox(Loc.T("Deployables"), ref VoyageScheduler.Enabled);
         }
-        if(disabled)
+        if(MultiMode.Active)
         {
-            ImGui.EndDisabled();
-            ImGuiComponents.HelpMarker(Loc.T("MultiMode controls this option. Hold CTRL to override."));
+            ImGuiComponents.HelpMarker(Loc.T(SharedText.MultiModeOverridesThisOption));
         }
 
         if(P.WasEnabled)
@@ -169,7 +159,7 @@ internal unsafe class AutoRetainerWindow : Window
         {
             ImGui.SameLine();
             ImGuiEx.SetNextItemWidthScaled(100f);
-            ImGuiEx.EnumCombo("##mode", ref C.MultiModeType);
+            ImGuiEx.EnumCombo("##mode", ref C.MultiModeType, Loc.EnumNames<MultiModeType>());
         }
         if(C.CharEqualize && MultiMode.Enabled)
         {

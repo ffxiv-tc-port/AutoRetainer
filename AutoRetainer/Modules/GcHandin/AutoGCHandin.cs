@@ -1,4 +1,5 @@
-﻿using AutoRetainer.UI.Overlays;
+﻿using AutoRetainer.Services;
+using AutoRetainer.UI.Overlays;
 using AutoRetainerAPI.Configuration;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Utility;
@@ -20,7 +21,7 @@ internal static unsafe class AutoGCHandin
 
     internal static bool IsEnabled()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var d))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var d))
         {
             return d.GCDeliveryType != GCDeliveryType.Disabled;
         }
@@ -28,7 +29,7 @@ internal static unsafe class AutoGCHandin
     }
     internal static bool IsArmoryChestEnabled()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var d))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var d))
         {
             return d.GCDeliveryType.EqualsAny(GCDeliveryType.Hide_Gear_Set_Items, GCDeliveryType.Show_All_Items);
         }
@@ -38,7 +39,7 @@ internal static unsafe class AutoGCHandin
     internal static bool IsAllItemsEnabled()
     {
         Safety.Check();
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var d))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var d))
         {
             return d.GCDeliveryType == GCDeliveryType.Show_All_Items;
         }
@@ -137,10 +138,12 @@ internal static unsafe class AutoGCHandin
     // 走到這裡代表獎勵視窗已經關掉（伺服器確認繳交），代理人卻遲遲不能收事件。
     // 舊值 5000 太長：這種情況下退回「等遊戲自己重建」本來就會成功，不需要空等五秒。
     //
-    // ⚠️ 這道保險絲同時是「AddonId != 0 這個新閘門萬一在台服不成立」的成本上限。
-    // 那個前提是從反組譯推出來的、還沒有實機資料佐證；如果它永遠是 0，每一件都會
-    // 走到這裡。獎勵視窗關掉之後遊戲自己重建約 0.42 秒，1000ms 留了 2 倍餘裕，
-    // 把最壞情況壓在「比現在慢約 3 倍」而不是「慢 6 倍」，而且 log 會直接指名 AddonId。
+    // ⚠️ 這道保險絲同時是「AddonId != 0 這個閘門萬一在台服不成立」的成本上限。
+    // ✅ 該前提已有二進位佐證：開清單視窗的 0x140E57570 在 OpenAddon(0xBD) 之後於
+    //    0x140E579DB 寫 agent->AddonId；而開獎勵視窗的 0x140E57A60 是把 OpenAddon(0xBE)
+    //    的結果寫進 agent+0x80、完全不動 AddonId。所以 AddonId != 0 確實代表「綁的是清單視窗」。
+    // ⚠️ 但餘裕沒有註解原本寫的那麼寬：實機 2196 件量到的最大閘門等待是 656ms，
+    //    1000ms 是 1.5 倍不是 2 倍（一次都沒燒斷）。機器更慢時會退回「等遊戲自己重建」。
     private const int RefreshTimeoutMs = 1000;
 
     private const int MinListTimeoutMs = 300;
@@ -175,6 +178,20 @@ internal static unsafe class AutoGCHandin
     /// <summary>獎勵視窗剛消失那一刻，各個閘門的快照。</summary>
     private static string CycleGateAtRewardGone = "";
 
+    // ── 「等刷新閘門」那半秒是誰欠的 ──────────────────────────────────────
+    // 2026-08-06 實機 2190 件的量測：獎勵視窗一消失，清單視窗就**不存在**，代理人的
+    // 清單陣列與 AddonId 也都是 0 —— 2190/2190 全部如此。也就是說刷新事件在那一刻
+    // 根本沒有對象可送，所謂「提早送出」只能發生在遊戲已經把視窗重建回來之後。
+    // 底下三個時刻分開記，才分得出「視窗回來」「代理人清單回來」「代理人重新綁定」
+    // 是同一件事還是三件事 —— 如果視窗明顯比綁定早回來，那半秒就還有得談；
+    // 如果三者一起翻，這就是遊戲自己的下限，這條路走到頭了。
+    /// <summary>清單視窗第一次重新存在的時刻。</summary>
+    private static long CycleAddonBackAt;
+    /// <summary>代理人的清單陣列第一次重新可用的時刻。</summary>
+    private static long CycleAgentListBackAt;
+    /// <summary>代理人第一次重新綁上視窗（AddonId != 0）的時刻。</summary>
+    private static long CycleAddonBoundAt;
+
     // 一整輪（一次自動繳交）的統計，用來算提早送出的成功率與淨效益。
     private static int StatCycles;
     private static int StatEarlyOk;
@@ -200,7 +217,31 @@ internal static unsafe class AutoGCHandin
         CycleSentEarly = false;
         CycleAddonReadyAt = 0;
         CycleGateAtRewardGone = "";
+        CycleAddonBackAt = CycleAgentListBackAt = CycleAddonBoundAt = 0;
     }
+
+    /// <summary>
+    /// 取樣「獎勵視窗關掉之後，清單重建到哪一步了」，每個子條件各記第一次成立的時刻。
+    /// <para/>
+    /// 回傳值與 <see cref="IsSupplyListAddonReady"/> 相同（送出刷新事件前的就緒狀態），
+    /// 順便讓這一幀只查一次視窗而不是兩次。
+    /// <para/>
+    /// 🔴 取得的原生指標只在這一幀內使用，不保存。
+    /// </summary>
+    private static bool SampleRebuildGates()
+    {
+        var now = NowMs;
+        var hasAddon = TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var list);
+        if(hasAddon && CycleAddonBackAt == 0) CycleAddonBackAt = now;
+        GCSupplyRefresh.SampleAgentGates(out var listArrayBack, out var addonBound);
+        if(listArrayBack && CycleAgentListBackAt == 0) CycleAgentListBackAt = now;
+        if(addonBound && CycleAddonBoundAt == 0) CycleAddonBoundAt = now;
+        return hasAddon && IsAddonReady(list);
+    }
+
+    /// <summary>把重建過程的某個時刻換算成「獎勵視窗關掉之後幾毫秒」，量不到時回 -1。</summary>
+    private static long SinceRewardGone(long at)
+        => at == 0 || CycleRewardGoneAt == 0 ? -1 : at - CycleRewardGoneAt;
 
     /// <summary>
     /// 軍需品清單 addon 是否處於舊版閘門要求的「完全就緒」狀態。
@@ -268,6 +309,13 @@ internal static unsafe class AutoGCHandin
             // 它接近 0 代表刷新事件本身讓視窗提早就緒（真的有省）；它仍是一兩百毫秒代表視窗就緒
             // 是獨立於刷新的過程，提早送出只是把等待換了個位置。
             $"刷新→視窗就緒 {(CycleRefreshedAt == 0 || CycleAddonReadyAt == 0 ? -1 : CycleAddonReadyAt - CycleRefreshedAt)}ms | " +
+            // 「等刷新閘門」那段時間的拆解：三者都相對於獎勵視窗消失那一刻。
+            // 若三個數字幾乎相同，代表遊戲是一口氣把視窗與代理人一起帶回來的，
+            // 那段等待就是遊戲自己的下限；若「視窗回來」明顯早於「重新綁定」，
+            // 差額才是還有機會省下來的部分。
+            $"重建(相對視窗關閉) 視窗回來 {SinceRewardGone(CycleAddonBackAt)}ms / " +
+            $"代理人清單 {SinceRewardGone(CycleAgentListBackAt)}ms / " +
+            $"重新綁定 {SinceRewardGone(CycleAddonBoundAt)}ms | " +
             $"閘門@視窗關閉 {CycleGateAtRewardGone}");
         CycleStartedAt = CycleDeliveredAt = CycleRewardGoneAt = CycleRefreshedAt = 0;
     }
@@ -289,7 +337,7 @@ internal static unsafe class AutoGCHandin
             var deliverButton = addon->DeliverButton;
             // 這個節流器的名字刻意跟掃描閘門分開。舊版兩者共用一個名字，
             // 送出繳交時的 rethrottle 會連帶把「按交付」也延後最多 10 幀。
-            if(deliverButton != null && deliverButton->IsEnabled && FrameThrottler.Throttle(ThrottlerDeliver, 10))
+            if(Utils.IsButtonEnabled(deliverButton) && FrameThrottler.Throttle(ThrottlerDeliver, 10))
             {
                 new AddonMaster.GrandCompanySupplyReward(addon).Deliver();
                 DebugLog($"Delivering Item");
@@ -305,9 +353,14 @@ internal static unsafe class AutoGCHandin
     {
         if(TryGetAddonByName<AddonSelectYesno>("SelectYesno", out var addon) && IsAddonReady(&addon->AtkUnitBase) && Operation)
         {
-            if(addon->YesButton->IsEnabled)
+            // 🔴 PromptText 是偏移 0x238 的指標欄位,開窗途中/版面未建好時為 null。
+            //    NodeText 在 AtkTextNode 偏移 0xC0,而 GetText(this Utf8String) 的參數是**傳值**的 ——
+            //    複製動作發生在呼叫端,等於直接去讀位址 0xC0,炸在這一行(不是在 GetText 裡面)。
+            //    讀不到提示文字就不按「是」(fail-closed:比對不成立就不動作,下一輪重試)。
+            var promptText = addon->PromptText;
+            if(promptText != null && Utils.IsButtonEnabled(addon->YesButton))
             {
-                var str = addon->PromptText->NodeText.GetText().Cleanup();
+                var str = GenericHelpers.ReadSeString(&promptText->NodeText).GetText().Cleanup();
                 DebugLog($"SelectYesno encountered: {str}");
                 //102434	Do you really want to trade a high-quality item?
                 if(str.Equals(GenericHelpers.GetText(Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(102434).Text).Cleanup()))
@@ -368,7 +421,8 @@ internal static unsafe class AutoGCHandin
                     // DailyRoutines 的泛用閘門，不是這條路徑的前提。細節見 GCSupplyRefresh。
                     // ⚠️ 必須在送出「之前」取樣：RefreshAddon 是同步的，送完再問就可能問到
                     // 被這次刷新改過的狀態，把「提早送出」誤記成「等就緒後送出」。
-                    var addonReadyBeforeSend = IsSupplyListAddonReady();
+                    // 取樣三個重建子條件的第一次成立時刻，順便拿到送出前的就緒狀態。
+                    var addonReadyBeforeSend = SampleRebuildGates();
                     if(GCSupplyRefresh.RequestExpertDeliveryRefresh())
                     {
                         CycleSentEarly = !addonReadyBeforeSend;
@@ -500,7 +554,16 @@ internal static unsafe class AutoGCHandin
                                 {
                                     throw new GCHandinInterruptedException($"Item {itemName} was not found in inventory");
                                 }
-                                // 🔴 索引上下界都要驗：越界的 index 會讓遊戲照著算出去。
+                                // 🔴🔴 這道檢查是承重牆，不是防禦性裝飾，**不要拿掉也不要降成 assert**。
+                                //    2026-08-06 離線反組譯直證：AgentGrandCompanySupply::ReceiveEvent
+                                //    的選列路徑（0x140E55BED）會先把**原始**索引寫進 agent+0x8C，
+                                //    只有在解析命中時才於 0x140E55CC0 覆寫；而下游的
+                                //    0x141B7B8C0 只有 `cmp r13w, 0xB` 這個**下界**分岔，
+                                //    對稀有品 vector 的長度完全沒有上界檢查，且索引被截成 16 bit
+                                //    —— idx >= 11 直接算 [this+0x778] - 0x738 + idx*0xA8 後複製整筆
+                                //    （含 Utf8String，第二層解參考）。越界＝AccessViolation，
+                                //    那是 corrupted-state exception，try/catch 攔不到。
+                                //    reader.NumItems 正好是正確的界。
                                 if(nextItem.Value.Index < 0 || nextItem.Value.Index >= reader.NumItems)
                                 {
                                     throw new GCHandinInterruptedException($"Item index {nextItem.Value.Index} out of range (0..{reader.NumItems})");
@@ -574,12 +637,14 @@ internal static unsafe class AutoGCHandin
     {
         try
         {
-            return
-                GCSupplyListAddon != null
-                && IsAddonReady(GCSupplyListAddon)
-                && GCSupplyListAddon->UldManager.NodeListCount > 20
-                && GCSupplyListAddon->UldManager.NodeList[5]->IsVisible()
-                && IsSelectedFilterValid(GCSupplyListAddon);
+            // ⚠️ 這個 try/catch 對下面的問題完全無效:AVE 在 .NET Core 是 corrupted-state exception,
+            //    攔不到。上界(NodeListCount > 20)原本就有,缺的是**元素判空** —— 兩者是兩件事,
+            //    只做上界時越界以外的失敗(元素為 null)照樣穿過去。
+            if(GCSupplyListAddon == null || !IsAddonReady(GCSupplyListAddon)) return false;
+            if(GCSupplyListAddon->UldManager.NodeListCount <= 20) return false;
+            var node = Utils.GetNodeSafe(&GCSupplyListAddon->UldManager, 5);
+            if(node == null) return false;
+            return node->IsVisible() && IsSelectedFilterValid(GCSupplyListAddon);
         }
         catch(Exception)
         {
@@ -588,14 +653,32 @@ internal static unsafe class AutoGCHandin
     }
     internal static bool IsDone(AtkUnitBase* addon)
     {
-        return addon->UldManager.NodeList[20]->IsVisible();
+        // 上界由呼叫端的 IsReadyToOperate(NodeListCount > 20)保證,但元素本身仍可為 null。
+        // 讀不到就回 false ＝「還沒完成」,維持既有的繼續操作路徑(不會謊報完成而提前收工)。
+        if(addon == null) return false;
+        var node = Utils.GetNodeSafe(&addon->UldManager, 20);
+        return node != null && node->IsVisible();
     }
     internal static bool IsSelectedFilterValid(AtkUnitBase* addon)
     {
-        var step1 = addon->UldManager.NodeList[14];
-        var step2 = step1->GetAsAtkComponentNode()->Component->UldManager.NodeList[1];
-        var step3 = step2->GetAsAtkComponentNode()->Component->UldManager.NodeList[2];
-        var text = GenericHelpers.ReadSeString(&step3->GetAsAtkTextNode()->NodeText).GetText();
+        if(addon == null) return false;
+        // 🔴 原本是六跳裸鏈,每一跳都有獨立的 null 路徑,而且兩種爆法都攔不到:
+        //    GetAsAtkComponentNode()／GetAsAtkTextNode() 是 [MemberFunction],對 null this 呼叫
+        //    等於把 this=0 交給遊戲原生碼＝當場 AVE(corrupted-state exception,try/catch 無效);
+        //    最後那個 &...->NodeText 則是靜默的毒指標 0xC0,連 ReadSeString 內部的判空都騙得過去。
+        //    NodeList 的索引另外要驗 NodeListCount 上界(越界讀到的是相鄰記憶體而不是 null),
+        //    Utils.GetNodeSafe 把上界與元素判空一起做掉。
+        //    取不到就回 false ＝「篩選條件尚未確認有效」,呼叫端會繼續等/重試,不會誤判成可以開始繳交。
+        var step1 = Utils.GetNodeSafe(&addon->UldManager, 14);
+        var comp1 = step1 == null ? null : step1->GetAsAtkComponentNode();
+        if(comp1 == null || comp1->Component == null) return false;
+
+        var step2 = Utils.GetNodeSafe(&comp1->Component->UldManager, 1);
+        var comp2 = step2 == null ? null : step2->GetAsAtkComponentNode();
+        if(comp2 == null || comp2->Component == null) return false;
+
+        var step3 = Utils.GetNodeSafe(&comp2->Component->UldManager, 2);
+        if(!Utils.TryGetNodeText(step3, out var text)) return false;
         //4619	Hide Armoury Chest Items
         //4618	Hide Gear Set Items
         //4617	Show All Items
@@ -608,7 +691,7 @@ internal static unsafe class AutoGCHandin
         }
         else
         {
-            if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+            if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
             {
                 if(text.EqualsAny(hideGearSet))
                 {

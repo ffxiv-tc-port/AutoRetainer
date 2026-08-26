@@ -27,7 +27,11 @@ internal unsafe class SubmarinePointPlanUI : Window
 
     public override void Draw()
     {
-        C.SubmarinePointPlans.RemoveAll(x => x.Delete);
+        if(C.SubmarinePointPlans.RemoveAll(x => x.Delete) > 0)
+        {
+            // 計畫刪掉了就把它留在「按航距裁切」集合裡的 GUID 一起清掉，避免無主的鍵越積越多。
+            C.SubmarinePointPlansTrimToRange.RemoveWhere(guid => !C.SubmarinePointPlans.Any(x => x.GUID == guid));
+        }
         ImGuiEx.InputWithRightButtonsArea(Loc.T("SUPSelector"), () =>
         {
             if(ImGui.BeginCombo("##supsel", SelectedPlanName, ImGuiComboFlags.HeightLarge))
@@ -68,7 +72,7 @@ internal unsafe class SubmarinePointPlanUI : Window
                 {
                     if(!my.Any())
                     {
-                        ImGuiEx.TextWrapped(Loc.T("This plan is not used by any submersibles."));
+                        ImGuiEx.TextWrapped(Loc.T(SharedText.PlanNotUsedByAnySubmersibles));
                     }
                     else
                     {
@@ -136,6 +140,44 @@ internal unsafe class SubmarinePointPlanUI : Window
                 }
             });
 
+            ImGui.Separator();
+            // 這艘潛水艇實際會跑到的點位。null＝算不出來或沒開裁切，下面的清單要畫「?」不要畫成「不跑」。
+            List<uint> trimPreview = null;
+            var trimEnabled = PointPlanRange.IsTrimEnabled(SelectedPlan);
+            {
+                var trim = trimEnabled;
+                if(ImGui.Checkbox(Loc.T("Only pick the sectors this submersible can actually reach"), ref trim))
+                {
+                    PointPlanRange.SetTrimEnabled(SelectedPlan, trim);
+                }
+                ImGuiEx.Tooltip(Loc.T("Before deploying, the estimated exploration distance of this plan is compared with the submersible's range. Every combination of sectors is evaluated and the one that fits the range while covering the MOST sectors is used, so a sector in the middle of the list can be skipped to make room for two others.\n\nThe order of the list is your priority order: when several combinations reach the same number of sectors, the one using the sectors nearest the top wins. The travel order is optimized separately for the shortest route, so it does not have to match the order shown here.\n\nEvery submersible is evaluated on its own, so the same plan can send different submersibles to a different number of sectors, and a submersible will automatically pick up more sectors as it ranks up.\n\nIf anything cannot be calculated (submersible data unreadable, sheet lookup failed, not even the first sector is reachable) the plan is used unchanged, exactly as it behaves today."));
+                if(trimEnabled)
+                {
+                    if(PointPlanRange.TryGetCurrentSubmarineInfo(out var info))
+                    {
+                        // 🔴 刻意呼叫與出航時同一支選擇函式。之前這裡自己用「前綴階梯」推算會跑幾個點，
+                        // 演算法改成枚舉子集之後兩邊就會靜默不一致（顯示 2 點、實際跑 3 點）。
+                        var havePreview = PointPlanRange.TryGetTrimPreview(SelectedPlan, info, out var kept, out var previewDistance);
+                        if(havePreview) trimPreview = kept;
+                        ImGuiEx.Text(string.Format(Loc.T("Current submersible: {0} (Rank {1}, range {2}) - would run {3} of {4} sectors"),
+                            info.Name, info.Rank, info.Range, havePreview ? kept.Count.ToString() : "?", SelectedPlan.Points.Count));
+                        if(havePreview)
+                        {
+                            ImGuiEx.Text(ImGuiColors.DalamudGrey, string.Format(Loc.T("Route: {0} (estimated exploration distance {1} of {2})"),
+                                kept.Select(x => VoyageUtils.GetSubmarineExploration(x)?.Location.ToString() ?? $"?{x}").Join(" > "), previewDistance, info.Range));
+                        }
+                        if(info.RangeMismatch)
+                        {
+                            ImGuiEx.Text(ImGuiColors.DalamudOrange, string.Format(Loc.T("Sheet-derived range {0} disagrees with the value read from the game ({1}). The sheet value is used."), info.SheetRange, info.NativeRange));
+                        }
+                    }
+                    else
+                    {
+                        ImGuiEx.Text(ImGuiColors.DalamudGrey, Loc.T("Current submersible: unknown - open this window while a submersible panel is open to see how far it gets."));
+                    }
+                }
+            }
+
             ImGuiEx.EzTableColumns("SubPlan",
             [
                 delegate
@@ -174,6 +216,7 @@ internal unsafe class SubmarinePointPlanUI : Window
                             ImGuiEx.Text($"{map.Value.Name}:");
                         }
                         var toRem = -1;
+                        var ladder = PointPlanRange.GetRequiredRangeLadder(SelectedPlan);
                         for (var i = 0; i < SelectedPlan.Points.Count; i++)
                         {
                             ImGui.PushID(i);
@@ -191,6 +234,36 @@ internal unsafe class SubmarinePointPlanUI : Window
                             {
                                 toRem = i;
                             }
+                            ImGui.SameLine();
+                            // 這艘船到底跑不跑這個點。⚠️「不知道」要在列上看得見，不能不畫 ——
+                            // 什麼都不畫會被讀成「不跑」。用 ASCII 標記，理由同下面的 ">="。
+                            if(trimEnabled)
+                            {
+                                if(trimPreview == null)
+                                {
+                                    ImGuiEx.Text(ImGuiColors.DalamudGrey, "[?]");
+                                    ImGuiEx.Tooltip(Loc.T("Cannot tell whether this sector will be run: no submersible panel is open, or the calculation failed."));
+                                }
+                                else if(trimPreview.Contains(SelectedPlan.Points[i]))
+                                {
+                                    ImGuiEx.Text(ImGuiColors.HealerGreen, "[v]");
+                                    ImGuiEx.Tooltip(Loc.T("The current submersible will run this sector."));
+                                }
+                                else
+                                {
+                                    ImGuiEx.Text(ImGuiColors.DalamudGrey, "[ ]");
+                                    ImGuiEx.Tooltip(Loc.T("The current submersible will skip this sector: dropping it lets more of the other sectors fit into its range."));
+                                }
+                                ImGui.SameLine();
+                            }
+                            // 這個點要被跑到所需的航行距離（含它前面所有點）。算不到就畫「?」不畫 0 ——
+                            // 把「不知道」畫成 0 會直接誤導使用者以為這個點不用航距。
+                            var needed = i < ladder.Length ? ladder[i] : -1;
+                            // 刻意用 ASCII 的 ">=" 而不是 U+2265 —— 遊戲字型缺字時會靜默畫成空白。
+                            ImGuiEx.Text(ImGuiColors.DalamudGrey, needed >= 0 ? $">={needed}" : ">=?");
+                            var pointRow = VoyageUtils.GetSubmarineExploration(SelectedPlan.Points[i]);
+                            ImGuiEx.Tooltip(string.Format(Loc.T("Requires a submersible range of at least {0} to include this sector AND everything above it in one voyage.\nA submersible with less range can still reach this sector if one of the sectors above it is skipped instead.\nThis sector needs Rank {1}."),
+                                needed >= 0 ? needed.ToString() : "?", pointRow == null ? "?" : pointRow.Value.RankReq.ToString()));
                             ImGui.SameLine();
                             ImGuiEx.Text($"{VoyageUtils.GetSubmarineExploration(SelectedPlan.Points[i])?.FancyDestination()}");
                             ImGui.PopID();

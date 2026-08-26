@@ -13,7 +13,10 @@ internal unsafe class DebugVenture : DebugSectionBase
     public override void Draw()
     {
         {
-            var agent = AgentModule.Instance()->GetAgentByInternalId((AgentId)140);
+            // AgentModule.Instance() 是 CS 手寫的包裝（uiModule == null ? null : uiModule->GetAgentModule()），
+            // 合法回 null。原本只判了 GetAgentByInternalId 的回傳值，護不到 Instance() 本身。
+            var agentModule = AgentModule.Instance();
+            var agent = agentModule == null ? null : agentModule->GetAgentByInternalId((AgentId)140);
             if(agent != null && agent->IsAgentActive())
             {
                 ImGuiEx.TextCopy($"{(nint)agent:X16}");
@@ -22,7 +25,8 @@ internal unsafe class DebugVenture : DebugSectionBase
         }
         if(TryGetAddonByName<AddonRetainerTaskAsk>("RetainerTaskAsk", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
-            ImGuiEx.Text($"Enabled: {addon->AssignButton->IsEnabled}");
+            // 按鈕還沒建構完成時畫「?」而不是「False」——後者會讓人以為已經確認過按鈕是停用的。
+            ImGuiEx.Text($"Enabled: {Utils.GetButtonEnabled(addon->AssignButton)?.ToString() ?? "?"}");
         }
 
         foreach(var x in C.OfflineData)
@@ -60,8 +64,16 @@ internal unsafe class DebugVenture : DebugSectionBase
             // 🔴 改用具名列舉而不是換一個新的魔術數字：下次陣列再位移時它會自己跟著動。
             // ⚠️ 寫完整命名空間：本檔沒有 using FFXIVClientStructs.FFXIV.Component.GUI，
             // 而補 using 會讓裸寫的 RetainerTask 在別處有撞名風險（VentureUtils 就撞過 Lumina 的同名表格型別）。
-            var data = CSFramework.Instance()->UIModule->GetRaptureAtkModule()->AtkModule.GetStringArrayData(
-                (int)FFXIVClientStructs.FFXIV.Component.GUI.StringArrayType.RetainerTask);
+            // 🔴 四層裸鏈：Framework（isPointer:true）→ UIModule（裸欄位）→ GetRaptureAtkModule()
+            //    → 陣列。任一層 null 都是攔不到的 AVE，逐層判。
+            var framework = CSFramework.Instance();
+            var atkModule = framework == null || framework->UIModule == null
+                ? null
+                : framework->UIModule->GetRaptureAtkModule();
+            var data = atkModule == null
+                ? null
+                : atkModule->AtkModule.GetStringArrayData(
+                    (int)FFXIVClientStructs.FFXIV.Component.GUI.StringArrayType.RetainerTask);
             if(data != null)
             {
                 for(var i = 0; i < data->AtkArrayData.Size; i++)

@@ -52,9 +52,9 @@ public class MultiModeCommon : NeoUIEntry
         .Checkbox(Loc.T("...to private house"), () => ref C.GlobalTeleportOptions.RetainersPrivate)
         .Checkbox(Loc.T("...to free company house"), () => ref C.GlobalTeleportOptions.RetainersFC)
         .Checkbox(Loc.T("...to apartment"), () => ref C.GlobalTeleportOptions.RetainersApartment)
-        .TextWrapped(Loc.T("If all above are disabled or fail, will be teleported to inn."))
+        .TextWrapped(Loc.T(SharedText.FallbackTeleportToInn))
         .Unindent()
-        .Checkbox(Loc.T("Teleport to free company house for deployables"), () => ref C.GlobalTeleportOptions.Deployables)
+        .Checkbox(Loc.T(SharedText.TeleportToFcHouseForDeployables), () => ref C.GlobalTeleportOptions.Deployables)
         .Checkbox(Loc.T("Enable Simple Teleport"), () => ref C.AllowSimpleTeleport)
         .Unindent()
         .Widget(() => ImGuiEx.HelpMarker(Loc.T("""

@@ -2,6 +2,7 @@
 using AutoRetainer.Modules.Voyage;
 using AutoRetainer.Modules.Voyage.Tasks;
 using AutoRetainer.Scheduler.Tasks;
+using AutoRetainer.Services;
 using AutoRetainer.UI.MainWindow.MultiModeTab;
 using AutoRetainerAPI.Configuration;
 using Dalamud.Game.Config;
@@ -59,16 +60,19 @@ internal static unsafe class MultiMode
             }
             BailoutManager.IsLogOnTitleEnabled = false;
             WriteOfflineData(true, true);
-            if(LastLogin == Svc.ClientState.LocalContentId && Active)
+            if(LastLogin == SvcEx.PlayerState.ContentId && Active)
             {
                 DuoLog.Error("Multi mode disabled as it have detected duplicate login.");
                 Enabled = false;
             }
-            LastLogin = MultiMode.Enabled && !C.MultiWaitOnLoginScreen ? Svc.ClientState.LocalContentId : 0;
+            LastLogin = MultiMode.Enabled && !C.MultiWaitOnLoginScreen ? SvcEx.PlayerState.ContentId : 0;
             Interactions.Clear();
+            // 登出那側也清了一次；這裡是第二道，涵蓋「登出事件沒送到」與「外掛在已登入狀態下載入」。
+            // 剛登入時不可能有進行中的雇員行程，所以無條件清空是安全的。
+            SchedulerMain.ClearPendingEntrustVendorPass("login");
             if(CanHET)
             {
-                DebugLog($"ProperOnLogin: {Svc.ClientState.LocalPlayer}, residential area, scheduling HET");
+                DebugLog($"ProperOnLogin: {Svc.Objects.LocalPlayer}, residential area, scheduling HET");
                 if(!TaskTeleportToProperty.ShouldVoidHET()) TaskNeoHET.Enqueue(null);
             }
             MultiModeUI.JustRelogged = true;
@@ -160,7 +164,10 @@ internal static unsafe class MultiMode
             {
                 if(!Player.Available && Utils.CanAutoLogin())
                 {
-                    AgentLobby.Instance()->IdleTime = 0;
+                    // 🔴 這是**寫入**：AgentLobby 取得器合法回 null，裸寫等於往位址 0 寫。
+                    //    拿不到就跳過歸零（下一幀還會再來一次），不要在這裡丟例外。
+                    var lobby = AgentLobby.Instance();
+                    if(lobby != null) lobby->IdleTime = 0;
                     var next = GetCurrentTargetCharacter();
                     if(next != null)
                     {
@@ -177,7 +184,7 @@ internal static unsafe class MultiMode
             }
             if(Interactions.Count() == Interactions.Capacity && Interactions.All(x => Environment.TickCount64 - x < 60000))
             {
-                if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data) && data.Enabled)
+                if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data) && data.Enabled)
                 {
                     data.Enabled = false;
                     data.WorkshopEnabled = false;
@@ -202,7 +209,7 @@ internal static unsafe class MultiMode
             {
                 if(!Utils.IsInventoryFree())
                 {
-                    if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+                    if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
                     {
                         data.Enabled = false;
                     }
@@ -272,7 +279,7 @@ internal static unsafe class MultiMode
                     }
                     else if(AnyRetainersAvailable() && EnabledRetainers)
                     {
-                        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+                        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
                         {
                             if(!TaskTeleportToProperty.EnqueueIfNeededAndPossible(false))
                             {
@@ -310,7 +317,7 @@ internal static unsafe class MultiMode
 
     internal static bool CheckInventoryValidity()
     {
-        return Svc.ClientState.LocalPlayer.HomeWorld.RowId == Svc.ClientState.LocalPlayer.CurrentWorld.RowId && Utils.GetVenturesAmount() >= Data.GetNeededVentureAmount() && Utils.IsInventoryFree();
+        return Svc.Objects.LocalPlayer.HomeWorld.RowId == Svc.Objects.LocalPlayer.CurrentWorld.RowId && Utils.GetVenturesAmount() >= Data.GetNeededVentureAmount() && Utils.IsInventoryFree();
     }
 
     internal static IEnumerable<OfflineCharacterData> GetEnabledOfflineData()
@@ -320,7 +327,7 @@ internal static unsafe class MultiMode
 
     internal static bool AnyRetainersAvailable(int advanceSeconds = 0)
     {
-        if(GetEnabledOfflineData().TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(GetEnabledOfflineData().TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
             return data.GetEnabledRetainers().Any(z => z.GetVentureSecondsRemaining() <= C.UnsyncCompensation + advanceSeconds);
         }
@@ -341,7 +348,7 @@ internal static unsafe class MultiMode
 
     internal static OfflineCharacterData GetPreferredCharacter()
     {
-        return C.OfflineData.FirstOrDefault(x => x.Preferred && x.CID != Svc.ClientState.LocalContentId);
+        return C.OfflineData.FirstOrDefault(x => x.Preferred && x.CID != SvcEx.PlayerState.ContentId);
     }
 
     internal static void BlockInteraction(int seconds)
@@ -401,7 +408,7 @@ internal static unsafe class MultiMode
                 {
                     ErrorMessage = "Player is occupied";
                 }
-                else if(data != null && data.CID == Svc.ClientState.LocalContentId)
+                else if(data != null && data.CID == SvcEx.PlayerState.ContentId)
                 {
                     ErrorMessage = "Targeted player is logged in";
                 }
@@ -413,7 +420,7 @@ internal static unsafe class MultiMode
                     }
                     if(MultiMode.Enabled)
                     {
-                        CharaCnt.IncrementOrSet(Svc.ClientState.LocalContentId);
+                        CharaCnt.IncrementOrSet(SvcEx.PlayerState.ContentId);
                     }
                     else
                     {
@@ -574,7 +581,7 @@ internal static unsafe class MultiMode
     internal static bool IsCurrentCharacterRetainersDone()
     {
         if(!ProperOnLogin.PlayerPresent) return false;
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
             if(!EnabledRetainers) return true;
             if(!data.Enabled) return true;
@@ -599,7 +606,7 @@ internal static unsafe class MultiMode
     {
         if(!ProperOnLogin.PlayerPresent) return false;
         if(!EnabledRetainers) return false;
-        if(GetEnabledOfflineData().TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(GetEnabledOfflineData().TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
             var selectedRetainers = data.GetEnabledRetainers().Where(z => z.HasVenture);
             return selectedRetainers.Any(z => z.GetVentureSecondsRemaining() <= seconds);
@@ -610,9 +617,9 @@ internal static unsafe class MultiMode
     internal static bool EnsureCharacterValidity(bool ro = false)
     {
         if(!ProperOnLogin.PlayerPresent) return false;
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
         {
-            if(Svc.ClientState.LocalPlayer.HomeWorld.RowId == Svc.ClientState.LocalPlayer.CurrentWorld.RowId && Utils.GetVenturesAmount() >= data.GetNeededVentureAmount() && Utils.IsInventoryFree() && Utils.GetReachableRetainerBell(true) != null)
+            if(Svc.Objects.LocalPlayer.HomeWorld.RowId == Svc.Objects.LocalPlayer.CurrentWorld.RowId && Utils.GetVenturesAmount() >= data.GetNeededVentureAmount() && Utils.IsInventoryFree() && Utils.GetReachableRetainerBell(true) != null)
             {
                 return true;
             }

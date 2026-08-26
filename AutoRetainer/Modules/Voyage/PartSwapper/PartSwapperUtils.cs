@@ -13,7 +13,13 @@ public static unsafe class PartSwapperUtils
     internal static List<(int, uint)>? GetIsVesselNeedsPartsSwap(int num, VoyageType type, out List<string> log)
     {
         log = [];
-        var workshop = HousingManager.Instance()->WorkshopTerritory;
+        var housing = HousingManager.Instance();
+        if(housing == null) return null;
+        var workshop = housing->WorkshopTerritory;
+        // 讀不到工房就回 null＝「這輪不換零件」，與「零件不齊」共用同一條退路
+        // （兩個呼叫端都只在拿到非 null 清單時才動作）。把讀不到當成「要換」
+        // 會照著讀不出來的資料真的去搬零件。
+        if(workshop == null) return null;
 
         PluginLog.Debug($"Change - Num: {num}");
         var vesselLevel = (int)workshop->Submersible.Data[num].RankId;

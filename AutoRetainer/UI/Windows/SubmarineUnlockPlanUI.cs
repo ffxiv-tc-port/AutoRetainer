@@ -65,9 +65,13 @@ internal unsafe class SubmarineUnlockPlanUI : Window
 
     internal bool IsSubDataAvail()
     {
-        if(HousingManager.Instance()->WorkshopTerritory == null) return false;
-        if(HousingManager.Instance()->WorkshopTerritory->Submersible.Data.Length == 0) return false;
-        if(HousingManager.Instance()->WorkshopTerritory->Submersible.Data[0].Name[0] == 0) return false;
+        // 原本三行都判了 WorkshopTerritory，卻沒有一行判 HousingManager 本身。
+        var housing = HousingManager.Instance();
+        if(housing == null) return false;
+        var workshop = housing->WorkshopTerritory;
+        if(workshop == null) return false;
+        if(workshop->Submersible.Data.Length == 0) return false;
+        if(workshop->Submersible.Data[0].Name[0] == 0) return false;
         return true;
     }
 
@@ -119,7 +123,7 @@ internal unsafe class SubmarineUnlockPlanUI : Window
                 {
                     if(!my.Any())
                     {
-                        ImGuiEx.TextWrapped(Loc.T("This plan is not used by any submersibles."));
+                        ImGuiEx.TextWrapped(Loc.T(SharedText.PlanNotUsedByAnySubmersibles));
                     }
                     else
                     {
@@ -212,6 +216,9 @@ internal unsafe class SubmarineUnlockPlanUI : Window
                 ImGui.Checkbox(Loc.T("Enforce Spam one destination mode in Deep sea site."), ref SelectedPlan.EnforceDSSSinglePoint);
                 ImGui.Checkbox(Loc.T("Set this plan as enforced."), ref SelectedPlan.EnforcePlan);
                 ImGuiEx.HelpMarker(Loc.T("Any point selected for unlock in this map will be executed by every single eligible submarine until everything is actually unlocked"));
+                // 全域開關(非本計畫專屬):解鎖模式在沒有新點可解鎖後,繼續把已解鎖但未探索的點跑過一次打勾。
+                ImGui.Checkbox(Loc.T("Also explore unlocked-but-unexplored points (global)"), ref C.UnlockRouteAlsoExploreUnexplored);
+                ImGuiEx.HelpMarker(Loc.T("Applies to all unlock plans. Unlock mode only visits points needed to unlock others, so terminal points get unlocked but never explored (checkmarked). With this on, once there is nothing left to unlock the submarine keeps running unlocked-but-unexplored points until every point is explored."));
                 if(ImGui.BeginTable("##planTable", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
                 {
                     ImGui.TableSetupColumn(Loc.T("Zone"), ImGuiTableColumnFlags.WidthStretch);
@@ -252,7 +259,11 @@ internal unsafe class SubmarineUnlockPlanUI : Window
                 }
                 if(ImGui.CollapsingHeader(Loc.T("Display current point exploration order")))
                 {
-                    ImGuiEx.Text(SelectedPlan.GetPrioritizedPointList().Select(x => $"{Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(x.point).Destination} ({x.justification})").Join("\n"));
+                    // 點位 ID 來自解鎖計畫,而計畫可以整份從剪貼簿貼入(本檔 Paste plan settings)。
+                    // 裸 GetRow 查無此列會擲例外,而這裡在 Draw 裡 —— Dalamud 攔到之後會把整個
+                    // 外掛的 Draw 委派設為 null。未知點位畫成 "?<id>" 讓問題在列上看得見。
+                    var explorationSheet = Svc.Data.GetExcelSheet<SubmarineExploration>();
+                    ImGuiEx.Text(SelectedPlan.GetPrioritizedPointList().Select(x => $"{(explorationSheet.TryGetRow(x.point, out var row) ? row.Destination.ToString() : $"?{x.point}")} ({x.justification})").Join("\n"));
                 }
             }
             ImGui.EndChild();

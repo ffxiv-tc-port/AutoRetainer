@@ -15,9 +15,39 @@ using Lumina.Excel.Sheets;
 
 namespace AutoRetainer.Modules.Voyage;
 
+/// <summary>
+/// <see cref="VoyageUtils.SelectRoutePointSafe(string, out uint)"/> 的結果。
+/// ⚠️ 零值刻意是 <see cref="Unknown"/> 而不是 <see cref="Selected"/> ——
+/// 讓 default 落在樂觀值上，任何漏填的路徑都會靜默變成「成功」。
+/// </summary>
+internal enum RoutePointPickResult
+{
+    Unknown,
+    /// <summary>真的按下去了。</summary>
+    Selected,
+    /// <summary>面板上找得到這個點，但遊戲判定不可選（航行距離不足、未解鎖、等級不足…）。</summary>
+    NotSelectable,
+    /// <summary>面板上根本沒有這個名字的點位（多半是海圖選錯，或計畫來自別的服務版本）。</summary>
+    NotFound,
+    /// <summary>航線面板當下不在或還沒 ready。</summary>
+    PanelUnavailable,
+}
+
 internal static unsafe class VoyageUtils
 {
-    internal static bool DontReassign => (C.TempCollectB != LimitedKeys.None && IsKeyPressed(C.TempCollectB) && !CSFramework.Instance()->WindowInactive);
+    /// <remarks>
+    /// CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null，裸解參考是攔不到的 AVE。
+    /// 讀不到就當作「視窗非作用中」＝不啟用暫停指派（不擅自覆寫使用者原本的行為）。
+    /// </remarks>
+    internal static bool DontReassign
+    {
+        get
+        {
+            if(C.TempCollectB == LimitedKeys.None || !IsKeyPressed(C.TempCollectB)) return false;
+            var framework = CSFramework.Instance();
+            return framework != null && !framework->WindowInactive;
+        }
+    }
 
     internal static uint[] Workshops = [Houses.Company_Workshop_Empyreum, Houses.Company_Workshop_The_Goblet, Houses.Company_Workshop_Mist, Houses.Company_Workshop_Shirogane, Houses.Company_Workshop_The_Lavender_Beds];
 
@@ -125,7 +155,9 @@ internal static unsafe class VoyageUtils
 
     internal static int? GetVesselIndex(string name, VoyageType type)
     {
-        var w = HousingManager.Instance()->WorkshopTerritory;
+        var housing = HousingManager.Instance();
+        if(housing == null) return null;
+        var w = housing->WorkshopTerritory;
         if(w == null) return null;
         var adata = GetAdditionalVesselData(Data, name, type);
         if(adata.IndexOverride > 0) return adata.IndexOverride - 1;
@@ -190,6 +222,22 @@ internal static unsafe class VoyageUtils
                 ret.Add((x.Value.Point, $"{VoyageUtils.GetSubmarineExplorationName(x.Key)} not unlocked"));
             }
         }
+
+        // 補跑「已解鎖但未探索」的點(使用者要求:全航線解鎖不只解鎖,還要跑過一次打勾)。
+        // 🔴 預設關(C.UnlockRouteAlsoExploreUnexplored=false)=沿用既有行為;開啟才補跑。
+        // 一律排在解鎖點之後(較低優先),只有沒有新點可解鎖時才會被選到。與上面同樣受單一海圖約束:
+        // 一趟航行只能選同一張海圖上的點,清單累積起點所在海圖後,遇到別張海圖就中止(潛艇會逐圖清完)。
+        if(C.UnlockRouteAlsoExploreUnexplored)
+        {
+            foreach(var x in Unlocks.PointToUnlockPoint.Where(z => z.Value.Point < 9000 && !plan.ExcludedRoutes.Contains(z.Key)))
+            {
+                if(ret.Count > 0 && Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(ret.First().point).Map.RowId != Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(x.Key).Map.RowId) break;
+                if(P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Key, true) && !P.SubmarineUnlockPlanUI.IsMapExplored(x.Key, true) && !ret.Any(z => z.point == x.Key))
+                {
+                    ret.Add((x.Key, $"{VoyageUtils.GetSubmarineExplorationName(x.Key)} unlocked but not explored"));
+                }
+            }
+        }
         return ret;
     }
 
@@ -214,7 +262,13 @@ internal static unsafe class VoyageUtils
         if(plan == null) return "No or unknown plan selected";
         if(plan.Name.Length > 0) return plan.Name;
         if(plan.Points.Count == 0) return $"Plan {plan.GUID}";
-        return $"{plan.GetMap()?.Name}: {plan.Points.Select(x => Svc.Data.GetExcelSheet<SubmarineExploration>(ClientLanguage.Japanese).GetRow(x).Location.ToString()).Join("→")}";
+        // plan.Points 可以由使用者從剪貼簿貼進來(SubmarinePointPlanUI 的 Paste plan settings,
+        // 走 JsonConvert 反序列化,沒有任何範圍驗證),所以點位 ID 不可信。而本方法被多個
+        // ImGui.BeginCombo / Selectable 每幀呼叫 —— Dalamud 的 UiBuilder 攔到 Draw 例外後會
+        // 把 this.Draw 設成 null,整個外掛的視窗在重開遊戲前都不會再畫出來。
+        // 查無此列時顯示 "?<id>" 而不是靜默略過:讓「這個計畫有壞點位」在列上直接看得見。
+        var sheet = Svc.Data.GetExcelSheet<SubmarineExploration>(ClientLanguage.Japanese);
+        return $"{plan.GetMap()?.Name}: {plan.Points.Select(x => sheet.TryGetRow(x, out var row) ? row.Location.ToString() : $"?{x}").Join("→")}";
     }
 
     internal static uint GetMapId(this SubmarinePointPlan plan)
@@ -230,7 +284,11 @@ internal static unsafe class VoyageUtils
             {
                 return PanelType.TypeSelector;
             }
-            var text = GenericHelpers.ReadSeString(&addon->UldManager.NodeList[3]->GetAsAtkTextNode()->NodeText).GetText();
+            // 🔴 NodeList[3] 既沒驗上界也沒判元素;GetAsAtkTextNode() 是 [MemberFunction],
+            //    對 null 節點呼叫＝當場 AVE,而 &...->NodeText 是靜默的毒指標 0xC0。
+            //    讀不到面板標題就回 Unknown ＝「認不出這是哪種面板」,與既有的「三種都比不中」
+            //    同一條路徑(fail-closed:呼叫端不會據此把潛艇當飛空艇操作)。
+            if(!Utils.TryGetNodeText(&addon->UldManager, 3, out var text)) return PanelType.Unknown;
             if(text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.PanelSubmersible))
             {
                 return PanelType.Submersible;
@@ -324,11 +382,14 @@ internal static unsafe class VoyageUtils
     internal static void WriteOfflineData()
     {
         //PluginLog.Debug($"WriteOfflineDataSub");
-        if(HousingManager.Instance()->WorkshopTerritory != null && C.OfflineData.TryGetFirst(x => x.CID == Player.CID, out var ocd))
+        // 這裡原本只判了 WorkshopTerritory，沒判 HousingManager 本身 —— 而它才是先解參考的那一個。
+        var housing = HousingManager.Instance();
+        if(housing == null) return;
+        if(housing->WorkshopTerritory != null && C.OfflineData.TryGetFirst(x => x.CID == Player.CID, out var ocd))
         {
             ocd.WriteOfflineInventoryData();
             {
-                var vessels = HousingManager.Instance()->WorkshopTerritory->Airship;
+                var vessels = housing->WorkshopTerritory->Airship;
                 var temp = new List<OfflineVesselData>();
                 foreach(var x in vessels.Data)
                 {
@@ -348,7 +409,7 @@ internal static unsafe class VoyageUtils
                 }
             }
             {
-                var vessels = HousingManager.Instance()->WorkshopTerritory->Submersible;
+                var vessels = housing->WorkshopTerritory->Submersible;
                 var temp = new List<OfflineVesselData>();
                 for(var i = 0; i < Math.Min(4, vessels.DataPointers.Length); i++)
                 {
@@ -452,8 +513,12 @@ internal static unsafe class VoyageUtils
 
     internal static VoyageType? DetectAddonType(AtkUnitBase* addon)
     {
-        var textptr = addon->UldManager.NodeList[3]->GetAsAtkTextNode()->NodeText;
-        var text = GenericHelpers.ReadSeString(&textptr).GetText();
+        // 🔴 原本先把 NodeText **整個 Utf8String 複製到區域變數**再取位址 ——
+        //    複製本身就是對毒指標 0xC0 起頭的 0x68 位元組做讀取,炸在那一行,
+        //    而不是在後面看起來有判空的 ReadSeString 裡面。判空要做在取值之前。
+        //    取不到就回 null ＝「認不出型別」,與既有的「兩個字串都比不中」同一條路徑。
+        if(addon == null) return null;
+        if(!Utils.TryGetNodeText(&addon->UldManager, 3, out var text)) return null;
         if(text.Contains("Select an airship."))
         {
             return VoyageType.Airship;
@@ -541,7 +606,11 @@ internal static unsafe class VoyageUtils
     internal static int GetVesselIndexByName(string name, VoyageType type)
     {
         var index = 0;
-        var h = HousingManager.Instance()->WorkshopTerritory;
+        // 讀不到就讓 h 保持 null，落到函式尾端既有的 throw —— 與 WorkshopTerritory 為 null
+        // 時的行為完全一致（不用三元：指標與 null 字面值之間沒有隱含轉換，CS0173）。
+        WorkshopTerritory* h = null;
+        var housing = HousingManager.Instance();
+        if(housing != null) h = housing->WorkshopTerritory;
         if(h != null)
         {
             if(type == VoyageType.Airship)
@@ -712,8 +781,21 @@ internal static unsafe class VoyageUtils
         return null;
     }
 
-    internal static void SelectRoutePointSafe(string FullOrShortName)
+    /// <summary>
+    /// 依名稱點選航線上的一個點位。
+    ///
+    /// 🔴 這個方法對「找不到」與「遊戲判定不可選」兩種情形都是**靜默跳過**的，
+    /// 呼叫端必須看回傳值，不能假設呼叫完就一定選上了。
+    /// （2026-08-08 實機證據：點位計畫要求 O→J→M→R→Z 五點，M/R/Z 三點的 StatusFlag=3
+    /// 被靜默略過，整趟照樣出航，使用者看到的是「設了 MROJZ 卻跑了 OJ」——
+    /// 而 Debug 以外的等級一行訊息都沒有，只能靠猜。）
+    ///
+    /// 🔴 行為刻意維持原樣（跳過、繼續往下走），這裡只補回傳值讓呼叫端能記 log。
+    /// </summary>
+    /// <param name="statusFlag">遊戲給這個點位的狀態旗標；面板上找不到該點位時是 <see cref="uint.MaxValue"/>。</param>
+    internal static RoutePointPickResult SelectRoutePointSafe(string FullOrShortName, out uint statusFlag)
     {
+        statusFlag = uint.MaxValue;
         Log($"Requested selection of {FullOrShortName} point.");
         if(TryGetAddonByName<AtkUnitBase>("AirShipExploration", out var addon) && IsAddonReady(addon))
         {
@@ -725,22 +807,30 @@ internal static unsafe class VoyageUtils
                 Log($"  Comparing {i} {dest} with {FullOrShortName}");
                 if(FullOrShortName.EqualsIgnoreCaseAny(dest.NameFull, dest.NameShort))
                 {
+                    statusFlag = dest.StatusFlag;
                     Log($"    Found {FullOrShortName}, CanBeSelected = {dest.CanBeSelected}");
                     if(dest.CanBeSelected)
                     {
-                        SelectRoutePointSafe(i);
+                        return SelectRoutePointSafe(i) ? RoutePointPickResult.Selected : RoutePointPickResult.NotSelectable;
                     }
-                    return;
+                    return RoutePointPickResult.NotSelectable;
                 }
                 else
                 {
                     Log($"    Negative comparison result");
                 }
             }
+            return RoutePointPickResult.NotFound;
         }
+        return RoutePointPickResult.PanelUnavailable;
     }
 
-    internal static void SelectRoutePointSafe(int which)
+    /// <summary>
+    /// 依索引點選航線上的一個點位。回傳值＝「有沒有真的送出選取」。
+    /// ⚠️ 這裡會**重讀一次** reader 再判一次 CanBeSelected，所以呼叫端在上一幀讀到的
+    /// 「可選」不保證這裡也成立 —— 兩者不一致時以這裡的回傳值為準。
+    /// </summary>
+    internal static bool SelectRoutePointSafe(int which)
     {
         Log($"Requested selection of point by ID={which}.");
         if(TryGetAddonByName<AtkUnitBase>("AirShipExploration", out var addon) && IsAddonReady(addon))
@@ -754,11 +844,13 @@ internal static unsafe class VoyageUtils
             {
                 VoyageUtils.Log($"  Selecting {dest.NameFull} / {which}");
                 P.Memory.SelectRoutePointUnsafe(which);
+                return true;
             }
             else
             {
                 VoyageUtils.Log($"  Can't select {dest.NameFull} / {which}, skipping");
             }
         }
+        return false;
     }
 }

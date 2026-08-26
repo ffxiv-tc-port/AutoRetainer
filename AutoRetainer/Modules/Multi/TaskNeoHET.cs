@@ -6,6 +6,7 @@ using Dalamud.Game.ClientState.Objects.Types;
 using ECommons.Automation.NeoTaskManager;
 using ECommons.Automation.NeoTaskManager.Tasks;
 using ECommons.GameHelpers;
+using ECommons.IPC;
 using ECommons.MathHelpers;
 using ECommons.Throttlers;
 using FFXIVClientStructs.FFXIV.Client.Game;
@@ -90,11 +91,11 @@ public static unsafe class TaskNeoHET
             if(GetWorkshopEntrance() != null)
             {
                 var tasks = new List<TaskManagerTask>();
-                if(S.LifestreamIPC.CanMoveToWorkshop())
+                if(ECommonsIPC.Lifestream.CanMoveToWorkshop())
                 {
                     tasks.AddRange([
-                        new(S.LifestreamIPC.MoveToWorkshop),
-                        new(() => !S.LifestreamIPC.IsBusy())
+                        new(S.LifestreamExtra.MoveToWorkshop),
+                        new(() => !ECommonsIPC.Lifestream.IsBusy())
                         ]);
                 }
                 tasks.AddRange([
@@ -129,7 +130,7 @@ public static unsafe class TaskNeoHET
     {
         if(!TryGetAddonByName<AtkUnitBase>("FreeCompanyChest", out _))
         {
-            static IGameObject chest() => Svc.Objects.FirstOrDefault(x => x.DataId == 2000470 && Player.DistanceTo(x) < 4.6f);
+            static IGameObject chest() => Svc.Objects.FirstOrDefault(x => x.BaseId == 2000470 && Player.DistanceTo(x) < 4.6f);
             if(chest() != null && EzThrottler.Throttle("EnqueueInteractFCChest", 5000))
             {
                 P.TaskManager.InsertTask(NeoTasks.InteractWithObject(chest, configuration: new(abortOnTimeout: false, timeLimitMS: 30000)));
@@ -179,6 +180,9 @@ public static unsafe class TaskNeoHET
         PluginLog.Warning($"Temporary HUD bypass is being applied");
         return entrance;*/
         var hud = AgentHUD.Instance();
+        // AgentHUD.Instance() 是產生器產出的取得子,AgentModule 還沒好時回 null。
+        // 取不到就當「找不到入口」回 null,與下面找不到標記時的回傳值一致。
+        if(hud == null) return null;
         if(hud->MapMarkers.Where(x => x.IconId.EqualsAny(markers)).OrderBy(x => Player.DistanceTo(new Vector2(x.Position.X, x.Position.Z))).TryGetFirst(out var marker))
         {
             var mpos = new Vector2(marker.Position.X, marker.Position.Z);
@@ -190,10 +194,17 @@ public static unsafe class TaskNeoHET
 
     public static bool IsInMarkerHousingPlot(IEnumerable<uint> markers)
     {
-        if(HousingManager.Instance()->GetCurrentPlot() < 0) return false;
+        var housing = HousingManager.Instance();
+        // 讀不到就當「不在這個地塊」。回 false 只是讓呼叫端多走一次一般進屋流程；
+        // 回 true 會讓流程以為人已經到位而跳過真正的進入步驟。
+        if(housing == null) return false;
+        if(housing->GetCurrentPlot() < 0) return false;
         /*PluginLog.Warning($"Temporary HUD bypass is being applied (2)");
         return true;*/
         var hud = AgentHUD.Instance();
+        // 同上:取不到就回 false =「不在這個地塊」。
+        // 回 false 只是讓呼叫端多走一次一般進屋流程;回 true 會讓流程以為人已到位而跳過真正的進入步驟。
+        if(hud == null) return false;
         if(hud->MapMarkers.Where(x => x.IconId.EqualsAny(markers)).TryGetFirst(x => Player.DistanceTo(new Vector2(x.Position.X, x.Position.Z)) < ValidPlayerToApartmentDistance, out var marker))
         {
             return true;

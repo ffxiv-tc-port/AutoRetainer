@@ -30,12 +30,12 @@ public sealed unsafe class UserInterface : NeoUIEntry
 
         .Section(Loc.T("Character sorting in Retainer tab"))
         .Checkbox(Loc.T("Enable"), () => ref C.EnableRetainerSort)
-        .TextWrapped(Loc.T("This is purely visual order and does not affects character processing in any way."))
+        .TextWrapped(Loc.T(SharedText.VisualOrderOnlyNote))
         .Widget(() => UIUtils.DrawSortableEnumList("rorder", C.RetainersVisualOrders))
 
         .Section(Loc.T("Character sorting in Deployables tab"))
         .Checkbox(Loc.T("Enable"), () => ref C.EnableDeployablesSort)
-        .TextWrapped(Loc.T("This is purely visual order and does not affects character processing in any way."))
+        .TextWrapped(Loc.T(SharedText.VisualOrderOnlyNote))
         .Widget(() => UIUtils.DrawSortableEnumList("dorder", C.DeployablesVisualOrders));
 
 

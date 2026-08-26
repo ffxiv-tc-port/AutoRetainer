@@ -39,7 +39,11 @@ public static unsafe class TaskOpenAllCoffers
 
     public static void OpenCoffer()
     {
-        AgentInventoryContext.Instance()->UseItem(32161, (InventoryType)0x270F, 0, 0);
+        // AgentInventoryContext.Instance() 是產生器產出的兩層可空取得器，合法回 null。
+        // 拿不到就這次不開 —— 呼叫端每秒節流重試，下一輪還會再來。
+        var ctx = AgentInventoryContext.Instance();
+        if(ctx == null) return;
+        ctx->UseItem(32161, (InventoryType)0x270F, 0, 0);
     }
 
 }

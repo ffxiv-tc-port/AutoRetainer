@@ -91,7 +91,7 @@ public static unsafe class NpcSaleManager
     {
         return Svc.Objects.OrderBy(x => Vector3.Distance(Player.Position, x.Position))
             .Where(x =>
-            x.DataId.EqualsAny(VendorDataID)
+            x.BaseId.EqualsAny(VendorDataID)
             && x.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
             && Vector3.Distance(Player.Position, x.Position) < 7f
             ).FirstOrDefault();

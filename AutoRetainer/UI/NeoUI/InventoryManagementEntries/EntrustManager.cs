@@ -148,13 +148,19 @@ public class EntrustManager : InventoryManagemenrBase
             });
             ImGuiEx.TreeNodeCollapsingHeader(Loc.T("Fast addition/removal"), () =>
             {
-                ImGuiEx.TextWrapped(GradientColor.Get(EColor.RedBright, EColor.YellowBright), Loc.T("While this text is visible, hover over items while holding:"));
-                ImGuiEx.Text(!ImGui.GetIO().KeyShift ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, Loc.T("Shift - add to entrust plan"));
-                ImGuiEx.Text(!ImGui.GetIO().KeyAlt ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, Loc.T("Alt - delete from entrust plan"));
+                // 與背包清理的「快速新增/移除」是同一個功能形狀，共用同一組可設定快捷鍵(快捷鍵設定頁)。
+                // 兩個頁面不會同時被繪製，而觸發條件本來就含「該區塊正在顯示」，所以共用不會互相干擾。
+                var addKey = C.FastListAddKey;
+                var removeKey = C.FastListRemoveKey;
+                var addHeld = UIUtils.IsHotkeyHeld(addKey);
+                var removeHeld = UIUtils.IsHotkeyHeld(removeKey);
+                ImGuiEx.TextWrapped(GradientColor.Get(EColor.RedBright, EColor.YellowBright), Loc.T(SharedText.HoverItemsWhileHolding));
+                ImGuiEx.Text(!addHeld ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, string.Format(Loc.T("{0} - add to entrust plan"), UIUtils.HotkeyName(addKey)));
+                ImGuiEx.Text(!removeHeld ? ImGuiColors.DalamudGrey : ImGuiColors.DalamudRed, string.Format(Loc.T("{0} - delete from entrust plan"), UIUtils.HotkeyName(removeKey)));
                 if(Svc.GameGui.HoveredItem > 0)
                 {
                     var id = (uint)(Svc.GameGui.HoveredItem % 1000000);
-                    if(ImGui.GetIO().KeyShift)
+                    if(addHeld)
                     {
                         if(!selectedPlan.EntrustItems.Contains(id))
                         {
@@ -162,7 +168,7 @@ public class EntrustManager : InventoryManagemenrBase
                             Notify.Success(string.Format(Loc.T("Added {0} to entrust plan {1}"), ExcelItemHelper.GetName(id), selectedPlan.Name));
                         }
                     }
-                    if(ImGui.GetIO().KeyAlt)
+                    if(removeHeld)
                     {
                         if(selectedPlan.EntrustItems.Contains(id))
                         {

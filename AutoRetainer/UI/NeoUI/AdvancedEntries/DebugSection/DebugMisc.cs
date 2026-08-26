@@ -28,14 +28,14 @@ internal unsafe class DebugMisc : DebugSectionBase
             {
                 ImGuiEx.Text($"IsAddonReady: {IsAddonReady(title)}");
                 ImGuiEx.Text($"NodeListCount: {title->UldManager.NodeListCount}");
-                if(title->UldManager.NodeListCount > 3)
-                {
-                    ImGuiEx.Text($"NodeList[3].Color.A: {title->UldManager.NodeList[3]->Color.A:X2}");
-                }
-                if(title->UldManager.NodeListCount > 7)
-                {
-                    ImGuiEx.Text($"NodeList[7].IsVisible(): {title->UldManager.NodeList[7]->IsVisible()}");
-                }
+                // 🔴 原本只驗了 NodeListCount 上界、沒判元素為 null —— 是「半套邊界檢查」的
+                //    另外那一半。索引在範圍內時 NodeList[i] 仍可能是 null(版面正在建/拆)。
+                //    ⚠️ 取不到時顯示 "?" 而不是 0／False:這是要使用者回報的診斷欄,
+                //    把「不知道」畫成一個合法的值會直接誤導判讀。
+                var titleNode3 = Utils.GetNodeSafe(&title->UldManager, 3);
+                ImGuiEx.Text($"NodeList[3].Color.A: {(titleNode3 == null ? "?" : $"{titleNode3->Color.A:X2}")}");
+                var titleNode7 = Utils.GetNodeSafe(&title->UldManager, 7);
+                ImGuiEx.Text($"NodeList[7].IsVisible(): {(titleNode7 == null ? "?" : titleNode7->IsVisible().ToString())}");
             }
             ImGuiEx.Text($"TitleDCWorldMap found: {TryGetAddonByName<AtkUnitBase>("TitleDCWorldMap", out _)}");
             ImGuiEx.Text($"TitleConnect found: {TryGetAddonByName<AtkUnitBase>("TitleConnect", out _)}");
@@ -76,20 +76,29 @@ internal unsafe class DebugMisc : DebugSectionBase
         {
             ExternalWriter.PlaceWriteOrder(new(System.IO.Path.Combine(Svc.PluginInterface.ConfigDirectory.FullName, "WriterTest.json"), EzConfig.DefaultSerializationFactory.Serialize(C, true)));
         }
-        ImGuiEx.Text($"FC points: {Utils.FCPoints}");
+        // 讀不到時顯示 ?,不要畫成 0 —— 0 是合法的部隊點數,把「不知道」渲染成 0 會直接誤導人。
+        ImGuiEx.Text($"FC points: {(Utils.TryGetFCPoints(out var fcPoints) ? fcPoints.ToString() : "?")}");
         if(ImGui.CollapsingHeader("Housing"))
         {
             var h = HousingManager.Instance();
-            ImGuiEx.Text($"GetCurrentDivision {h->GetCurrentDivision()}");
-            ImGuiEx.Text($"GetCurrentHouseId {h->GetCurrentIndoorHouseId()}");
-            ImGuiEx.Text($"GetCurrentPlot {h->GetCurrentPlot()}");
-            ImGuiEx.Text($"GetCurrentRoom {h->GetCurrentRoom()}");
-            ImGuiEx.Text($"GetCurrentWard {h->GetCurrentWard()}");
+            // 讀不到就在列上直說，不要把「不知道」畫成 0/-1 —— 0 是合法的分區與地塊編號。
+            if(h == null)
+            {
+                ImGuiEx.Text($"HousingManager: ? (unavailable)");
+            }
+            else
+            {
+                ImGuiEx.Text($"GetCurrentDivision {h->GetCurrentDivision()}");
+                ImGuiEx.Text($"GetCurrentHouseId {h->GetCurrentIndoorHouseId()}");
+                ImGuiEx.Text($"GetCurrentPlot {h->GetCurrentPlot()}");
+                ImGuiEx.Text($"GetCurrentRoom {h->GetCurrentRoom()}");
+                ImGuiEx.Text($"GetCurrentWard {h->GetCurrentWard()}");
+            }
             if(ImGui.Button("Simulate login"))
             {
                 ProperOnLogin.FireArtificially();
             }
-            if(h->OutdoorTerritory != null)
+            if(h != null && h->OutdoorTerritory != null)
             {
                 for(var i = 0; i < 30; i++)
                 {
@@ -101,7 +110,10 @@ internal unsafe class DebugMisc : DebugSectionBase
         if(ImGui.Button("Disable callback hook")) Callback.UninstallHook();
         ImGuiEx.TextCopy($"{(nint)(&TargetSystem.Instance()->Target):X16}");
         ImGui.Checkbox($"Log opcodes", ref P.LogOpcodes);
-        ImGuiEx.Text($"CSFramework.Instance()->FrameCounter: {CSFramework.Instance()->FrameCounter}");
+        // CSFramework.Instance() 是 isPointer:true 的靜態位址，合法回 null。
+        // 拿不到印 "?"，不要把「不知道」畫成 0。
+        var dbgFramework = CSFramework.Instance();
+        ImGuiEx.Text($"CSFramework.Instance()->FrameCounter: {(dbgFramework == null ? "?" : $"{dbgFramework->FrameCounter}")}");
         if(ImGui.Button("Test entrust dup"))
         {
             if(TryGetAddonByName<AtkUnitBase>("RetainerItemTransferList", out var addon))
@@ -119,7 +131,7 @@ internal unsafe class DebugMisc : DebugSectionBase
             FPSManager.UnlockChillFrames();
         }
         ImGui.Separator();
-        ImGuiEx.Text($"CSFramework.Instance()->WindowInactive: {CSFramework.Instance()->WindowInactive}");
+        ImGuiEx.Text($"CSFramework.Instance()->WindowInactive: {(dbgFramework == null ? "?" : $"{dbgFramework->WindowInactive}")}");
         ImGuiEx.Text($"IsKeyPressed(C.TempCollectB): {IsKeyPressed(C.TempCollectB)}");
         ImGuiEx.Text($"Bitmask.IsBitSet(User32.GetKeyState((int)C.TempCollectB), 15): {Bitmask.IsBitSet(FXWindows.GetKeyState((int)C.TempCollectB), 15)}");
         ImGuiEx.Text($"DontReassign: {C.DontReassign}, key {C.TempCollectB}/{(int)C.TempCollectB}");
@@ -173,7 +185,9 @@ internal unsafe class DebugMisc : DebugSectionBase
 
         ImGui.Separator();
         {
-            if(ImGui.Button("Fire") && TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon) && IsAddonReady(addon) && addon->UldManager.NodeList[5]->IsVisible())
+            // 🔴 NodeList[5] 原本上界與元素都沒驗;取不到時視為「不可見」＝這顆除錯鈕不作用,
+            //    與版面還沒建好時本來就不該觸發交付同語意。
+            if(ImGui.Button("Fire") && TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon) && IsAddonReady(addon) && Utils.IsNodeVisible(&addon->UldManager, 5))
             {
                 AutoGCHandin.InvokeHandin(addon, 0);
             }

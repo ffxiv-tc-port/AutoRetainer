@@ -13,7 +13,9 @@ public static class AutoRetainerServiceManager
     public static FcDataManager FCData;
     public static GilDisplayManager GilDisplay;
     public static VentureStatsManager VentureStats;
-    public static LifestreamIPC LifestreamIPC;
+    // Lifestream 的主要介面已改用 ECommons.IPC 套件的 ECommonsIPC.Lifestream。
+    // 這裡只留套件給不了的那幾個成員(事件 + 收藏傳送 + 兩個綁不上自訂 delegate 的呼叫)。
+    public static LifestreamExtraIPC LifestreamExtra;
     //public static EventLogger EventLogger;
     public static AutoBuyFuelOverlay AutoBuyFuelOverlay;
     public static TitleScreenButton TitleScreenButton;

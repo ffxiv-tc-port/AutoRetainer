@@ -17,6 +17,9 @@ internal unsafe class Calculator
     internal Calculator()
     {
         var current = CurrentSubmarine.Get();
+        // CurrentSubmarine.Get() 會回 null（不在工房／面板沒開）。丟可讀例外，不要讓
+        // 下一行去解參考 null —— AVE 是 corrupted-state exception，try/catch 攔不到。
+        if(current == null) throw new InvalidOperationException(CurrentSubmarine.Unavailable);
         CurrentBuild = new(current->RankId, current->HullId, current->SternId, current->BowId, current->BridgeId);
         RouteBuild = new(current->RankId, current->HullId, current->SternId, current->BowId, current->BridgeId);
     }

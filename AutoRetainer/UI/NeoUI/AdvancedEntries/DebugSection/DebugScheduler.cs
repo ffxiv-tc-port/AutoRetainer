@@ -143,24 +143,38 @@ internal unsafe class DebugScheduler : DebugSectionBase
             DuoLog.Information($"{RetainerListHandlers.SelectRetainerByName(dbgRetName)}");
         }
 
+        // AtkStage.Instance() 是 isPointer:true 的靜態位址，合法回 null；下面兩個按鈕都要判。
         if(ImGui.Button("AtkStage get focus"))
         {
-            var ptr = (nint)AtkStage.Instance()->GetFocus();
-            Svc.Chat.Print($"Stage focus: {ptr}");
+            var stage = AtkStage.Instance();
+            Svc.Chat.Print(stage == null ? "Stage focus: AtkStage 尚未就緒" : $"Stage focus: {(nint)stage->GetFocus()}");
         }
         if(ImGui.Button("AtkStage clear focus"))
         {
-            AtkStage.Instance()->ClearFocus();
+            var stage = AtkStage.Instance();
+            if(stage != null) stage->ClearFocus();
         }
         if(ImGui.Button("Try retrieve current retainer name"))
         {
             if(TryGetAddonByName<AddonSelectString>("SelectString", out var select) && IsAddonReady(&select->AtkUnitBase))
             {
-                var textNode = (AtkTextNode*)select->AtkUnitBase.UldManager.NodeList[3];
-                var text = GenericHelpers.ReadSeString(&textNode->NodeText);
-                foreach(var x in text.Payloads)
+                // 🔴 NodeList[3] 既沒驗 NodeListCount 上界也沒判元素為 null,
+                //    而 &textNode->NodeText 對 null 節點不會當場崩:NodeText 在 AtkTextNode 偏移 0xC0,
+                //    算出的毒指標 0xC0 連 ReadSeString 內部的判空都騙得過去,直到真的去讀才炸。
+                //    這是使用者按按鈕觸發的動作型入口 ⇒ 取不到就明講一行(不是安靜失敗),
+                //    否則按了沒反應會被當成「這個 addon 沒有文字」。
+                var textNode = (AtkTextNode*)Utils.GetNodeSafe(&select->AtkUnitBase.UldManager, 3);
+                if(textNode == null)
                 {
-                    PluginLog.Information($"{x.Type}: {x.ToString()}");
+                    PluginLog.Information("SelectString NodeList[3] 取不到(版面未建好或已拆除)");
+                }
+                else
+                {
+                    var text = GenericHelpers.ReadSeString(&textNode->NodeText);
+                    foreach(var x in text.Payloads)
+                    {
+                        PluginLog.Information($"{x.Type}: {x.ToString()}");
+                    }
                 }
             }
         }

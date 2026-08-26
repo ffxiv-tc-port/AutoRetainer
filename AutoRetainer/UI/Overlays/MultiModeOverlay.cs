@@ -299,7 +299,7 @@ internal class MultiModeOverlay : Window
                     if(ThreadLoadImageHandler.TryGetTextureWrap(Path.Combine(Svc.PluginInterface.AssemblyLocation.DirectoryName, "res", "wait.png"), out var t))
                     {
                         ImGui.Image(t.Handle, StatusPanelSize / 2);
-                        ImGuiEx.Tooltip(Loc.T("Wait for all deployables is globally enabled."));
+                        ImGuiEx.Tooltip(Loc.T(SharedText.WaitForDeployablesEnabledGlobally));
                     }
                     else
                     {
@@ -312,7 +312,7 @@ internal class MultiModeOverlay : Window
                     if(ThreadLoadImageHandler.TryGetTextureWrap(Path.Combine(Svc.PluginInterface.AssemblyLocation.DirectoryName, "res", "wait.png"), out var t))
                     {
                         ImGui.Image(t.Handle, StatusPanelSize / 2);
-                        ImGuiEx.Tooltip(Loc.T("Wait for all deployables is enabled for this character."));
+                        ImGuiEx.Tooltip(Loc.T(SharedText.WaitForDeployablesEnabledForCharacter));
                     }
                     else
                     {

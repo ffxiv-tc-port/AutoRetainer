@@ -19,7 +19,10 @@ using ECommons.Configuration;
 using ECommons.Events;
 using ECommons.ExcelServices;
 using ECommons.ExcelServices.TerritoryEnumeration;
+using ECommons.EzIpcManager;
 using ECommons.EzSharedDataManager;
+using ECommons.IPC;
+using ECommons.IPC.Subscribers;
 using ECommons.GameHelpers;
 using ECommons.Reflection;
 using ECommons.Singletons;
@@ -83,6 +86,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         {
             P = this;
             ECommonsMain.Init(pi, this, Module.DalamudReflector);
+            SvcEx.Init(pi);
             // 讓「呼叫了對方沒有的 IPC 方法」不再完全靜默。
             // 訂閱越早越好：事件只在 IPC **呼叫**當下才被查閱，在這裡訂閱就涵蓋往後所有呼叫。
             EzIpcFailureLog.Enable();
@@ -211,6 +215,15 @@ public unsafe class AutoRetainer : IDalamudPlugin
                 AutoRetainerWindow.IsOpen = true;
             }
         }
+        // 🔴 ECommons.IPC 的 IPCBase 預設 wrapper 是 SafeWrapper.None(例外會往外擲);
+        // 我方一貫用 AnyException(靜默降級,回預設值)。這裡改回我方語意,不然「Lifestream 沒裝」
+        // 會從「回 false」變成「擲例外」,行為在使用者那頭是靜默地變壞。
+        // ⚠️ ECommonsIPC.X 是 lazy 屬性(field ??= new()),wrapper 在**第一次存取當下**就烘死了,
+        // 所以這行必須早於任何 ECommonsIPC.* 的第一次存取。下面立刻取一次 Lifestream 強制建構,
+        // 把「順序對不對」從執行期運氣變成這裡的既成事實。
+        IPCBase.DefaultWrapper = SafeWrapper.AnyException;
+        _ = ECommonsIPC.Lifestream;
+
         SingletonServiceManager.Initialize(typeof(AutoRetainerServiceManager));
 
     }
@@ -225,7 +238,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
             //4330	57	33	0	False	Vous avez confié la tâche “<SheetFr(Item,12,IntegerParameter(1),2,1)/> ( <Value>IntegerParameter(2)</Value>)” à votre servant.
             if(text.StartsWithAny("You assign your retainer".Cleanup(), "リテイナーベンチャー".Cleanup(), "Du hast deinen Gehilfen mit".Cleanup(), "Vous avez confié la tâche".Cleanup())
                 && Utils.TryGetCurrentRetainer(out var ret)
-                && C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var offlineData)
+                && C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var offlineData)
                 && offlineData.RetainerData.TryGetFirst(x => x.Name == ret, out var offlineRetainerData))
             {
                 offlineRetainerData.VentureBeginsAt = P.Time;
@@ -525,20 +538,26 @@ public unsafe class AutoRetainer : IDalamudPlugin
     private void Tick(object _)
     {
         MultiModeDtr.Tick();
+        // 🔴 必須在下面兩個消費端(SchedulerMain.Tick 與僱員感知自動開鈴)之前、而且**無條件**跑,
+        //    這樣兩邊看到的是同一幀的同一個答案,而且「開始讓路／恢復」兩個邊緣都各印得到一行。
+        SchedulerMain.UpdateRetainerAutomationDeferral();
         if(!IPC.Suppressed)
         {
-            if(SchedulerMain.PluginEnabled && Svc.ClientState.LocalPlayer != null)
+            if(SchedulerMain.PluginEnabled && Svc.Objects.LocalPlayer != null)
             {
                 SchedulerMain.Tick();
-                if(!C.SelectedRetainers.ContainsKey(Svc.ClientState.LocalContentId))
+                if(!C.SelectedRetainers.ContainsKey(SvcEx.PlayerState.ContentId))
                 {
-                    C.SelectedRetainers[Svc.ClientState.LocalContentId] = [];
+                    C.SelectedRetainers[SvcEx.PlayerState.ContentId] = [];
                 }
             }
         }
         MiniTA.Tick();
         OfflineDataManager.Tick();
         AutoGCHandin.Tick();
+        // ⚠️ 必須在 AutoGCHandin.Tick() 之後:循環會等 AutoGCHandin.Operation 落回 false 來判斷
+        // 「這一輪繳完了」,先跑的話看到的是上一幀的舊值。
+        GCExpertDeliveryLoop.Tick();
         MultiMode.Tick();
         NotificationHandler.Tick();
         NewYesAlreadyManager.Tick();
@@ -590,14 +609,17 @@ public unsafe class AutoRetainer : IDalamudPlugin
             }
         }
         IsNextToBell = false;
-        if(C.RetainerSense && Svc.ClientState.LocalPlayer != null && Svc.ClientState.LocalPlayer.HomeWorld.RowId == Svc.ClientState.LocalPlayer.CurrentWorld.RowId)
+        if(C.RetainerSense && Svc.Objects.LocalPlayer != null && Svc.Objects.LocalPlayer.HomeWorld.RowId == Svc.Objects.LocalPlayer.CurrentWorld.RowId)
         {
-            if(!IPC.Suppressed && !IsOccupied() && !C.OldRetainerSense && !TaskManager.IsBusy && !Utils.MultiModeOrArtisan && !Svc.Condition[ConditionFlag.InCombat] && !Svc.Condition[ConditionFlag.BoundByDuty] && Utils.IsAnyRetainersCompletedVenture())
+            // ⚠️ !SchedulerMain.RetainerAutomationDeferred:稀有品繳交循環在跑的時候不要自己去點鈴。
+            //    這條路徑不看 SchedulerMain.PluginEnabled,所以光是擋住 SchedulerMain.Tick() 擋不到它 ——
+            //    它會把 TaskInteractWithNearestBell 直接排進循環正在用的那條共用佇列。
+            if(!IPC.Suppressed && !IsOccupied() && !C.OldRetainerSense && !TaskManager.IsBusy && !Utils.MultiModeOrArtisan && !Svc.Condition[ConditionFlag.InCombat] && !Svc.Condition[ConditionFlag.BoundByDuty] && !SchedulerMain.RetainerAutomationDeferred && Utils.IsAnyRetainersCompletedVenture())
             {
                 var bell = Utils.GetReachableRetainerBell(true);
-                if(bell == null || LastPosition != Svc.ClientState.LocalPlayer.Position)
+                if(bell == null || LastPosition != Svc.Objects.LocalPlayer.Position)
                 {
-                    LastPosition = Svc.ClientState.LocalPlayer.Position;
+                    LastPosition = Svc.Objects.LocalPlayer.Position;
                     LastMovementAt = Environment.TickCount64;
                 }
                 if(bell != null)
@@ -756,7 +778,11 @@ public unsafe class AutoRetainer : IDalamudPlugin
                         else
                         {
                             var bellBehavior = Utils.IsAnyRetainersCompletedVenture() ? C.OpenBellBehaviorWithVentures : C.OpenBellBehaviorNoVentures;
-                            if(bellBehavior != OpenBellBehavior.Pause_AutoRetainer && IsKeyPressed(C.Suppress) && !CSFramework.Instance()->WindowInactive)
+                            // CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null。
+                            // 讀不到就當作「視窗非作用中」＝不取消開鈴動作，維持原本的行為
+                            // （抑制鍵是額外的覆寫，拿不到狀態時不要擅自覆寫）。
+                            var framework = CSFramework.Instance();
+                            if(bellBehavior != OpenBellBehavior.Pause_AutoRetainer && IsKeyPressed(C.Suppress) && framework != null && !framework->WindowInactive)
                             {
                                 bellBehavior = OpenBellBehavior.Do_nothing;
                                 Notify.Info($"Open bell action cancelled");
@@ -816,6 +842,10 @@ public unsafe class AutoRetainer : IDalamudPlugin
     private void Logout(int _, int __)
     {
         SchedulerMain.DisablePlugin();
+
+        // 這個佇列裝的是「雇員名字」，而雇員名字只在該角色底下唯一。多角模式換角是走登出的，
+        // 沒清乾淨的殘留項目會在下一個角色被按名字比對到（同名雇員在不同角色底下是可能的）。
+        SchedulerMain.ClearPendingEntrustVendorPass("logout");
 
         if(!P.TaskManager.IsBusy)
         {

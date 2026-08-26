@@ -12,9 +12,36 @@ public static unsafe class InventorySpaceManager
     public static readonly List<string> Log = [];
     public static readonly string[] Addons = ["InventoryRetainer", "InventoryRetainerLarge"];
 
-    public static nint AgentRetainerItemCommandModule => (nint)AgentModule.Instance()->GetAgentByInternalId(AgentId.Retainer) + 40;
+    // 🔴 AgentModule.Instance() 是 CS 裡的**手寫**包裝（`uiModule == null ? null : uiModule->GetAgentModule()`），
+    //    不是產生器的 [StaticAddress] —— 它會合法回 null（登入前 / 切角色期間）。
+    //    GetAgentByInternalId() 也可能回 null。裸解參考 null 原生指標是 AVE，
+    //    在 .NET Core 屬 corrupted-state exception，try/catch 攔不到，只能事前擋。
+    //    ⚠️ 這個值會被原封不動當成 this 指標傳給原生的 RetainerItemCommand
+    //       —— 不擋的話傳出去的是 0+40 = 0x28，等於叫遊戲對位址 0x28 動雇員背包。
+    //    取不到一律回 0，並由 Memory.RetainerItemCommandDetour 的入口守衛擋掉。
+    public static nint AgentRetainerItemCommandModule
+    {
+        get
+        {
+            var agentModule = AgentModule.Instance();
+            if(agentModule == null) return 0;
+            var agent = agentModule->GetAgentByInternalId(AgentId.Retainer);
+            if(agent == null) return 0;
+            return (nint)agent + 40;
+        }
+    }
 
-    private static bool IsAgentRetainerActive => AgentModule.Instance()->GetAgentByInternalId(AgentId.Retainer)->IsAgentActive();
+    // 取不到就當「雇員代理人沒開著」（呼叫端會走既有的 warning + 中止路徑）。
+    private static bool IsAgentRetainerActive
+    {
+        get
+        {
+            var agentModule = AgentModule.Instance();
+            if(agentModule == null) return false;
+            var agent = agentModule->GetAgentByInternalId(AgentId.Retainer);
+            return agent != null && agent->IsAgentActive();
+        }
+    }
 
     public static readonly List<SellSlotTask> SellSlotTasks = [];
 

@@ -37,12 +37,32 @@ internal static class Lang
 
     internal static string LogOutAndExitGame => Svc.Data.GetExcelSheet<Addon>().GetRow(116).Text.GetText(true).Cleanup();
 
-    internal static readonly ReadOnlyDictionary<UnlockMode, string> UnlockModeNames = new(new Dictionary<UnlockMode, string>()
+    // Display text for UnlockMode. These are descriptions rather than bare member names on
+    // purpose: "MultiSelect" on its own does not tell the user that the mode fills the route with
+    // as many unlock destinations as the submersible can reach, so the wording is worth keeping -
+    // it only has to become translatable. Upstream fed this hardcoded English table to two of the
+    // four unlock-mode combos while the other two fell back to the enum member name, which is how
+    // the same enum ended up showing two different sets of words; all four now read from here.
+    //
+    // Built once on first use and reused for the rest of the session: ImGuiEx.EnumCombo is called
+    // from immediate-mode Draw code, so translating at the call site would allocate a dictionary
+    // plus one string per member on every frame. The table lives in a nested type rather than in a
+    // static field of Lang so its initializer is tied to its own first use instead of to any other
+    // Lang member - that is what rules out it running, and caching untranslated text, before the
+    // dictionary is loaded. Loc.Load is the first statement of AutoRetainer.Load(), so every draw
+    // call is later than it. Handed out read-only so a consumer cannot mutate the shared instance.
+    internal static IDictionary<UnlockMode, string> UnlockModeNames => UnlockModeNameCache.Value;
+
+    private static class UnlockModeNameCache
     {
-        { UnlockMode.MultiSelect, "Pick max amount of destinations" },
-        { UnlockMode.SpamOne, "Spam one destination" },
-        { UnlockMode.WhileLevelling, "Include one unlock destination while levelling" },
-    });
+        internal static readonly IDictionary<UnlockMode, string> Value =
+            new ReadOnlyDictionary<UnlockMode, string>(new Dictionary<UnlockMode, string>()
+            {
+                { UnlockMode.MultiSelect, Loc.T("Pick max amount of destinations") },
+                { UnlockMode.SpamOne, Loc.T("Spam one destination") },
+                { UnlockMode.WhileLevelling, Loc.T("Include one unlock destination while levelling") },
+            });
+    }
 
     internal static readonly (string Normal, string GameFont) Digits = ("0123456789", "");
 
@@ -197,7 +217,9 @@ internal static class Lang
     internal static readonly string[] NothingVoyage = ["Nothing.", "やめる", "取消", "Nichts", "Annuler", "그만두기"];
     internal static readonly string[] DeployOnSubaquaticVoyage = ["Deploy submersible on subaquatic voyage", "ボイジャー出港", "出发", "出發", "Auf Erkundung gehen", "Expédier le sous-marin", "탐사 출항"];
     internal static readonly string[] ViewPrevVoyageLog = ["View previous voyage log", "前回のボイジャー報告", "上次的远航报告", "上次的遠航報告", "Bericht der letzten Erkundung", "Consulter le journal de la précédente expédition", "이전 탐사 보고서"];
-    internal static readonly string[] VoyageQuitEntry = ["Quit", "やめる", "取消", "Beenden", "Annuler", "그만두기"];
+    // TC's per-vessel menu (the 7-entry variant shown after collecting a report) closes with "退出";
+    // "取消" only appears on the vessel-selector list and repair-reopened variants, so both are needed.
+    internal static readonly string[] VoyageQuitEntry = ["Quit", "やめる", "取消", "退出", "Beenden", "Annuler", "그만두기"];
     internal static readonly string[] ChangeSubmersibleComponents = ["Change submersible components", "パーツの変更", "Bauteile austauschen", "Changer les éléments", "부품 변경", "更换配件", "更換配件"];
     internal static readonly string[] RegisterSub = ["Outfit and register a submersible.", "潜水艦の新規登録", "Registrierung eines neuen Tauchboots", "Enregistrement d'un sous-marin", "새 잠수함 등록"]; // Missing Chinese
 

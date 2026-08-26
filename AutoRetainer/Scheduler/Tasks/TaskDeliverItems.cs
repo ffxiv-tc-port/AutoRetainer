@@ -1,4 +1,5 @@
 ﻿using ECommons.GameHelpers;
+using ECommons.IPC;
 using ECommons.Singletons;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using System;
@@ -18,7 +19,7 @@ public static unsafe class TaskDeliverItems
             Notify.Error("Not employed by a Grand Company");
             return;
         }
-        if(S.LifestreamIPC.IsBusy())
+        if(ECommonsIPC.Lifestream.IsBusy())
         {
             Notify.Error("Lifestream is busy");
             return;
@@ -30,7 +31,7 @@ public static unsafe class TaskDeliverItems
         }
         if(Vector3.Distance(gcInfo.Value.Position, Player.Position) > 1f)
         {
-            P.TaskManager.Enqueue(() => S.LifestreamIPC.ExecuteCommand("gc " + Player.GrandCompany switch
+            P.TaskManager.Enqueue(() => ECommonsIPC.Lifestream.ExecuteCommand("gc " + Player.GrandCompany switch
             {
                 ECommons.ExcelServices.GrandCompany.ImmortalFlames => "if",
                 ECommons.ExcelServices.GrandCompany.Maelstrom => "m",
@@ -38,7 +39,7 @@ public static unsafe class TaskDeliverItems
                 _ => throw new ArgumentOutOfRangeException()
             }));
         }
-        P.TaskManager.Enqueue(() => !S.LifestreamIPC.IsBusy(), new(timeLimitMS: 5 * 60 * 1000));
+        P.TaskManager.Enqueue(() => !ECommonsIPC.Lifestream.IsBusy(), new(timeLimitMS: 5 * 60 * 1000));
         P.TaskManager.Enqueue(() => GCContinuation.EnqueueInitiation(true));
     }
 }

@@ -74,7 +74,7 @@ internal static unsafe class TaskAutoBuyFuel
         var x = Svc.Targets.Target;
         if(x != null && x.Name.ToString().ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.AdventurerDollNamePart) && !IsOccupied())
         {
-            if(Vector3.Distance(x.Position, Svc.ClientState.LocalPlayer.Position) < Utils.GetValidInteractionDistance(x) && x.IsTargetable)
+            if(Vector3.Distance(x.Position, Svc.Objects.LocalPlayer.Position) < Utils.GetValidInteractionDistance(x) && x.IsTargetable)
             {
                 if(Player.IsAnimationLocked) return false;
                 if(Utils.GenericThrottle && EzThrottler.Throttle("AutoBuyFuel.Interact", 5000))
@@ -168,11 +168,22 @@ internal static unsafe class TaskAutoBuyFuel
     {
         try
         {
-            var listingContainer = a->UldManager.NodeList[21]->GetAsAtkComponentNode();
+            // 🔴 這裡原本是「半套邊界檢查」的教科書範例:三層 NodeList 索引全都只在**取到之後**
+            //    判空,索引本身既沒驗 NodeListCount 上界也沒判元素。越界時讀到的是相鄰記憶體
+            //    而不是 null —— 後面那三行 `== null` 一個都擋不住,拿到的是隨機位址。
+            //    ⚠️ 外層的 try/catch 也不是防護:AccessViolationException 在 .NET Core 是
+            //    corrupted-state exception,catch 不到(留著是為了擋其他一般例外,不動它)。
+            //    任一層取不到就回 false → 呼叫端不會把 AmountSetForThisDialog 設成 true,
+            //    下一個節流窗重試;絕不會用「沒設定成功的數量」去按購買。
+            if(a == null) return false;
+            var containerNode = Utils.GetNodeSafe(&a->UldManager, 21);
+            var listingContainer = containerNode == null ? null : containerNode->GetAsAtkComponentNode();
             if(listingContainer == null || listingContainer->Component == null) return false;
-            var row = listingContainer->Component->UldManager.NodeList[1]->GetAsAtkComponentNode();
+            var rowNode = Utils.GetNodeSafe(&listingContainer->Component->UldManager, 1);
+            var row = rowNode == null ? null : rowNode->GetAsAtkComponentNode();
             if(row == null || row->Component == null) return false;
-            var stepper = row->Component->UldManager.NodeList[5]->GetComponent();
+            var stepperNode = Utils.GetNodeSafe(&row->Component->UldManager, 5);
+            var stepper = stepperNode == null ? null : stepperNode->GetComponent();
             if(stepper == null) return false;
             ((AtkComponentNumericInput*)stepper)->SetValue(amount);
             return true;

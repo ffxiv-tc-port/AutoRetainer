@@ -91,7 +91,18 @@ internal static unsafe class GCContinuation
         {
             if(EzThrottler.Throttle("GC SetMaxVenturesExchange"))
             {
-                var numeric = (AtkComponentNumericInput*)addon->UldManager.NodeList[8]->GetComponent();
+                // 🔴 NodeList[8] 原本上界與元素都沒驗,GetComponent() 的回值也沒判空就直接
+                //    numeric->SetValue()。三層任一取不到就回 false —— 呼叫端把 false 當成
+                //    「這次還沒設定成功」而在下一個節流窗重試,與既有的「addon 尚未 ready」同語意。
+                //    🔑 這裡絕不能回 true:回 true 等於謊報「數量已設好」,後面的確認步驟會照
+                //    版面上的預設值(1 個)成交,使用者拿到的委託票數量會靜默地不對。
+                var numericNode = Utils.GetNodeSafe(&addon->UldManager, 8);
+                var numeric = numericNode == null ? null : (AtkComponentNumericInput*)numericNode->GetComponent();
+                if(numeric == null)
+                {
+                    PluginLog.Information("ShopExchangeCurrencyDialog NodeList[8] 的數量輸入元件取不到(版面未建好或已拆除),這一輪不設定數量");
+                    return false;
+                }
                 var sealsPer = Utils.GetCurrentlyAvailableSharedExchangeListings().SafeSelect(VentureItem)?.Seals ?? 200u;
                 var maxBySeals = sealsPer > 0 ? (int)(GetAdjustedSeals() / sealsPer) : amount;
                 var set = Math.Min(amount, maxBySeals);
@@ -109,7 +120,7 @@ internal static unsafe class GCContinuation
         if(TryGetAddonByName<AtkUnitBase>("ShopExchangeCurrencyDialog", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectExchange"))
         {
             var button = addon->GetComponentButtonById(17);
-            if(button->IsEnabled)
+            if(Utils.IsButtonEnabled(button))
             {
                 (*button).ClickAddonButton(addon);
             }
@@ -144,8 +155,12 @@ internal static unsafe class GCContinuation
         if(!which.InRange(0, 3, false)) throw new ArgumentOutOfRangeException(nameof(which));
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanyExchange", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectGCExchangeVerticalTab"))
         {
-            var button = addon->GetNodeById((uint)(37 + which))->GetAsAtkComponentRadioButton();
-            (*button).ClickRadioButton(addon);
+            // 🔴 fail-closed：取不到按鈕就回 false（＝這一輪沒做成，下一幀重試），
+            //    不能回 true（會讓流程以為分頁已經切好而繼續往下走），
+            //    更不能回 null —— NeoTaskManager 的 bool? 是三態，null 是 Abort，會把整條佇列清掉。
+            //    這與外層 addon 還沒就緒時走的那條 return false 是同一個語意。
+            if(!Utils.TryGetRadioButtonById(addon, (uint)(37 + which), out var button)) return false;
+            button->ClickRadioButton(addon);
             return true;
         }
         return false;
@@ -156,8 +171,9 @@ internal static unsafe class GCContinuation
         if(!which.InRange(0, 4, false)) throw new ArgumentOutOfRangeException(nameof(which));
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanyExchange", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectGCExchangeHorizontalTab"))
         {
-            var button = addon->GetNodeById((uint)(44 + which))->GetAsAtkComponentRadioButton();
-            (*button).ClickRadioButton(addon);
+            // fail-closed 同上：取不到就當「這一輪沒切成」重試，不是 Abort。
+            if(!Utils.TryGetRadioButtonById(addon, (uint)(44 + which), out var button)) return false;
+            button->ClickRadioButton(addon);
             return true;
         }
         return false;
@@ -187,7 +203,7 @@ internal static unsafe class GCContinuation
         {
             if(Player.IsAnimationLocked) return false;
             var t = Svc.Targets.Target;
-            if(t.IsTargetable && t.DataId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCInteract"))
+            if(t.IsTargetable && t.BaseId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCInteract"))
             {
                 TargetSystem.Instance()->InteractWithObject(Svc.Targets.Target.Struct(), false);
                 return true;
@@ -197,7 +213,7 @@ internal static unsafe class GCContinuation
         {
             foreach(var t in Svc.Objects)
             {
-                if(t.IsTargetable && t.DataId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCSetTarget"))
+                if(t.IsTargetable && t.BaseId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCSetTarget"))
                 {
                     Svc.Targets.Target = t;
                     return false;
@@ -229,7 +245,8 @@ internal static unsafe class GCContinuation
         if(!which.InRange(0, 3, false)) throw new ArgumentOutOfRangeException(nameof(which));
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectGCExpertDelivery"))
         {
-            var button = addon->GetNodeById((uint)(11 + which))->GetAsAtkComponentRadioButton();
+            // fail-closed 同上：取不到就當「這一輪沒切成」重試，不是 Abort。
+            if(!Utils.TryGetRadioButtonById(addon, (uint)(11 + which), out var button)) return false;
             button->ClickRadioButton(addon);
             return true;
         }

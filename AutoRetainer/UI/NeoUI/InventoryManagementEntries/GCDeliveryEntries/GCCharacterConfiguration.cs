@@ -1,4 +1,5 @@
-﻿using System;
+﻿using AutoRetainerAPI.Configuration;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -47,7 +48,7 @@ public sealed unsafe class GCCharacterConfiguration : InventoryManagemenrBase
 
                 ImGui.TableNextColumn();
                 ImGui.SetNextItemWidth(150f);
-                ImGuiEx.EnumCombo("##deliveryMode", ref characterData.GCDeliveryType);
+                ImGuiEx.EnumCombo("##deliveryMode", ref characterData.GCDeliveryType, Loc.EnumNames<GCDeliveryType>());
                 ImGuiEx.DragDropRepopulate(Loc.T("Mode"), characterData.GCDeliveryType, ref characterData.GCDeliveryType);
 
                 ImGui.PopID();

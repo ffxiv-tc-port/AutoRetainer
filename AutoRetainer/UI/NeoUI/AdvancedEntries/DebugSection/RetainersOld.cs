@@ -1,4 +1,5 @@
 ﻿using AutoRetainer.Internal;
+using AutoRetainer.Services;
 using Dalamud.Interface.Components;
 using FFXIVClientStructs.FFXIV.Client.Game;
 
@@ -8,7 +9,7 @@ internal unsafe class RetainersOld : DebugSectionBase
     private static Dictionary<int, (Vector2 start, Vector2 end)> bars = [];
     public override void Draw()
     {
-        if(!(GameRetainerManager.Ready && Svc.ClientState.LocalPlayer != null))
+        if(!(GameRetainerManager.Ready && Svc.Objects.LocalPlayer != null))
         {
             ImGuiEx.Text("Data Not Ready");
             return;
@@ -49,7 +50,7 @@ internal unsafe class RetainersOld : DebugSectionBase
         ImGui.TableSetupColumn(Loc.T("Venture"));
         ImGui.TableSetupColumn(Loc.T("Interaction"));
         ImGui.TableHeadersRow();
-        var retainers = P.GetSelectedRetainers(Svc.ClientState.LocalContentId);
+        var retainers = P.GetSelectedRetainers(SvcEx.PlayerState.ContentId);
         for(var i = 0; i < GameRetainerManager.Count; i++)
         {
             var ret = GameRetainerManager.Retainers[i];

@@ -189,7 +189,7 @@ public sealed class VenturePlanner : Window
                     ImGuiEx.TextV(Loc.T("On plan completion:"));
                     ImGui.SameLine();
                     ImGuiEx.SetNextItemFullWidth();
-                    ImGuiEx.EnumCombo("##cBeh", ref adata.VenturePlan.PlanCompleteBehavior);
+                    ImGuiEx.EnumCombo("##cBeh", ref adata.VenturePlan.PlanCompleteBehavior, Loc.EnumNames<PlanCompleteBehavior>());
                     //ImGui.Separator();
                     var overwrite = C.SavedPlans.Any(x => x.Name == adata.VenturePlan.Name);
                     ImGuiEx.InputWithRightButtonsArea(Loc.T("SavePlan"), delegate
@@ -229,7 +229,7 @@ public sealed class VenturePlanner : Window
                     ImGuiEx.TextV(Loc.T("Unavailable ventures:"));
                     ImGui.SameLine();
                     ImGuiEx.SetNextItemFullWidth();
-                    ImGuiEx.EnumCombo("##unavail", ref C.UnavailableVentureDisplay);
+                    ImGuiEx.EnumCombo("##unavail", ref C.UnavailableVentureDisplay, Loc.EnumNames<UnavailableVentureDisplay>());
                     if(ImGui.BeginChild("##ventureCh", new(ImGui.GetContentRegionAvail().X, ImGuiHelpers.MainViewport.Size.Y / 3)))
                     {
                         if(ImGui.CollapsingHeader(VentureUtils.GetHuntingVentureName(SelectedRetainer.Job)))

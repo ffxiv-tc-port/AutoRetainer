@@ -144,7 +144,7 @@ public class DeployablesTab : NeoUIEntry
 
         ImGui.Separator();
         ImGui.SetNextItemWidth(150f);
-        ImGuiEx.EnumCombo("##behavior", ref MassBehavior);
+        ImGuiEx.EnumCombo("##behavior", ref MassBehavior, Loc.EnumNames<VesselBehavior>());
         ImGui.SameLine();
         if(ImGuiEx.IconButtonWithText((FontAwesomeIcon)'\uf018', Loc.T("Set behavior")))
         {
@@ -348,27 +348,27 @@ public class DeployablesTab : NeoUIEntry
                 ImGui.Text(Loc.T("Hull:"));
                 ImGui.SameLine(60f);
                 ImGui.SetNextItemWidth(100f);
-                ImGuiEx.EnumCombo($"##hull{entry.GUID}", ref entry.Part1);
+                ImGuiEx.EnumCombo($"##hull{entry.GUID}", ref entry.Part1, Loc.EnumNames<Hull>());
 
                 ImGui.Text(Loc.T("Stern:"));
                 ImGui.SameLine(60f);
                 ImGui.SetNextItemWidth(100f);
-                ImGuiEx.EnumCombo($"##stern{entry.GUID}", ref entry.Part2);
+                ImGuiEx.EnumCombo($"##stern{entry.GUID}", ref entry.Part2, Loc.EnumNames<Stern>());
 
                 ImGui.Text(Loc.T("Bow:"));
                 ImGui.SameLine(60f);
                 ImGui.SetNextItemWidth(100f);
-                ImGuiEx.EnumCombo($"##bow{entry.GUID}", ref entry.Part3);
+                ImGuiEx.EnumCombo($"##bow{entry.GUID}", ref entry.Part3, Loc.EnumNames<Bow>());
 
                 ImGui.Text(Loc.T("Bridge:"));
                 ImGui.SameLine(60f);
                 ImGui.SetNextItemWidth(100f);
-                ImGuiEx.EnumCombo($"##bridge{entry.GUID}", ref entry.Part4);
+                ImGuiEx.EnumCombo($"##bridge{entry.GUID}", ref entry.Part4, Loc.EnumNames<Bridge>());
 
                 ImGui.Text(Loc.T("Behavior:"));
                 ImGui.SameLine(60f);
                 ImGui.SetNextItemWidth(150f);
-                ImGuiEx.EnumCombo($"##behavior{entry.GUID}", ref entry.VesselBehavior);
+                ImGuiEx.EnumCombo($"##behavior{entry.GUID}", ref entry.VesselBehavior, Loc.EnumNames<VesselBehavior>());
                 ImGui.Text(Loc.T("Plan:"));
                 ImGui.SameLine(60f);
                 if(entry.VesselBehavior == VesselBehavior.Unlock)
@@ -393,7 +393,7 @@ public class DeployablesTab : NeoUIEntry
                     ImGui.Text(Loc.T("Mode:"));
                     ImGui.SameLine(60f);
                     ImGui.SetNextItemWidth(150f);
-                    ImGuiEx.EnumCombo($"##unlockmode{entry.GUID}", ref entry.UnlockMode);
+                    ImGuiEx.EnumCombo($"##unlockmode{entry.GUID}", ref entry.UnlockMode, Lang.UnlockModeNames);
                 }
                 else if(entry.VesselBehavior == VesselBehavior.Use_plan)
                 {
@@ -421,7 +421,7 @@ public class DeployablesTab : NeoUIEntry
                     ImGui.Text(Loc.T("First Sub Behavior:"));
                     ImGui.SameLine(150f);
                     ImGui.SetNextItemWidth(150f);
-                    ImGuiEx.EnumCombo($"##firstSubBehavior{entry.GUID}", ref entry.FirstSubVesselBehavior);
+                    ImGuiEx.EnumCombo($"##firstSubBehavior{entry.GUID}", ref entry.FirstSubVesselBehavior, Loc.EnumNames<VesselBehavior>());
                     ImGui.Text(Loc.T("First Sub Plan:"));
                     ImGui.SameLine(150f);
                     if(entry.FirstSubVesselBehavior == VesselBehavior.Unlock)
@@ -446,7 +446,7 @@ public class DeployablesTab : NeoUIEntry
                         ImGui.Text(Loc.T("First Sub Mode:"));
                         ImGui.SameLine(150f);
                         ImGui.SetNextItemWidth(150f);
-                        ImGuiEx.EnumCombo($"##firstSubUnlockmode{entry.GUID}", ref entry.FirstSubUnlockMode);
+                        ImGuiEx.EnumCombo($"##firstSubUnlockmode{entry.GUID}", ref entry.FirstSubUnlockMode, Lang.UnlockModeNames);
                     }
                     else if(entry.FirstSubVesselBehavior == VesselBehavior.Use_plan)
                     {

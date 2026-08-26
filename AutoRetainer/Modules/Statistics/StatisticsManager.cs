@@ -1,4 +1,5 @@
 ﻿using AutoRetainer.Internal.InventoryManagement;
+using AutoRetainer.Services;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
@@ -57,7 +58,7 @@ internal static unsafe class StatisticsManager
                     {
                         if(C.RecordStats)
                         {
-                            GetWrapper(Svc.ClientState.LocalContentId, retName).Add(new()
+                            GetWrapper(SvcEx.PlayerState.ContentId, retName).Add(new()
                             {
                                 ItemId = p.ItemId,
                                 IsHQ = p.IsHQ,
