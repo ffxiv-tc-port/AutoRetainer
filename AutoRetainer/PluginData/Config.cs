@@ -27,6 +27,16 @@ internal unsafe class Config
     }
 
     public bool GCHandinNotify = false;
+    /// <summary>Grand Company handin: how long to wait for the item list row count to change after the
+    /// refresh event was sent, before giving up on the active refresh and falling back to waiting for the
+    /// game to rebuild the list on its own. This is a fuse, not the pacing source - the flow advances as
+    /// soon as the row count changes, no matter who caused it. Do not set it near the fallback duration
+    /// (~0.56s measured): timing out makes the plugin rescan a list that may still be stale, which can pick
+    /// the item that was just handed in and abort the whole run. See AutoGCHandin.</summary>
+    public int GCHandinListTimeoutMs = 1500;
+    /// <summary>Grand Company handin: if the row count has not changed this long after a refresh event was
+    /// sent, send another one (once the list addon is fully ready). Capped at 3 sends per item.</summary>
+    public int GCHandinRefreshRetryMs = 150;
     internal bool BypassSanctuaryCheck = false;
     public bool MultiHETOnEnable = true;
     public bool UseServerTime = true;
@@ -236,6 +246,11 @@ internal unsafe class Config
     public bool ConnectionErrorsBlacklist = true;
     public bool EnableEntrustManager = true;
     public bool EnableEntrustChat = false;
+    /// <summary>Minimum spacing between two entrust commands, in milliseconds. This is a floor, not the
+    /// pacing source - the flow already waits for each item to actually leave the inventory before sending
+    /// the next one, so lowering this does not allow two commands to be in flight at once. See
+    /// TaskEntrustDuplicates for the measurements the default is derived from.</summary>
+    public int EntrustIntervalMS = 150;
 
     public bool HETWhenDisabled = false;
     public bool UseTitleScreenButton = false;

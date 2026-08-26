@@ -90,8 +90,22 @@ internal static unsafe class OfflineDataManager
         {
             data.WorldOverride = null;
         }
-        data.Gil = (uint)InventoryManager.Instance()->GetInventoryItemCount(1);
-        data.ClassJobLevelArray = UIState.Instance()->PlayerState.ClassJobLevels.ToArray();
+        // 🔴 2026-08-01 崩潰防護：這個函式整條都在讀原生單例，但原本一個 null 檢查都沒有。
+        // 實機在**登入瞬間**吃到 AccessViolationException 而整個遊戲關閉
+        // （crash-20260801022458，堆疊：WriteOfflineData ← EnqueueWriteWhenPlayerAvailable
+        //  ← NeoTaskManager.Tick）。⚠️ 無法從 dump 指認是哪一處解參考出事——
+        // Dalamud 的崩潰處理器會自己丟一個 0x12345679 的標記例外，dump 是在那個 handler 裡
+        // 抓的而不是 AV 現場，`.ecxr` 拿到的是 RaiseException 不是原始錯誤位址。
+        // 既然指認不了，就把每一處都補上：假設錯了也不會崩。
+        //
+        // ⚠️ AccessViolationException 在 .NET Core 是 corrupted-state exception，
+        // try/catch 攔不到，所以只能靠事前檢查，不能靠例外處理。
+        var inventoryManager = InventoryManager.Instance();
+        var uiState = UIState.Instance();
+        if(inventoryManager == null || uiState == null) return;
+
+        data.Gil = (uint)inventoryManager->GetInventoryItemCount(1);
+        data.ClassJobLevelArray = uiState->PlayerState.ClassJobLevels.ToArray();
         if(writeGatherables)
         {
             try
@@ -139,16 +153,38 @@ internal static unsafe class OfflineDataManager
         }
         if(Player.IsInHomeWorld && Player.Available)
         {
-            var fc = InfoModule.Instance()->GetInfoProxyFreeCompany();
+            // 🔴 部隊資訊代理在登入初期可能還沒建好。原本 fc 完全沒驗就直接 fc->Id，
+            // 而且 `data.FCID = fc->Id` 那行連前面條件的短路都保護不到。
+            var infoModule = InfoModule.Instance();
+            var fc = infoModule == null ? null : infoModule->GetInfoProxyFreeCompany();
+            if(fc == null) return;
+
             if(Player.Object.Struct()->FreeCompanyTagString != "" && (fc->Id == 0 || fc->NameString == "")) return;
             data.FCID = fc->Id;
             if(!C.FCData.ContainsKey(fc->Id)) C.FCData[fc->Id] = new();
             C.FCData[fc->Id].Name = fc->NameString;
-            var numArray = UIModule.Instance()->GetRaptureAtkModule()->AtkModule.GetNumberArrayData(58);
-            if(numArray != null)
+
+            var uiModule = UIModule.Instance();
+            var atkModule = uiModule == null ? null : uiModule->GetRaptureAtkModule();
+            // 同樣是 7.2 → 7.3 的 +1 位移：上游寫死的 58 在台服 7.20 指到的是
+            // ContentsFinderConfirm，部隊金幣在 FreeCompanyChest（59）。
+            // 這不是外推值 —— 出貨的 CS 直接把 59 命名為 FreeCompanyChest，58 命名為
+            // ContentsFinderConfirm，兩個名字都在同一份列舉裡，而那份列舉已含 7.3 插入的
+            // CastBarEnemy。一樣引用列舉不寫死數字。
+            var numArray = atkModule == null ? null : atkModule->AtkModule.GetNumberArrayData(
+                (int)FFXIVClientStructs.FFXIV.Component.GUI.NumberArrayType.FreeCompanyChest);
+
+            // 🔴 原本只驗 numArray != null 就直接索引第 354 格 —— 只有 null 檢查、
+            // **完全沒有長度檢查**。這跟 BossModReborn 那個實機爆 2823 次的半套邊界檢查
+            // 是同一個形狀：陣列在登入初期可能還沒配置到那麼長，讀 IntArray[354]
+            // （偏移 1416 位元組）就會跨出去。AtkArrayData.Size 就是為此存在的。
+            const int FcGilIndex = 354;
+            if(numArray != null && numArray->IntArray != null && numArray->Size > FcGilIndex)
             {
-                var gil = numArray->IntArray[354];
-                if(gil != 0 || S.FCPointsUpdater?.IsFCChestReady() == true)
+                var gil = numArray->IntArray[FcGilIndex];
+                // 值本身也要合理才採用。負數代表讀到的不是金幣（陣列選錯或還沒填），
+                // 這種時候寧可讓部隊金幣維持舊值不更新，也不要寫一個假數字進設定檔。
+                if(gil >= 0 && (gil != 0 || S.FCPointsUpdater?.IsFCChestReady() == true))
                 {
                     C.FCData[fc->Id].Gil = gil;
                     C.FCData[fc->Id].LastGilUpdate = DateTimeOffset.Now.ToUnixTimeMilliseconds();

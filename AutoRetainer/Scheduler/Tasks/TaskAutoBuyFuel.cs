@@ -45,10 +45,13 @@ internal static unsafe class TaskAutoBuyFuel
         {
             Chat.ExecuteCommand("/lockon");
         }
-        Chat.ExecuteCommand("/automove on");
+        // Both halves live in the same task here, but that is not protection: this task still returns
+        // false until it is in range, so a timeout aborts it with autorun left on. AutomoveManager's
+        // watchdog covers that. (It also stops this from re-sending the command every single frame.)
+        AutomoveManager.On();
         if(Vector3.Distance(Player.Object.Position, doll.Position) < 4f + Utils.Random * 0.25f)
         {
-            Chat.ExecuteCommand("/automove off");
+            AutomoveManager.Off();
             return true;
         }
         return false;

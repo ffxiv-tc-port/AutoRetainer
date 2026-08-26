@@ -11,6 +11,13 @@ internal static unsafe class MultiModeUI
     internal static void Draw()
     {
         List<OverlayTextData> overlayTexts = [];
+        // Snapshot once per frame: this flag decides whether each row gets the
+        // extra "C:" column, and it can change mid-draw (per-character config
+        // popups mutate config inside the loop below; MultiMode.Enabled is a
+        // bare static written from IPC/auto-disable). Evaluating it per row can
+        // produce rows with different column counts within a single frame,
+        // which crashed DrawOverlayTexts with IndexOutOfRangeException.
+        var showCharaCnt = C.CharEqualize && MultiMode.Enabled;
         C.OfflineData.RemoveAll(x => C.Blacklist.Any(z => z.CID == x.CID));
         var sortedData = new List<OfflineCharacterData>();
         JustRelogged = false;
@@ -151,7 +158,7 @@ internal static unsafe class MultiModeUI
             }
             ImGui.SameLine(0, 0);
             List<(bool, string)> texts = [(data.Ventures < C.UIWarningRetVentureNum, $"V: {data.Ventures}"), (data.InventorySpace < C.UIWarningRetSlotNum, $"I: {data.InventorySpace}")];
-            if(C.CharEqualize && MultiMode.Enabled)
+            if(showCharaCnt)
             {
                 texts.Insert(0, (false, $"C: {MultiMode.CharaCnt.GetOrDefault(data.CID)}"));
             }

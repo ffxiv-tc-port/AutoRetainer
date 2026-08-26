@@ -93,51 +93,59 @@ internal unsafe class RetainerListOverlay : Window
             ImGui.SameLine();
             if(ImGuiEx.IconButton($"{Lang.IconDuplicate}##Entrust all duplicates"))
             {
-                for(var i = 0; i < GameRetainerManager.Count; i++)
+                // Wrapped so an abort part way through the batch is reported and the retainer window
+                // it was left sitting in gets closed - see RetainerBulkOperation.
+                RetainerBulkOperation.Enqueue(Loc.T("Quick Entrust"), () =>
                 {
-                    var ret = GameRetainerManager.Retainers[i];
-                    if(ret.Available)
+                    for(var i = 0; i < GameRetainerManager.Count; i++)
                     {
-                        var adata = Utils.GetAdditionalData(Data.CID, ret.Name);
-                        var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan);
-                        if(selectedPlan != null)
+                        var ret = GameRetainerManager.Retainers[i];
+                        if(ret.Available)
                         {
-                            P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(ret.Name.ToString()));
-                            TaskEntrustDuplicates.EnqueueNew(selectedPlan);
-                            if(C.RetainerMenuDelay > 0)
+                            var adata = Utils.GetAdditionalData(Data.CID, ret.Name);
+                            var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan);
+                            if(selectedPlan != null)
                             {
-                                TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
+                                P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(ret.Name.ToString()));
+                                TaskEntrustDuplicates.EnqueueNew(selectedPlan);
+                                if(C.RetainerMenuDelay > 0)
+                                {
+                                    TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
+                                }
+                                P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
                             }
-                            P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
-                        }
-                        else
-                        {
-                            //Notify.Error($"No entrust plan found for retainer {ret.Name}");
-                        }
+                            else
+                            {
+                                //Notify.Error($"No entrust plan found for retainer {ret.Name}");
+                            }
 
+                        }
                     }
-                }
+                });
             }
             ImGuiEx.Tooltip(Loc.T("Quick Entrust"));
 
             ImGui.SameLine();
             if(ImGuiEx.IconButton($"{Lang.IconGil}##WithdrawGil"))
             {
-                for(var i = 0; i < GameRetainerManager.Count; i++)
+                RetainerBulkOperation.Enqueue(Loc.T("Quick Withdraw Gil"), () =>
                 {
-                    var ret = GameRetainerManager.Retainers[i];
-                    if(ret.Available)
+                    for(var i = 0; i < GameRetainerManager.Count; i++)
                     {
-                        P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(ret.Name.ToString()));
-                        TaskWithdrawGil.Enqueue(100);
-
-                        if(C.RetainerMenuDelay > 0)
+                        var ret = GameRetainerManager.Retainers[i];
+                        if(ret.Available)
                         {
-                            TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
+                            P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(ret.Name.ToString()));
+                            TaskWithdrawGil.Enqueue(100);
+
+                            if(C.RetainerMenuDelay > 0)
+                            {
+                                TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
+                            }
+                            P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
                         }
-                        P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
                     }
-                }
+                });
             }
             ImGuiEx.Tooltip(Loc.T("Quick Withdraw Gil"));
 
@@ -145,7 +153,10 @@ internal unsafe class RetainerListOverlay : Window
                 ImGui.SameLine();
                 if(ImGuiEx.IconButton($"{Lang.IconFire}##vendoritems"))
                 {
-                    Utils.EnqueueVendorItemsByRetainer();
+                    // Only the manual button is wrapped: EnqueueVendorItemsByRetainer is also called
+                    // from inside an already-running chain (the "itemsell" command), where the queue
+                    // is busy by definition and the sentinel would belong to the wrong batch.
+                    RetainerBulkOperation.Enqueue(Loc.T("Quick Vendor Items"), Utils.EnqueueVendorItemsByRetainer);
                 }
                 if(ImGui.IsItemClicked(ImGuiMouseButton.Right))
                 {
@@ -156,23 +167,26 @@ internal unsafe class RetainerListOverlay : Window
                 {
                     if(ImGui.Selectable(Loc.T("Sell items from Quick Venture List")))
                     {
-                        for(var i = 0; i < GameRetainerManager.Count; i++)
+                        RetainerBulkOperation.Enqueue(Loc.T("Sell items from Quick Venture List"), () =>
                         {
-                            var ret = GameRetainerManager.Retainers[i];
-                            if(ret.Available)
+                            for(var i = 0; i < GameRetainerManager.Count; i++)
                             {
-                                P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(ret.Name.ToString()));
-                                TaskVendorItems.Enqueue(true);
-
-                                if(C.RetainerMenuDelay > 0)
+                                var ret = GameRetainerManager.Retainers[i];
+                                if(ret.Available)
                                 {
-                                    TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
+                                    P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(ret.Name.ToString()));
+                                    TaskVendorItems.Enqueue(true);
+
+                                    if(C.RetainerMenuDelay > 0)
+                                    {
+                                        TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
+                                    }
+                                    P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
+                                    P.TaskManager.Enqueue(RetainerHandlers.ConfirmCantBuyback);
+                                    break;
                                 }
-                                P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
-                                P.TaskManager.Enqueue(RetainerHandlers.ConfirmCantBuyback);
-                                break;
                             }
-                        }
+                        });
                     }
                     ImGui.EndPopup();
                 }
@@ -182,22 +196,28 @@ internal unsafe class RetainerListOverlay : Window
             Svc.PluginInterface.GetIpcProvider<object>(ApiConsts.OnRetainerListTaskButtonsDraw).SendMessage();
             if(PluginToProcess != null)
             {
-                for(var i = 0; i < GameRetainerManager.Count; i++)
+                // Same unbounded shape as the two buttons above, and additionally driven by another
+                // plugin's IPC task, so it is the least predictable of the three.
+                var plugin = PluginToProcess;
+                RetainerBulkOperation.Enqueue(plugin, () =>
                 {
-                    var ret = GameRetainerManager.Retainers[i];
-                    if(ret.Available)
+                    for(var i = 0; i < GameRetainerManager.Count; i++)
                     {
-                        P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(ret.Name.ToString()));
-                        TaskPostprocessRetainerIPC.Enqueue(ret.Name.ToString(), PluginToProcess);
-
-                        if(C.RetainerMenuDelay > 0)
+                        var ret = GameRetainerManager.Retainers[i];
+                        if(ret.Available)
                         {
-                            TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
+                            P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(ret.Name.ToString()));
+                            TaskPostprocessRetainerIPC.Enqueue(ret.Name.ToString(), plugin);
+
+                            if(C.RetainerMenuDelay > 0)
+                            {
+                                TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
+                            }
+                            P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
+                            P.TaskManager.Enqueue(RetainerHandlers.ConfirmCantBuyback);
                         }
-                        P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
-                        P.TaskManager.Enqueue(RetainerHandlers.ConfirmCantBuyback);
                     }
-                }
+                });
             }
         }
         height = ImGui.GetWindowSize().Y;

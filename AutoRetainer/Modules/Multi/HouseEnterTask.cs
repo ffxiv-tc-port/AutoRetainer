@@ -12,7 +12,9 @@ internal static unsafe class HouseEnterTask
     {
         DebugLog($"Enabling automove");
         Utils.RegenerateRandom();
-        Chat.ExecuteCommand("/automove on");
+        // Routed through AutomoveManager so the matching "off" is guaranteed even if the queued
+        // AutorunOffBell step below never runs - see AutomoveManager for the full rationale.
+        AutomoveManager.On();
         return true;
     }
 
@@ -81,7 +83,7 @@ internal static unsafe class HouseEnterTask
         if(bell != null && Vector3.Distance(Player.Object.Position, bell.Position) < 4f + Utils.Random * 0.25f)
         {
             DebugLog($"Disabling automove");
-            Chat.ExecuteCommand("/automove off");
+            AutomoveManager.Off();
             return true;
         }
         return false;

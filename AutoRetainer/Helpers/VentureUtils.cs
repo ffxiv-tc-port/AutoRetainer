@@ -478,7 +478,13 @@ internal static unsafe class VentureUtils
     internal static List<string> GetAvailableVentureNames()
     {
         List<string> ret = [];
-        var data = CSFramework.Instance()->UIModule->GetRaptureAtkModule()->AtkModule.GetStringArrayData(97);
+        // 7.2 → 7.3 在 CastBarEnemy 處插入了一項，之後每個陣列索引都 +1，所以上游寫死的 97
+        // 在台服 7.20（7.3 世代）指到的是一個沒有名字的空位，不是探險清單。後果是靜默的：
+        // 取不到名字 → 指定探險永遠比對不到 → 走「Can not find venture id」那條路徑。
+        // 🔴 改成引用出貨 CS 的列舉而不是換一個新的魔術數字：下次版本再位移時它會自己跟著動。
+        // ⚠️ 這裡一定要完整命名空間 —— 本檔的 RetainerTask 是 Lumina 的表格型別，會撞名。
+        var data = CSFramework.Instance()->UIModule->GetRaptureAtkModule()->AtkModule.GetStringArrayData(
+            (int)FFXIVClientStructs.FFXIV.Component.GUI.StringArrayType.RetainerTask);
         if(data != null)
         {
             for(var i = 0; i < data->AtkArrayData.Size; i++)

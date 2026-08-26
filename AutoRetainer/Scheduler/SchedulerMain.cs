@@ -204,35 +204,10 @@ internal static unsafe class SchedulerMain
                             }
                             else
                             {
-                                if(PendingEntrustVendorPostprocess.Count > 0)
+                                if(TryDrainEntrustVendorPass())
                                 {
-                                    //every retainer's venture business is settled for this cycle - now run the
-                                    //deferred entrust-duplicates/auto-vendor pass, one retainer per visit
-                                    var next = PendingEntrustVendorPostprocess[0];
-                                    PendingEntrustVendorPostprocess.RemoveAt(0);
-                                    if(Utils.TryGetRetainerByName(next, out _))
-                                    {
-                                        var adata = Utils.GetAdditionalData(Svc.ClientState.LocalContentId, next);
-                                        P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(next));
-
-                                        var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
-                                        if(C.EnableEntrustManager && selectedPlan != null)
-                                        {
-                                            TaskEntrustDuplicates.EnqueueNew(selectedPlan);
-                                        }
-
-                                        if(Data.GetIMSettings().IMEnableAutoVendor)
-                                        {
-                                            TaskVendorItems.Enqueue();
-                                        }
-
-                                        if(C.RetainerMenuDelay > 0)
-                                        {
-                                            TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
-                                        }
-                                        P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
-                                        P.TaskManager.Enqueue(RetainerHandlers.ConfirmCantBuyback);
-                                    }
+                                    //every retainer's venture business is settled for this cycle - the
+                                    //deferred entrust-duplicates/auto-vendor pass just took one retainer
                                 }
                                 else if((C.Stay5 || MultiMode.Active) && !Utils.IsAllCurrentCharacterRetainersHaveMoreThan5Mins())
                                 {
@@ -287,11 +262,35 @@ internal static unsafe class SchedulerMain
                                 }
                             }
                         }
+                        // 🔴 空間不足時**不能**跳過這個雇員去收下一個：收取探險成果是「送進玩家背包」，
+                        // 而遊戲對每一次收取都套用同一條規則（LogMessage 4338「無法完成委託，背包裡需要至少
+                        // 2格空位。」），所以下一個雇員一定會撞到同一面牆。能做的只有先把「會把道具搬出背包」
+                        // 的批次跑掉，真的沒東西可搬了才停，並且停的時候要講清楚還剩誰沒收。
+                        // ✅ 沒收到的探險成果不會消失：遊戲把「已歸來」當成雇員的持續狀態（Addon 2316/2319
+                        // 的 [探險歸來] 標記、LogMessage 2361「無法進行委託，有進行中或已歸來的探險。」），
+                        // 未收取前連新委託都下不了，所以成果只會留著等下一輪，不會遺失。
+                        else if(!Utils.IsInventoryStateReadable())
+                        {
+                            // 🔴 讀不到容器時空格數會是 0，跟「背包真的滿了」完全同形。這條分支的終點是
+                            // DisablePlugin()，屬於破壞性動作，所以讀數不可信時一律什麼都不做、等下一幀。
+                            Utils.RethrottleGeneric();
+                        }
+                        // 先跑存入雇員／自動賣出：這是整個週期裡唯一會把道具「移出玩家背包」的步驟，
+                        // 也就是唯一有機會把空間騰回來的路徑。它被關在同一個空間閘門後面時，
+                        // 撞滿一次就再也救不回來（12786ae 把它從每個雇員的行程裡挪到批次之後所引入的迴歸）。
+                        else if(TryDrainEntrustVendorPass())
+                        {
+                            if(EzThrottler.Throttle("InventoryFullEntrustFirst", 10000))
+                            {
+                                DuoLog.Warning(Loc.T("Inventory is full - running the pending entrust/auto-vendor pass first to try to free up space."));
+                            }
+                        }
                         else
                         {
                             if(EzThrottler.Throttle("CloseRetainerList", 1000))
                             {
                                 DuoLog.Warning($"Your inventory is full");
+                                ReportUncollectedRetainers();
                                 if(MultiMode.Active)
                                 {
                                     DebugLog($"Scheduling retainer list closing (multi mode)");
@@ -352,32 +351,87 @@ internal static unsafe class SchedulerMain
         }
     }
 
-    internal static string GetNextRetainerName()
-    {
-        if(GameRetainerManager.Ready)
-        {
-            if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var cdata))
-            {
-                List<OfflineRetainerData> retainerData = [.. cdata.RetainerData];
-                if(C.LeastMBSFirst)
-                {
-                    retainerData = [.. cdata.RetainerData.OrderBy(x => x.MBItems)];
-                }
+    internal static string GetNextRetainerName() => EnumeratePendingRetainers().FirstOrDefault();
 
-                for(var i = 0; i < retainerData.Count; i++)
-                {
-                    var r = retainerData[i];
-                    var rname = r.Name.ToString();
-                    var adata = Utils.GetAdditionalData(Svc.ClientState.LocalContentId, rname);
-                    if(P.GetSelectedRetainers(Svc.ClientState.LocalContentId).Contains(rname)
-                        && r.GetVentureSecondsRemaining() <= C.UnsyncCompensation && (r.VentureID != 0 || CanAssignQuickExploration || (adata.EnablePlanner && adata.VenturePlan.ListUnwrapped.Count > 0)))
-                    {
-                        return rname;
-                    }
-                }
+    /// <summary>Every enabled retainer of the current character that still needs a venture visit this
+    /// cycle, in the order the scheduler would visit them. <see cref="GetNextRetainerName"/> takes the
+    /// first of these; the inventory-full report lists all of them, so "stopped early" tells the user
+    /// exactly which retainers are left instead of just that something stopped.</summary>
+    internal static IEnumerable<string> EnumeratePendingRetainers()
+    {
+        if(!GameRetainerManager.Ready) yield break;
+        if(!C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var cdata)) yield break;
+
+        List<OfflineRetainerData> retainerData = [.. cdata.RetainerData];
+        if(C.LeastMBSFirst)
+        {
+            retainerData = [.. cdata.RetainerData.OrderBy(x => x.MBItems)];
+        }
+
+        for(var i = 0; i < retainerData.Count; i++)
+        {
+            var r = retainerData[i];
+            var rname = r.Name.ToString();
+            var adata = Utils.GetAdditionalData(Svc.ClientState.LocalContentId, rname);
+            if(P.GetSelectedRetainers(Svc.ClientState.LocalContentId).Contains(rname)
+                && r.GetVentureSecondsRemaining() <= C.UnsyncCompensation && (r.VentureID != 0 || CanAssignQuickExploration || (adata.EnablePlanner && adata.VenturePlan.ListUnwrapped.Count > 0)))
+            {
+                yield return rname;
             }
         }
-        return null;
+    }
+
+    /// <summary>Takes the next retainer off the deferred entrust-duplicates/auto-vendor queue and
+    /// enqueues its visit, one retainer per call. Returns whether anything was queued.
+    ///
+    /// Both steps only ever move items OUT of the player's inventory (entrust hands them to the
+    /// retainer, auto-vendor sells them), so this is safe - and useful - to run while the inventory
+    /// is too full to collect ventures.</summary>
+    private static bool TryDrainEntrustVendorPass()
+    {
+        while(PendingEntrustVendorPostprocess.Count > 0)
+        {
+            var next = PendingEntrustVendorPostprocess[0];
+            PendingEntrustVendorPostprocess.RemoveAt(0);
+            if(!Utils.TryGetRetainerByName(next, out _)) continue;
+
+            var adata = Utils.GetAdditionalData(Svc.ClientState.LocalContentId, next);
+            P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(next));
+
+            var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
+            if(C.EnableEntrustManager && selectedPlan != null)
+            {
+                TaskEntrustDuplicates.EnqueueNew(selectedPlan);
+            }
+
+            if(Data.GetIMSettings().IMEnableAutoVendor)
+            {
+                TaskVendorItems.Enqueue();
+            }
+
+            if(C.RetainerMenuDelay > 0)
+            {
+                TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
+            }
+            P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
+            P.TaskManager.Enqueue(RetainerHandlers.ConfirmCantBuyback);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Names the retainers whose finished ventures were NOT collected because the inventory
+    /// ran out of space, so the remaining manual work is a known, bounded list rather than a guess.</summary>
+    private static void ReportUncollectedRetainers()
+    {
+        try
+        {
+            var pending = EnumeratePendingRetainers().ToList();
+            if(pending.Count == 0) return;
+            DuoLog.Warning(string.Format(Loc.T("Not collected this run ({0}): {1}"), pending.Count, pending.Print()));
+            DuoLog.Information(Loc.T("Venture results stay on the retainer until they are collected, so nothing is lost - free up inventory space and they will be picked up on the next run."));
+        }
+        catch(Exception e) { e.Log(); }
     }
 
     /// <summary>Whether the deferred entrust/vendor batch pass would actually find anything to do for
@@ -386,6 +440,12 @@ internal static unsafe class SchedulerMain
     /// inventory; entrust's "unconditional" items/categories are checked against the player's carried
     /// counts, and duplicates are checked against this retainer's live inventory since it's already
     /// open right now - none of this is guessable without the retainer being open.</summary>
+    /// <remarks>
+    /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少報工作、不可能多報**。回傳值只用來決定
+    /// 「要不要把這個雇員排進待辦」，少報＝這一輪不重開他，下一輪重新評估時就會補回來；
+    /// 多報才是有代價的（白開一次雇員），而跳過永遠不會造成多報。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     private static unsafe bool RetainerHasEntrustOrVendorWork(EntrustPlan? plan)
     {
         var vs = Data.GetIMSettings();
@@ -395,7 +455,7 @@ internal static unsafe class SchedulerMain
             foreach(var invType in InventorySpaceManager.GetAllowedToSellInventoryTypes())
             {
                 var inv = InventoryManager.Instance()->GetInventoryContainer(invType);
-                if(inv == null) continue;
+                if(inv == null || inv->Items == null) continue;
                 for(var i = 0; i < inv->Size; i++)
                 {
                     var item = inv->Items[i];
@@ -425,6 +485,7 @@ internal static unsafe class SchedulerMain
             for(var i = 0; i < inv->Size; i++)
             {
                 var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                if(item == null) continue;
                 if(item->ItemId == 0 || item->Quantity == 0) continue;
                 if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
 
@@ -460,6 +521,7 @@ internal static unsafe class SchedulerMain
                 for(var i = 0; i < inv->Size; i++)
                 {
                     var item = inv->GetInventorySlot(i);
+                    if(item == null) continue;
                     if(item->ItemId == 0) continue;
                     if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
 
@@ -483,6 +545,7 @@ internal static unsafe class SchedulerMain
                         for(var q = 0; q < playerInv->Size; q++)
                         {
                             var playerItem = playerInv->GetInventorySlot(q);
+                            if(playerItem == null) continue;
                             if(playerItem->ItemId == item->ItemId && playerItem->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality) == item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality))
                             {
                                 return true;

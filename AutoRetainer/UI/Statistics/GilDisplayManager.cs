@@ -23,17 +23,21 @@ public sealed class GilDisplayManager
         {
             if(ExcelWorldHelper.TryGet(x.World, out var world))
             {
-                if(!data.ContainsKey((ExcelWorldHelper.Region)world.DataCenter.Value.Region))
+                // 台服(陸行鳥 DC=151)的 WorldDCGroupType.Region 是 8,ExcelWorldHelper.Region
+                // 列舉沒有這個具名值,但轉型本身沒問題——只是顯示時要用 GetRegionDisplayName()
+                // 而不是直接 ToString(),否則裸數字「8」會取代地區名稱。
+                var region = world.GetRegion();
+                if(!data.ContainsKey(region))
                 {
-                    data[(ExcelWorldHelper.Region)world.DataCenter.Value.Region] = [];
+                    data[region] = [];
                 }
-                data[(ExcelWorldHelper.Region)world.DataCenter.Value.Region].Add(x);
+                data[region].Add(x);
             }
         }
         var globalTotal = 0L;
         foreach(var x in data)
         {
-            ImGuiEx.Text($"{x.Key}:");
+            ImGuiEx.Text($"{x.Key.GetRegionDisplayName()}:");
             var dcTotal = 0L;
             foreach(var c in x.Value)
             {
@@ -79,7 +83,7 @@ public sealed class GilDisplayManager
                     ImGui.Separator();
                 }
             }
-            ImGuiEx.Text(ImGuiColors.DalamudOrange, $"{Loc.T("Data center total (")}{x.Key}): {dcTotal:N0}");
+            ImGuiEx.Text(ImGuiColors.DalamudOrange, $"{Loc.T("Data center total (")}{x.Key.GetRegionDisplayName()}): {dcTotal:N0}");
             globalTotal += dcTotal;
             ImGui.Separator();
             ImGui.Separator();

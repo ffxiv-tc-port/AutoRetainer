@@ -48,6 +48,25 @@ internal static unsafe class VoyageScheduler
         return false;
     }
 
+    /// <summary>
+    /// True while one of the two windows that <see cref="CloseRepair"/> knows how to close is up.
+    /// Both of them cover the voyage SelectString menu, which makes
+    /// <see cref="VoyageUtils.GetCurrentWorkshopPanelType"/> report <see cref="PanelType.None"/>.
+    /// </summary>
+    internal static bool IsVesselPartsWindowOpen()
+    {
+        return (TryGetAddonByName<AtkUnitBase>("CompanyCraftSupply", out var addon) && IsAddonReady(addon))
+            || (TryGetAddonByName<AtkUnitBase>("AirShipPartsMenu", out var addon2) && IsAddonReady(addon2));
+    }
+
+    /// <summary>
+    /// Diagnostic only: the part picker popup that <see cref="PartSwapper.PartSwapperTasks.ChangeComponent"/> drives.
+    /// </summary>
+    internal static bool IsPartPickerOpen()
+    {
+        return TryGetAddonByName<AtkUnitBase>("ContextIconMenu", out var addon) && IsAddonReady(addon);
+    }
+
     internal static bool? TryRepair(int slot)
     {
         if(TaskRepairAll.Abort) return true;
@@ -136,7 +155,10 @@ internal static unsafe class VoyageScheduler
         {
             if(Utils.GenericThrottle)
             {
-                Chat.ExecuteCommand("/automove on");
+                // Same shape as the retainer bell approach: AutomoveOffPanel is a separate queued
+                // step that only completes inside ~4 yalms, so it must not be the only thing that
+                // can stop autorun. See AutomoveManager.
+                AutomoveManager.On();
                 Utils.RegenerateRandom();
                 return true;
             }
@@ -152,7 +174,7 @@ internal static unsafe class VoyageScheduler
             {
                 if(Utils.GenericThrottle)
                 {
-                    Chat.ExecuteCommand("/automove off");
+                    AutomoveManager.Off();
                     return true;
                 }
             }

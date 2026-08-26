@@ -83,6 +83,9 @@ public unsafe class AutoRetainer : IDalamudPlugin
         {
             P = this;
             ECommonsMain.Init(pi, this, Module.DalamudReflector);
+            // 讓「呼叫了對方沒有的 IPC 方法」不再完全靜默。
+            // 訂閱越早越好：事件只在 IPC **呼叫**當下才被查閱，在這裡訂閱就涵蓋往後所有呼叫。
+            EzIpcFailureLog.Enable();
 #if CUSTOMCS
             PluginLog.Warning($"Using custom FFXIVClientStructs");
             var gameVersion = DalamudReflector.TryGetDalamudStartInfo(out var ver) ? ver.GameVersion.ToString() : "unknown";
@@ -546,6 +549,10 @@ public unsafe class AutoRetainer : IDalamudPlugin
         TextAdvanceManager.Tick();
         Shutdown.Tick();
         BailoutManager.Tick();
+        // Both of these recover from an aborted task queue, so they must be driven from the framework
+        // update rather than from the queue they are watching.
+        AutomoveManager.Tick();
+        RetainerBulkOperation.Tick();
         if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && Utils.TryGetCurrentRetainer(out var name) && Utils.TryGetRetainerByName(name, out var retainer))
         {
             if(!retainer.VentureID.EqualsAny(0u, LastVentureID))
@@ -658,6 +665,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
             Safe(() => VoyageMain.Shutdown());
             Safe(() => MultiModeDtr.Dispose());
             Safe(() => ContextMenuManager.Dispose());
+            Safe(() => EzIpcFailureLog.Disable());
             PunishLibMain.Dispose();
             ECommonsMain.Dispose();
         }

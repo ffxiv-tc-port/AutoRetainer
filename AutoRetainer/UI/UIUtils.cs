@@ -134,10 +134,15 @@ internal static class UIUtils
     {
         if(overlayTexts.Count > 0)
         {
-            var maxSizes = new float[overlayTexts[0].Texts.Length];
+            // Rows can have different column counts (the "C:" counter column is
+            // conditional), so size the array to the longest row and compute
+            // each column's max only over the rows that have that column.
+            // Sizing and indexing everything from row 0 crashed with
+            // IndexOutOfRangeException when lengths differed within one frame.
+            var maxSizes = new float[overlayTexts.Max(x => x.Texts.Length)];
             for(var i = 0; i < maxSizes.Length; i++)
             {
-                maxSizes[i] = overlayTexts.Select(x => ImGui.CalcTextSize(x.Texts[i].Text).X).Max();
+                maxSizes[i] = overlayTexts.Where(x => i < x.Texts.Length).Select(x => ImGui.CalcTextSize(x.Texts[i].Text).X).Max();
             }
             foreach(var x in overlayTexts)
             {

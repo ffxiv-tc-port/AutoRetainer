@@ -52,7 +52,16 @@ internal unsafe class DebugVenture : DebugSectionBase
         }
         if(ImGui.CollapsingHeader(Loc.T("Ventures")))
         {
-            var data = CSFramework.Instance()->UIModule->GetRaptureAtkModule()->AtkModule.GetStringArrayData(95);
+            // 這個傾印是給 VentureUtils.GetAvailableVentureNames() 當對照用的（就是下面那個
+            // CollapsingHeader），兩邊必須讀同一個陣列 = StringArrayType.RetainerTask。
+            // 🔴 原本寫死 95：這個字面值是 2023-03-26 那次 commit 留下來的，之後從來沒跟著版本更新過。
+            // 它不是 7.2→7.3 那個 +1 位移的受害者 —— 兩種世代底下 95 都不是探險陣列
+            // （7.2 = OrchestrionPlayListSelect，7.3 = Orchestrion），是一顆放了兩年多的獨立既有 bug。
+            // 🔴 改用具名列舉而不是換一個新的魔術數字：下次陣列再位移時它會自己跟著動。
+            // ⚠️ 寫完整命名空間：本檔沒有 using FFXIVClientStructs.FFXIV.Component.GUI，
+            // 而補 using 會讓裸寫的 RetainerTask 在別處有撞名風險（VentureUtils 就撞過 Lumina 的同名表格型別）。
+            var data = CSFramework.Instance()->UIModule->GetRaptureAtkModule()->AtkModule.GetStringArrayData(
+                (int)FFXIVClientStructs.FFXIV.Component.GUI.StringArrayType.RetainerTask);
             if(data != null)
             {
                 for(var i = 0; i < data->AtkArrayData.Size; i++)
