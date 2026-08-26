@@ -41,6 +41,10 @@ internal unsafe class AutoRetainerWindow : Window
 
     private Action<string> SomeAction;
 
+    /// <summary>True while PreDraw has pushed <see cref="ImGuiStyleVar.Alpha"/> and PostDraw still owes a pop.
+    /// Mirrors how Dalamud's own <c>Window</c> base class tracks its per-window opacity push.</summary>
+    private bool PushedWindowAlpha = false;
+
     private void OnLockButtonClick(ImGuiMouseButton m)
     {
         SomeAction += (s) => { };
@@ -62,13 +66,46 @@ internal unsafe class AutoRetainerWindow : Window
             ImGuiHelpers.SetNextWindowPosRelativeMainViewport(C.WindowPos);
             ImGui.SetNextWindowSize(C.WindowSize);
         }
-        // Dalamud reads Window.BgAlpha in ApplyConditionals(), which it calls immediately after PreDraw()
-        // in the same frame, so assigning it here takes effect right away - no one-frame lag. Assigning it
-        // unconditionally (rather than only when the option is on) is what restores the stock look the
-        // moment the option is switched back off. null means "do not call SetNextWindowBgAlpha at all",
-        // i.e. the ImGui style decides, which is the pre-existing behaviour.
-        // Only the background is affected; window contents keep their normal alpha.
-        BgAlpha = C.CustomWindowBgAlpha ? Math.Clamp(C.WindowBgAlphaPercent, 20, 100) / 100f : null;
+        // Dalamud 的 Window 基底類別在 PreDraw() 裡推自己的每視窗不透明度(標題列右鍵選單那個
+        // 滑桿)。這個 override 原本沒有呼叫 base,等於把那個功能對本視窗靜默關掉了一半
+        // (ApplyConditionals 讀得到 internalAlpha 所以背景會變,但內容不會)。base.PostDraw()
+        // 會依 base 自己的旗標決定要不要 pop,所以補呼叫 base 兩邊仍然成對。
+        base.PreDraw();
+
+        // 主視窗整體不透明度。推的是 ImGuiStyleVar.Alpha 而不是 Window.BgAlpha:
+        // BgAlpha 走的是 SetNextWindowBgAlpha(),只換掉 WindowBg 那一格顏色的 alpha,
+        // 僱員列、分頁列、按鈕這些自帶底色的元件完全不受影響 —— 使用者實機回報「其他
+        // 選項沒有跟著變透明」就是這個原因。Alpha 是 ImGui 的全域乘數,GetColorU32()
+        // 會把它乘進每一個取出的顏色,所以標題列、視窗背景、列底色、框線與文字會一起
+        // 淡掉,與 Dalamud 標題列右鍵選單的「不透明度」滑桿是同一個機制。
+        // 文字跟著淡是這個機制的本質,不是 bug;下限 20% 就是用來保底可讀性的。
+        //
+        // 🔴 push 與 pop 必須成對,否則整個 ImGui 樣式堆疊會壞掉。實際讀過
+        // Dalamud/Interface/Windowing/Window.cs 的 DrawInternal 確認過:
+        //   * PreDraw() 只在 !hasError 時呼叫,同時把區域變數 isErrorStylePushed 留在 false;
+        //   * PostDraw() 在收尾處以 else(!isErrorStylePushed)呼叫 —— 判斷的是那個**區域變數**,
+        //     不是重新讀 this.hasError,所以 Draw() 途中擲例外把 hasError 翻成 true 也不影響;
+        //   * Draw() 的例外被 try/catch 攔住,兩者之間整段沒有任何 return;
+        //   * 兩個提早 return(視窗未開啟、DrawConditions() 為 false)都發生在 PreDraw() **之前**;
+        //   * 視窗收合時 ImGui.Begin() 回 false,但程式碼照樣往下走到 ImGui.End() 與 PostDraw()。
+        // ⇒ PreDraw/PostDraw 在所有路徑成對,這也正是 Dalamud 自己推 internalAlpha 的位置。
+        if(C.CustomWindowBgAlpha)
+        {
+            // 乘上現值而不是直接指定,才能疊在 base.PreDraw() 推的值與外層樣式調整之上。
+            ImGui.PushStyleVar(ImGuiStyleVar.Alpha, ImGui.GetStyle().Alpha * (Math.Clamp(C.WindowBgAlphaPercent, 20, 100) / 100f));
+            PushedWindowAlpha = true;
+        }
+    }
+
+    public override void PostDraw()
+    {
+        // 後進先出:先 pop 掉本類別在 PreDraw 推的那一個,再讓 base 處理它自己那一個。
+        if(PushedWindowAlpha)
+        {
+            ImGui.PopStyleVar();
+            PushedWindowAlpha = false;
+        }
+        base.PostDraw();
     }
 
     private string FormatToken(TimeSpan time)

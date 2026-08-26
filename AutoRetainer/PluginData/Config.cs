@@ -352,17 +352,22 @@ internal unsafe class Config
     public Vector2 WindowSize;
     public Vector2 WindowPos;
     public bool PinWindow = false;
-    /// <summary>Main window background opacity override. Off by default, and the default must stay off:
-    /// while this is off, AutoRetainerWindow leaves Dalamud's Window.BgAlpha at null, which is exactly what
-    /// the window did before this option existed - the active ImGui style's WindowBg alpha is used as-is.
-    /// Note that WindowBgAlphaPercent = 100 is NOT the same as "off": the stock Dalamud style's WindowBg
-    /// alpha is below 1.0, so forcing 100% would make the window more opaque than it is today.</summary>
+    /// <summary>Main window opacity override. Off by default, and the default must stay off: while this is
+    /// off, AutoRetainerWindow pushes nothing and the window looks exactly as it did before this option
+    /// existed. Note that WindowBgAlphaPercent = 100 is NOT quite the same as "off" - at 100% the multiplier
+    /// is 1.0 so it is visually identical, but the option still routes the window through an extra
+    /// PushStyleVar/PopStyleVar pair.
+    /// The names are kept from the first iteration of this option (which only faded the background via
+    /// Window.BgAlpha) on purpose: renaming them would silently discard the value existing users already
+    /// have saved in their config.</summary>
     public bool CustomWindowBgAlpha = false;
-    /// <summary>Background opacity of the main window, in percent, applied only while
-    /// <see cref="CustomWindowBgAlpha"/> is on. Only the window background is affected - text and widgets
-    /// stay fully opaque, unlike Dalamud's own per-window "Opacity" slider (title bar context menu) which
-    /// pushes ImGuiStyleVar.Alpha and fades the whole window including its contents. Clamped at 20% for the
-    /// same reason Dalamud clamps its own slider there: a window at 0% background is hard to find again.</summary>
+    /// <summary>Opacity of the whole main window, in percent, applied only while
+    /// <see cref="CustomWindowBgAlpha"/> is on. This is pushed as ImGuiStyleVar.Alpha - ImGui's global
+    /// colour multiplier - so the background, the title bar, the tab bar, the retainer rows' own background
+    /// colours, borders and the text all fade together. That is the same mechanism as Dalamud's own
+    /// per-window "Opacity" slider in the title bar context menu. Text fading is inherent to the mechanism,
+    /// which is why this is clamped at 20%, the same floor Dalamud uses: below that the window becomes hard
+    /// to read and hard to find again.</summary>
     public int WindowBgAlphaPercent = 100;
     public bool DisplayOnStart = false;
 
