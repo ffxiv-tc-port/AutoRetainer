@@ -639,7 +639,7 @@
   "RetainersOld": "舊版僱員",
   "Retrieve Item": "取回物品",
   "Right click - set as gil holder": "右鍵點擊 - 設為Gil持有角色",
-  "Right click to add this single item to list immediately": "右鍵點擊可立即將此單一物品加入清單",
+  "Right click to remove this single item from list immediately": "右鍵點擊可立即將此單一物品從清單移除",
   "RotationSolver plugin detected. Automatic use of actions while AutoRetainer is enabled may affect AutoRetainer functions negatively. Please ensure that RotationSolver is configured in a way to not automatically use actions while AutoRetainer is active.": "偵測到 RotationSolver 插件。在 AutoRetainer 啟用時自動執行技能可能會造成負面影響。請確保在 AutoRetainer 活動期間，RotationSolver 不會自動執行動作。",
   "SUPSelector": "潛艇計畫選擇器",
   "Safety flag: {(g ? ": "安全標記: ",

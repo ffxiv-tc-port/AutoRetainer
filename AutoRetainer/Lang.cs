@@ -221,7 +221,7 @@ internal static class Lang
     // "取消" only appears on the vessel-selector list and repair-reopened variants, so both are needed.
     internal static readonly string[] VoyageQuitEntry = ["Quit", "やめる", "取消", "退出", "Beenden", "Annuler", "그만두기"];
     internal static readonly string[] ChangeSubmersibleComponents = ["Change submersible components", "パーツの変更", "Bauteile austauschen", "Changer les éléments", "부품 변경", "更换配件", "更換配件"];
-    internal static readonly string[] RegisterSub = ["Outfit and register a submersible.", "潜水艦の新規登録", "Registrierung eines neuen Tauchboots", "Enregistrement d'un sous-marin", "새 잠수함 등록"]; // Missing Chinese
+    internal static readonly string[] RegisterSub = ["Outfit and register a submersible.", "潜水艦の新規登録", "Registrierung eines neuen Tauchboots", "Enregistrement d'un sous-marin", "새 잠수함 등록", "登记新的潜水艇", "登記新的潛水艇"];
 
     // Company Workshop's "adventurer doll" NPC name carries a per-instance
     // numeric suffix (e.g. "冒險人偶014號"), so this is matched with Contains
