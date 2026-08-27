@@ -324,8 +324,11 @@ internal static class Lang
             "Das Tauchboot mit den gewählten Bauteilen registrieren",
             "pour équiper et enregistrer le sous-marin",
             "잠수함을 등록하시겠습니까",
-            //"",
-            //""    Missing chinese and korean (Addonsheet - 6886)
+            // 6886 台服繁中原文：確定要使用選中的配件與<數量>張下列道具登記新的潛水艇嗎？
+            // 數量在中間，所以錨點取數字之後的穩定尾段（MiniTA 走 ContainsAny 子字串比對）。
+            "张下列道具登记新的潜水艇吗",
+            "張下列道具登記新的潛水艇嗎",
+            //""    Missing Korean-variant placeholder (Addonsheet - 6886)
     ];
 
     //Your retainer will be unable to process item buyback requests once recalled. Are you sure you wish to proceed?
