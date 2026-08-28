@@ -14,5 +14,8 @@ public class Notifications : ExperimentUIEntry
         ImGui.Checkbox(Loc.T("Send desktop notification on retainers available"), ref C.NotifyDeskopToast);
         ImGui.Checkbox(Loc.T("Flash taskbar"), ref C.NotifyFlashTaskbar);
         ImGui.Checkbox(Loc.T("Do not notify if AutoRetainer is enabled or MultiMode is running"), ref C.NotifyNoToastWhenRunning);
+        ImGui.Separator();
+        ImGui.Checkbox(Loc.T("Ask Tataru to praise you when a run completes (requires TataruPraise)"), ref C.TataruPraiseOnCompletion);
+        ImGuiEx.HelpMarker(Loc.T("Fires at most once per run, at the point the run actually finished successfully: when every returned deployable has been dealt with and the voyage panel is about to be closed, and when every enabled retainer of the current character has had its ventures collected. Does nothing at all if TataruPraise is not installed - no error, no message."));
     }
 }

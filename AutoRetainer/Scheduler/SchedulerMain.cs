@@ -65,6 +65,29 @@ internal static unsafe class SchedulerMain
         PendingEntrustVendorPostprocess.Clear();
     }
 
+    /// <summary>這一輪(從排程器啟用到僱員全部跑完)有沒有真的處理過至少一個僱員。
+    ///
+    /// <para>🔴 存在的理由是「整輪完成」必須是一條**邊**而不是一個狀態:僱員跑完之後,
+    /// <see cref="Tick"/> 的收尾分支在預設收尾行為
+    /// (<c>Stay_in_retainer_list_and_keep_plugin_enabled</c>)下**每一次節流都會再走一遍**。
+    /// 直接在那裡通知等於每兩秒通知一次。所以用「開始處理某個僱員時舉旗、收尾時把旗降下來」
+    /// 換成單次事件。</para>
+    ///
+    /// <para>⚠️ 這個旗標只餵給 TataruPraise 的單向通知,<b>不參與任何流程判斷</b>。
+    /// 它讀錯的最壞後果是少念一句或多念一句話。</para></summary>
+    private static bool RetainerCycleDidWork;
+
+    /// <summary>本輪處理過一個僱員 —— 讓收尾時的「整輪完成」通知有東西可通知。</summary>
+    private static void MarkRetainerCycleWork() => RetainerCycleDidWork = true;
+
+    /// <summary>把「本輪處理過僱員」這面旗降下來並回報它原本是不是舉著的。</summary>
+    private static bool ConsumeRetainerCycleWork()
+    {
+        var had = RetainerCycleDidWork;
+        RetainerCycleDidWork = false;
+        return had;
+    }
+
     internal static PluginEnableReason Reason { get; set; }
 
     /// <summary>true ＝ 稀有品繳交循環正在跑,所以 AutoRetainer 自己的一般僱員自動處理
@@ -114,6 +137,9 @@ internal static unsafe class SchedulerMain
 
     internal static bool? EnablePlugin(PluginEnableReason reason)
     {
+        // 新的一輪開始 —— 把上一輪沒被收尾點消費掉的旗降下來(例如背包滿了中途停掉的那種)。
+        // 沒有這行的話,被中斷的那一輪會把「完成」記到下一輪頭上。
+        RetainerCycleDidWork = false;
         Reason = reason;
         PluginEnabled = true;
         DebugLog($"Plugin is enabled, reason: {reason}");
@@ -203,6 +229,7 @@ internal static unsafe class SchedulerMain
                             {
                                 if(EzThrottler.Throttle("ScheduleSelectRetainer", 2000))
                                 {
+                                    MarkRetainerCycleWork();
                                     P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(retainer));
 
                                     var adata = Utils.GetAdditionalData(SvcEx.PlayerState.ContentId, ret.Name.ToString());
@@ -344,6 +371,13 @@ internal static unsafe class SchedulerMain
                                 }
                                 else
                                 {
+                                    // 這裡是「本角色這一輪的僱員全部跑完」的唯一收斂點:沒有下一個待處理僱員、
+                                    // 沒有待跑的存入/自動賣出批次、也不是在等 5 分鐘規則。收尾行為(關清單/停用外掛)
+                                    // 就是從這裡分出去的。
+                                    // 🔴 通知放在分支之前、而且用旗標一次性消費:預設收尾行為是「留在清單且不停用」,
+                                    //    那條路會讓這個 else 每次節流都再進來一遍。
+                                    if(ConsumeRetainerCycleWork()) TataruPraiseIPC.TryPraise("僱員探險全部收完");
+
                                     if(Reason == PluginEnableReason.MultiMode)
                                     {
                                         DebugLog($"Scheduling closing and disabling plugin as MultiMode is running");

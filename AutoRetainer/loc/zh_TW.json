@@ -1064,5 +1064,7 @@
   "Materials": "素材",
   "Pick max amount of destinations": "選擇最多目的地",
   "Spam one destination": "重複刷單一目的地",
-  "Include one unlock destination while levelling": "練級時順帶解鎖 1 個目的地"
+  "Include one unlock destination while levelling": "練級時順帶解鎖 1 個目的地",
+  "Ask Tataru to praise you when a run completes (requires TataruPraise)": "完成時請塔塔露誇獎（需安裝 TataruPraise）",
+  "Fires at most once per run, at the point the run actually finished successfully: when every returned deployable has been dealt with and the voyage panel is about to be closed, and when every enabled retainer of the current character has had its ventures collected. Does nothing at all if TataruPraise is not installed - no error, no message.": "每一輪最多念一次，而且只在那一輪真的順利收尾的時候：潛水艇／飛空艇整隊回港處理完、正要離開工房面板的那一刻，以及當前角色所有啟用的僱員探險都收完的那一刻。沒有安裝 TataruPraise 的話這個選項不會有任何作用——不會報錯，也不會有訊息。"
 }

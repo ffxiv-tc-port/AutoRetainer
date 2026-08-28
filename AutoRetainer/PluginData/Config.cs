@@ -290,6 +290,17 @@ internal unsafe class Config
     public bool NotifyDeskopToast = false;
     public bool NotifyFlashTaskbar = false;
     public bool NotifyNoToastWhenRunning = true;
+
+    /// <summary>整輪自動化成功收尾時,透過 IPC 請「塔塔露誇獎」(TataruPraise)念一句。
+    ///
+    /// 📌 預設<b>開</b>,而且既有使用者也吃得到這個預設:AutoRetainer 的 Config 沒有標
+    /// <c>[IgnoreDefaultValue]</c>,ECommons 的反序列化又是 <c>ObjectCreationHandling.Replace</c>——
+    /// 舊的 DefaultConfig.json 裡根本沒有這個鍵,所以這裡的欄位初始值不會被蓋掉。
+    ///
+    /// ⚠️ 沒安裝 TataruPraise 的人開著它<b>不會有任何行為</b>:
+    /// <see cref="Modules.TataruPraiseIPC.TryPraise"/> 的每一條路徑在對方缺席時都是安靜的 no-op。</summary>
+    public bool TataruPraiseOnCompletion = true;
+
     public bool UnlockFPS = true;
     public bool UnlockFPSUnlimited = false;
     public bool UnlockFPSChillFrames = false;
