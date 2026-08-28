@@ -15,7 +15,7 @@ public class Notifications : ExperimentUIEntry
         ImGui.Checkbox(Loc.T("Flash taskbar"), ref C.NotifyFlashTaskbar);
         ImGui.Checkbox(Loc.T("Do not notify if AutoRetainer is enabled or MultiMode is running"), ref C.NotifyNoToastWhenRunning);
         ImGui.Separator();
-        ImGui.Checkbox(Loc.T("Ask Tataru to praise you when a run completes (requires TataruPraise)"), ref C.TataruPraiseOnCompletion);
-        ImGuiEx.HelpMarker(Loc.T("Fires at most once per run, at the point the run actually finished successfully: when every returned deployable has been dealt with and the voyage panel is about to be closed, and when every enabled retainer of the current character has had its ventures collected. Does nothing at all if TataruPraise is not installed - no error, no message."));
+        ImGui.Checkbox(Loc.T("Ask Tataru to remind you when deployables return (requires TataruPraise)"), ref C.TataruPraiseOnCompletion);
+        ImGuiEx.HelpMarker(Loc.T("Fires the moment the return time AutoRetainer has on record passes - not when you actually go and collect. Covers every enabled submarine, airship and retainer venture across all of your characters, not just the one you are logged in on. Submarines and airships use the 「潛艇」 praise category, retainer ventures use 「僱員」. Timers that had already expired are silently marked as announced when the plugin loads, so logging in never sets off a burst. Does nothing at all if TataruPraise is not installed - no error, no message."));
     }
 }

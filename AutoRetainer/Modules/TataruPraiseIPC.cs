@@ -39,10 +39,18 @@ internal static class TataruPraiseIPC
     internal const string CategoryVoyage = "潛艇";
 
     /// <summary>
+    /// 僱員探險完成時送的情境字串。
+    /// ⚠️ 刻意與 <see cref="CategoryVoyage"/> 分開：使用者實測回報收僱員時念「潛艇回來啦」是誤觸，
+    /// 兩種提醒必須聽得出差別。TataruPraise 端要有同名的池，對不上一樣是靜默不出聲。
+    /// </summary>
+    internal const string CategoryRetainer = "僱員";
+
+    /// <summary>
     /// 請塔塔露誇一句。對方沒裝、關著、或池裡沒東西，這裡都是安靜的 no-op。
     /// </summary>
-    /// <param name="reason">寫進記錄用的來源描述，讓 log 分得出是潛艇那條還是僱員那條。</param>
-    internal static void TryPraise(string reason)
+    /// <param name="category">情境字串，用 <see cref="CategoryVoyage"/> 或 <see cref="CategoryRetainer"/>。</param>
+    /// <param name="reason">寫進記錄用的來源描述，讓 log 分得出是哪一條邊觸發的。</param>
+    internal static void TryPraise(string category, string reason)
     {
         if(!C.TataruPraiseOnCompletion) return;
 
@@ -51,9 +59,9 @@ internal static class TataruPraiseIPC
             // 每次呼叫前先問一次：對方的總開關關著、或池裡一句已合成的都沒有，就不要浪費它的冷卻。
             if(!Svc.PluginInterface.GetIpcSubscriber<bool>(TagIsAvailable).InvokeFunc()) return;
 
-            var accepted = Svc.PluginInterface.GetIpcSubscriber<string, bool>(TagPraise).InvokeFunc(CategoryVoyage);
+            var accepted = Svc.PluginInterface.GetIpcSubscriber<string, bool>(TagPraise).InvokeFunc(category);
             // Information 級：這是「使用者說沒出聲」時唯一問得出真相的一行(使用者跑 LogLevel 2)。
-            PluginLog.Information($"[TataruPraise] {reason}：Praise(「{CategoryVoyage}」) 回傳 {accepted}。");
+            PluginLog.Information($"[TataruPraise] {reason}：Praise(「{category}」) 回傳 {accepted}。");
         }
         catch(IpcNotReadyError)
         {

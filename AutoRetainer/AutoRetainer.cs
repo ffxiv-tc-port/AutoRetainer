@@ -560,6 +560,9 @@ public unsafe class AutoRetainer : IDalamudPlugin
         GCExpertDeliveryLoop.Tick();
         MultiMode.Tick();
         NotificationHandler.Tick();
+        // 「返航/探險時間到」的邊緣偵測。刻意跟 NotificationHandler 放在一起、而且無條件跑：
+        // 它看的是 C.OfflineData 裡的絕對時間戳，所以不限當前角色，也不需要排程器啟用。
+        TataruPraiseWatcher.Tick();
         NewYesAlreadyManager.Tick();
         AutoBuyFuelManager.Tick();
         Artisan.ArtisanTick();

@@ -12,18 +12,6 @@ internal static unsafe class VoyageMain
 {
     private static bool IsInVoyagePanel = false;
 
-    /// <summary>這一次工房面板的來訪裡,有沒有真的碰到過「已回港待處理」的船。
-    ///
-    /// <para>🔴 用旗標是因為「整隊處理完」必須是一條**邊**:面板上沒事可做之後,
-    /// <see cref="DoWorkshopPanelTick"/> 的離開分支會被節流器每秒放行一次、一直重進,
-    /// 直接在那裡通知等於每秒通知一次。旗在「看到有船要處理」時舉起、在離開分支被消費掉。</para>
-    ///
-    /// <para>⚠️ 失敗路徑天然不會通知:背包滿/沒維修材料會把 <c>VoyageScheduler.Enabled</c> 關掉,
-    /// <see cref="DoWorkshopPanelTick"/> 從此不再被呼叫,所以走不到消費點,旗會在下次進面板時被清掉。</para>
-    ///
-    /// <para>⚠️ 只餵給 TataruPraise 的單向通知,<b>不參與任何流程判斷</b>。</para></summary>
-    private static bool VoyageVisitDidWork = false;
-
     internal static WaitOverlay WaitOverlay;
 
     internal static void Init()
@@ -92,7 +80,6 @@ internal static unsafe class VoyageMain
                 if(!IsInVoyagePanel)
                 {
                     PluginLog.Debug($"Entered voyage panel");
-                    VoyageVisitDidWork = false;
                     IsInVoyagePanel = true;
                     //Notify.Info($"Entered voyage panel");
                     if(IsKeyPressed(C.Suppress))
@@ -125,7 +112,6 @@ internal static unsafe class VoyageMain
                 //Notify.Info("Closed voyage panel");
                 VoyageScheduler.Enabled = false;
                 PluginLog.Debug($"<!> Exited voyage panel, disabled voyage scheduler");
-                VoyageVisitDidWork = false;
             }
         }
 
@@ -224,15 +210,6 @@ internal static unsafe class VoyageMain
                     }
                     else if(!data.AreAnyEnabledVesselsReturnInNext(5 * 60))
                     {
-                        // 站在工房主選單上、飛空艇與潛水艇兩邊都沒有待處理的船、而且 5 分鐘內也沒有
-                        // 要回來的 —— 這就是「這一趟整隊回港處理完了,可以離開面板」的唯一收斂點。
-                        // 🔴 放在節流之前、而且一次性消費:這個分支每秒都會再進來一遍。
-                        if(VoyageVisitDidWork)
-                        {
-                            VoyageVisitDidWork = false;
-                            TataruPraiseIPC.TryPraise("潛艇整隊回港處理完");
-                        }
-
                         if(EzThrottler.Throttle("DoWorkshopPanelTick.EnqueuePanelSelector", 1000))
                         {
                             P.TaskManager.Enqueue(VoyageScheduler.SelectExitMainPanel);
@@ -292,8 +269,6 @@ internal static unsafe class VoyageMain
         var next = VoyageUtils.GetNextCompletedVessel(type);
         if(next != null)
         {
-            // 這一趟面板來訪真的有船要處理 —— 讓下面的離開分支有東西可以通知。
-            VoyageVisitDidWork = true;
             var adata = Data.GetAdditionalVesselData(next, type);
             var data = Data.GetOfflineVesselData(next, type) ?? throw new NullReferenceException($"Offline vessel data for {next}, {type} is null");
             if((VoyageUtils.DontReassign || adata.VesselBehavior == VesselBehavior.Finalize || (C.FinalizeBeforeResend && Data.AreAnyEnabledVesselsReturnInNext(0, false, true))) && data.ReturnTime != 0)
