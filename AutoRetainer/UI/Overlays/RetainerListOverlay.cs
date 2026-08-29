@@ -33,6 +33,9 @@ internal unsafe class RetainerListOverlay : Window
 
     public override void PreDraw()
     {
+        // Dalamud 的 Window 基底類別在 PreDraw() 裡推每視窗不透明度(標題列右鍵選單的
+        // 「不透明度」滑桿)。沒有呼叫 base 會讓那個內建功能對本視窗靜默半失效。
+        base.PreDraw();
         //ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
     }
 
@@ -217,5 +220,7 @@ internal unsafe class RetainerListOverlay : Window
     public override void PostDraw()
     {
         //ImGui.PopStyleVar();
+        // 與 base.PreDraw() 成對:base 自己決定要不要 pop，所以無條件呼叫是安全的。
+        base.PostDraw();
     }
 }
