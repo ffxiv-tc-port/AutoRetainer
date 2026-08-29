@@ -14,9 +14,10 @@ namespace AutoRetainer.Modules;
 /// </para>
 /// <para>
 /// 🔴 <b>只能從主執行緒(framework tick / Draw)呼叫。</b>IPC 的實作是在呼叫端的執行緒上跑的，
-/// 從背景 Task 叫過去等於把對方的程式碼拉到背景執行緒。目前兩個呼叫點都在
-/// <c>Svc.Framework.Update</c> 的鏈上(<see cref="Scheduler.SchedulerMain.Tick"/> 與
-/// <see cref="Voyage.VoyageMain.Tick"/>)。
+/// 從背景 Task 叫過去等於把對方的程式碼拉到背景執行緒。目前的呼叫點都在
+/// <c>Svc.Framework.Update</c> 的鏈上(<see cref="TataruPraiseWatcher.Tick"/>，以及
+/// <see cref="GcHandin.GCExpertDeliveryLoop"/> 成功收尾時的 <c>Stop()</c>——它由
+/// <c>AutoRetainer.Tick</c> 每幀呼叫的 <c>GCExpertDeliveryLoop.Tick()</c> 驅動)。
 /// </para>
 /// <para>
 /// ⚠️ 這是<b>單向通知</b>：回傳值只拿來寫記錄，不影響 AutoRetainer 的任何流程，
@@ -46,9 +47,18 @@ internal static class TataruPraiseIPC
     internal const string CategoryRetainer = "僱員";
 
     /// <summary>
+    /// 稀有品繳交循環整趟成功收尾時送的情境字串。
+    /// ⚠️ 與 <see cref="CategoryVoyage"/>、<see cref="CategoryRetainer"/> 一樣是獨立的池：
+    /// 「東西回來了要去收」跟「一批繳交跑完了」是兩件事，聽起來要不一樣。
+    /// 🔴 逐字與 TataruPraise 端的池鍵一致，錯一個字就是靜默不出聲(對方只會寫一行 Information)。
+    /// </summary>
+    internal const string CategoryExpertDelivery = "稀有品";
+
+    /// <summary>
     /// 請塔塔露誇一句。對方沒裝、關著、或池裡沒東西，這裡都是安靜的 no-op。
     /// </summary>
-    /// <param name="category">情境字串，用 <see cref="CategoryVoyage"/> 或 <see cref="CategoryRetainer"/>。</param>
+    /// <param name="category">情境字串，用 <see cref="CategoryVoyage"/>、<see cref="CategoryRetainer"/>
+    /// 或 <see cref="CategoryExpertDelivery"/>。</param>
     /// <param name="reason">寫進記錄用的來源描述，讓 log 分得出是哪一條邊觸發的。</param>
     internal static void TryPraise(string category, string reason)
     {

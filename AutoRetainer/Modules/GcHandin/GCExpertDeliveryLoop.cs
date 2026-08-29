@@ -518,6 +518,17 @@ internal static unsafe class GCExpertDeliveryLoop
         {
             DuoLog.Information(summary);
             if(C.GCHandinNotify) Utils.TryNotify(summary);
+            // 整趟跑完了請塔塔露念一句。掛在這裡而不是三條成功路徑上,是因為這是它們唯一的匯流點,
+            // 而且本函式開頭的「已經停了就直接回」守衛保證同一趟只會走到這裡一次。
+            // 🔴 失敗路徑(含使用者手動按停止)不出聲:響音代表「做完了,可以回來看了」。
+            // 🔴 執行緒:TryPraise 只能在主執行緒呼叫。三條 success 路徑(FinishCharacter 的兩個、
+            //    TickRelog 的空批回退)全都在 GCExpertDeliveryLoop.Tick() 鏈上,而它由 AutoRetainer.Tick
+            //    呼叫,那個 Tick 掛在 Svc.Framework.Update 上。外部唯一的 Stop() 呼叫點(UI 的
+            //    「使用者停止」按鈕)走的是 success=false,到不了這裡。
+            TataruPraiseIPC.TryPraise(TataruPraiseIPC.CategoryExpertDelivery,
+                MultiCharacterRun
+                    ? $"稀有品繳交循環完成:多角色 {CharactersDone}/{BatchCIDs.Count}"
+                    : "稀有品繳交循環完成:單角色");
         }
         else
         {
