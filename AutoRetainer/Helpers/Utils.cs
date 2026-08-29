@@ -1731,45 +1731,6 @@ public static unsafe class Utils
 
 
 
-    internal static bool TryParseRetainerName(string s, out string retainer)
-    {
-        retainer = default;
-        if(!GameRetainerManager.Ready)
-        {
-            return false;
-        }
-        for(var i = 0; i < GameRetainerManager.Count; i++)
-        {
-            var r = GameRetainerManager.Retainers[i];
-            var rname = r.Name.ToString();
-            if(s.Contains(rname) && (retainer == null || rname.Length > retainer.Length))
-            {
-                retainer = rname;
-            }
-        }
-        return retainer != default;
-    }
-
-    private static bool PopupContains(string source, string name)
-    {
-        if(Svc.Data.Language == ClientLanguage.Japanese)
-        {
-            return source.Contains($"（{name}）");
-        }
-        else if(Svc.Data.Language == ClientLanguage.French)
-        {
-            return source.Contains($"Menu de {name}");
-        }
-        else if(Svc.Data.Language == ClientLanguage.German)
-        {
-            return source.Contains($"Du hast {name}");
-        }
-        else
-        {
-            return source.Contains($"Retainer: {name}");
-        }
-    }
-
     internal static IGameObject GetNearestWorkshopEntrance(out float Distance)
     {
         Utils.ExtraLog($"GetNearestWorkshopEntrance: Begin");

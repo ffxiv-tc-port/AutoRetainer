@@ -236,7 +236,11 @@ public unsafe class AutoRetainer : IDalamudPlugin
             //4330	57	33	0	False	リテイナーベンチャー「<Value>IntegerParameter(2)</Value> <Sheet(Item,IntegerParameter(1),0)/>」を依頼しました。
             //4330	57	33	0	False	Du hast deinen Gehilfen mit der Beschaffung von <SheetDe(Item,1,IntegerParameter(1),IntegerParameter(3),3,1)/> ( <Value>IntegerParameter(2)</Value>) beauftragt.
             //4330	57	33	0	False	Vous avez confié la tâche “<SheetFr(Item,12,IntegerParameter(1),2,1)/> ( <Value>IntegerParameter(2)</Value>)” à votre servant.
-            if(text.StartsWithAny("You assign your retainer".Cleanup(), "リテイナーベンチャー".Cleanup(), "Du hast deinen Gehilfen mit".Cleanup(), "Vous avez confié la tâche".Cleanup())
+            // 台服(exd-tc 7.20 LogMessage row 4330 實查):向僱員下達了「<Value>IntegerParameter(2)</Value>級 <Sheet(Item,IntegerParameter(1),0)/>」的探險委託。
+            // 🔴 台服前綴原本不在名單內 ⇒ 台服的 VentureBeginsAt 永遠不會被寫入(恆為 0),
+            //    連帶讓 SomethingNeedDoing 的 Lua 屬性 OfflineRetainerDataWrapper.VentureBeginsAt 恆回 0。
+            //    簡中前綴沿用 upstream/tw 分支既有寫法(未經簡中客戶端驗證;不命中也只是維持現狀)。
+            if(text.StartsWithAny("You assign your retainer".Cleanup(), "リテイナーベンチャー".Cleanup(), "Du hast deinen Gehilfen mit".Cleanup(), "Vous avez confié la tâche".Cleanup(), "向雇员下达了".Cleanup(), "向僱員下達了".Cleanup())
                 && Utils.TryGetCurrentRetainer(out var ret)
                 && C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var offlineData)
                 && offlineData.RetainerData.TryGetFirst(x => x.Name == ret, out var offlineRetainerData))

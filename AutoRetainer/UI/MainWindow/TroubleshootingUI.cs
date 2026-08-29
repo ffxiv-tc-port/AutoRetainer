@@ -11,7 +11,9 @@ public static unsafe class TroubleshootingUI
     {
         ImGuiEx.TextWrapped(Loc.T("This tab checks your configuration for common issues that you can resolve yourself before contacting support."));
 
-        if(!Svc.ClientState.ClientLanguage.EqualsAny(ClientLanguage.Japanese, ClientLanguage.German, ClientLanguage.French, ClientLanguage.English))
+        // ClientLanguage.TraditionalChinese(值 7)= 台服客戶端。台服用的是本 fork 的 Dalamud,
+        // 不是 ottercorp 的簡中 fork,所以下面那則遙測警告對台服是錯的 ⇒ 一併排除。
+        if(!Svc.ClientState.ClientLanguage.EqualsAny(ClientLanguage.Japanese, ClientLanguage.German, ClientLanguage.French, ClientLanguage.English, ClientLanguage.TraditionalChinese))
         {
             Error(Loc.T("Local publisher client detected. AutoRetainer was not tested to work with local publisher's FFXIV clients. Some or all functions may not work. Additionally, keep in mind that ottercorp's Chinese Dalamud fork collects telemetry about your pc, characters, used plugins and Dalamud configuration without your consent and without a possibility to opt-out."));
         }
