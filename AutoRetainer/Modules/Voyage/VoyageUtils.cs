@@ -267,7 +267,12 @@ internal static unsafe class VoyageUtils
         // ImGui.BeginCombo / Selectable 每幀呼叫 —— Dalamud 的 UiBuilder 攔到 Draw 例外後會
         // 把 this.Draw 設成 null,整個外掛的視窗在重開遊戲前都不會再畫出來。
         // 查無此列時顯示 "?<id>" 而不是靜默略過:讓「這個計畫有壞點位」在列上直接看得見。
-        var sheet = Svc.Data.GetExcelSheet<SubmarineExploration>(ClientLanguage.Japanese);
+        // Location 欄是扇區代號字母(A/B/.../AC),各語言版本一致;台服實測 exd-tc/7.20/
+        // SubmarineExploration.csv 全部 160 列,非空的 Location 全數符合 [A-Z]{1,2}。
+        // 這裡原本會對取表指定日文語言,但本艦隊的 Lumina
+        // fork 在 ExcelModule.GetRawSheetCore() 開頭無條件執行 language = Language,語言參數是
+        // 死參數(對所有客戶端皆然)——留著只會讓讀碼的人誤以為真的取到了日文表。移除後行為等價。
+        var sheet = Svc.Data.GetExcelSheet<SubmarineExploration>();
         return $"{plan.GetMap()?.Name}: {plan.Points.Select(x => sheet.TryGetRow(x, out var row) ? row.Location.ToString() : $"?{x}").Join("→")}";
     }
 

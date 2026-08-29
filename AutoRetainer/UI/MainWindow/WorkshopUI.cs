@@ -451,7 +451,12 @@ internal static unsafe class WorkshopUI
             {
                 if(x != 0)
                 {
-                    var d = Svc.Data.GetExcelSheet<SubmarineExploration>(ClientLanguage.Japanese).GetRowOrDefault(x);
+                    // Location 欄是扇區代號字母(A/B/.../AC),各語言版本一致;台服實測 exd-tc/7.20/
+                    // SubmarineExploration.csv 全部 160 列,非空的 Location 全數符合 [A-Z]{1,2}。
+                    // 這裡原本會對取表指定日文語言,但本艦隊的 Lumina
+                    // fork 在 ExcelModule.GetRawSheetCore() 開頭無條件執行 language = Language,語言參數是
+                    // 死參數(對所有客戶端皆然)——留著只會讓讀碼的人誤以為真的取到了日文表。移除後行為等價。
+                    var d = Svc.Data.GetExcelSheet<SubmarineExploration>().GetRowOrDefault(x);
                     if(d != null && d.Value.Location.ToString().Length > 0)
                     {
                         points.Add(d.Value.Location.ToString());
