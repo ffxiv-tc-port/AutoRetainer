@@ -1120,13 +1120,23 @@ internal static unsafe class GCExpertDeliveryLoop
 
     /// <summary>可以拿去繳交稀有品的裝備。判定式與 <see cref="GCContinuation.DoesInventoryHaveDeliverableItem"/>
     /// 完全一致 —— 兩邊只要有一邊寬,循環就會取回繳交不掉的東西,把背包塞滿之後每一輪都做白工。</summary>
-    internal static bool IsDeliverableGear(uint itemId)
+    internal static bool IsDeliverableGear(uint itemId) => IsDeliverableGear(itemId, Data.GetIMSettings());
+
+    /// <summary>同一個判定式,但由呼叫端提供已經取得的道具管理設定。
+    ///
+    /// <para>存在的理由是效能:<c>GetIMSettings()</c> 在任何一個「附加模式」開著的時候
+    /// **每次呼叫都會做一次 <c>DSFClone()</c> 深層複製**,而存放流程(TaskEntrustDuplicates)
+    /// 一輪要對背包裡的每一件裝備問一次。取裝備那邊一格只問一次,用無參數版本即可。</para>
+    ///
+    /// <para>🔴 判定式只有這一份。存放端的「裝備類別只存放可繳交的稀有品」濾網也是呼叫這裡,
+    /// 不另外抄一份 —— 兩邊一旦分岔,使用者看到的就是「存進去的東西取不回來」。</para></summary>
+    internal static bool IsDeliverableGear(uint itemId, InventoryManagementSettings imSettings)
     {
         if(itemId == 0) return false;
-        if(Data.GetIMSettings().IMProtectList.Contains(itemId)) return false;
+        if(imSettings.IMProtectList.Contains(itemId)) return false;
         var data = ExcelItemHelper.Get(itemId);
         if(data == null) return false;
-        if(!data.Value.ItemUICategory.RowId.EqualsAny([.. Utils.ArmorsUICategories, .. Utils.WeaponsUICategories])) return false;
+        if(!data.Value.ItemUICategory.RowId.EqualsAny(Utils.GearUICategories)) return false;
         if(!data.Value.GetRarity().EqualsAny(ItemRarity.Green, ItemRarity.Pink, ItemRarity.Blue)) return false;
         if(data.Value.Desynth == 0) return false;
         return true;

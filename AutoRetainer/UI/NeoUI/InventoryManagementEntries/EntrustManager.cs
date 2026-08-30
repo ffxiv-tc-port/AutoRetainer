@@ -91,6 +91,8 @@ public class EntrustManager : InventoryManagemenrBase
             ImGuiEx.HelpMarker(Loc.T("Mark this plan for manual execution only. This plan will only be processed upon manual \"Entrust Items\" button click and never automatically."));
             ImGui.Checkbox(Loc.T("Exclude items present in protection list"), ref selectedPlan.ExcludeProtected);
             ImGui.Separator();
+            ImGui.Checkbox(Loc.T("Gear categories: entrust only deliverable rare items (glamour stays on you)"), ref selectedPlan.EntrustOnlyDeliverableGear);
+            ImGuiEx.HelpMarker(Loc.T("Applies to the gear categories selected below (armor and weapons) only. A piece of gear is entrusted only if the Expert Delivery loop would take it back out for hand-in: an armor or weapon category, green/pink/blue rarity, and desynthesizable.\n\nWhite rarity gear and anything that cannot be desynthesized - glamour, in other words - stays in your inventory, which makes clearing it out for trading much easier.\n\nEvery other category is unaffected, and items you added individually in the list below are always entrusted regardless of this option. The criterion is shared with the Expert Delivery loop, so gear on your protection list is left on you too."));
             ImGuiEx.TreeNodeCollapsingHeader($"{Loc.T("Entrust categories (")}{selectedPlan.EntrustCategories.Count}{Loc.T(" selected)")}###ecats", () =>
             {
                 ImGuiEx.TextWrapped(Loc.T("Here you can select item categories that will be entrusted as a whole. Individual items that are selected below will be excluded from these rules."));

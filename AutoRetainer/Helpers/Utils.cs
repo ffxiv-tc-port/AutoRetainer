@@ -225,6 +225,22 @@ public static unsafe class Utils
         }
     } = null;
 
+    /// <summary>防具＋武器的 ItemUICategory 合集,快取一份。
+    ///
+    /// <para>內容與現場串接 <c>[.. ArmorsUICategories, .. WeaponsUICategories]</c> 完全相同 ——
+    /// 兩個來源集合不相交,而且所有使用點都只做「有沒有在裡面」的成員判定,順序無關。</para>
+    ///
+    /// <para>存在的理由是那個現場串接**每呼叫一次就配一個新陣列**,而存放流程一輪要對背包裡
+    /// 每一件道具問一次。</para></summary>
+    public static uint[] GearUICategories
+    {
+        get
+        {
+            field ??= [.. ArmorsUICategories, .. WeaponsUICategories];
+            return field;
+        }
+    } = null;
+
     extension(OfflineCharacterData data)
     {
         public string NameWithWorld => $"{data.Name}@{data.World}";

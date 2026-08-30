@@ -70,6 +70,13 @@ internal static unsafe class TaskEntrustDuplicates
     private static long FlowThrottleWaitMs;
     private static int FlowSkippedStuck;
 
+    /// <summary>這一輪流程裡被「裝備類別只存放可繳交的稀有品」濾掉的道具 ID。
+    ///
+    /// <para>🔴 用集合而不是計數器,也刻意不逐件寫 log:itemList 每一輪(每 <see cref="EntrustInterval"/>
+    /// 毫秒)都會整份重新建立,同一件裝備會被濾掉幾十次。用 ++ 會得到一個毫無意義的大數字,
+    /// 逐件寫 log 則會把真正有用的行洗掉。統計留到 <see cref="ReportFlow"/> 一行講完。</para></summary>
+    private static readonly HashSet<uint> FlowSkippedGear = [];
+
     private static void ResetFlowTracking()
     {
         Attempts.Clear();
@@ -87,12 +94,31 @@ internal static unsafe class TaskEntrustDuplicates
         FlowTimeoutMs = 0;
         FlowThrottleWaitMs = 0;
         FlowSkippedStuck = 0;
+        FlowSkippedGear.Clear();
     }
 
     /// <summary>Written at Information so it survives a normal log level - these numbers are the whole
     /// point of the instrumentation and are useless if the user has to turn on verbose logging first.</summary>
-    private static void ReportFlow()
+    /// <param name="itemCounts">這一輪掃到的「玩家身上各道具的數量」,用來把被濾掉的裝備換算成件數。</param>
+    private static void ReportFlow(Dictionary<uint, int> itemCounts)
     {
+        if(FlowSkippedGear.Count > 0)
+        {
+            var kinds = 0;
+            var pieces = 0;
+            foreach(var id in FlowSkippedGear)
+            {
+                // 只算真的還留在身上的。multistack duplicates 那條路是拿雇員身上的東西加進清單的,
+                // 玩家手上不一定有同一件,那種情況不該算進「留在身上」。
+                var n = itemCounts.GetValueOrDefault(id);
+                if(n <= 0) continue;
+                kinds++;
+                pieces += n;
+            }
+            // 寫 Information:使用者跑的 log 等級收不到 Debug,而這一行正是「東西怎麼沒被存進去」的答案。
+            if(pieces > 0) PluginLog.Information($"[TED] 「裝備類別只存放可繳交的稀有品」讓 {pieces} 件裝備({kinds} 種)留在身上沒有存進雇員 —— 它們不是稀有品繳交循環拿得走的東西(時裝、白色稀有度、不可分解的裝備都在此列)。");
+            FlowSkippedGear.Clear();
+        }
         if(FlowMoves == 0 && FlowTimeouts == 0 && FlowSkippedStuck == 0) return;
         var total = Environment.TickCount64 - FlowStartedAt;
         var plain = FlowMoves - FlowPartialMoves;
@@ -153,6 +179,26 @@ internal static unsafe class TaskEntrustDuplicates
         // the instrumentation proved the opposite - at the old 333ms it was ~200ms per item against a
         // ~120ms round trip, i.e. the throttle was the pacing source and the server was not.
         LastSendThrottleWaitMs = LastLandedAt == 0 ? 0 : now - LastLandedAt;
+    }
+
+    /// <summary>「裝備類別只存放可繳交的稀有品」的判定:這件道具屬於裝備類別,而且**不是**
+    /// 稀有品繳交循環會拿去繳交的東西 —— 時裝正好落在這裡(白色稀有度、不可分解)。
+    ///
+    /// <para>🔴 判定直接借用 <see cref="GCExpertDeliveryLoop.IsDeliverableGear(uint, InventoryManagementSettings)"/>,
+    /// 不另外抄一份條件。存放端與取回端只要有一邊寬,使用者看到的就是「存進去卻取不回來」。</para>
+    ///
+    /// <para>⚠️ 借來的判定式含保護清單(IMProtectList)排除,所以這個選項開著的時候,保護清單裡的
+    /// **裝備**也會留在身上,與 <see cref="EntrustPlan.ExcludeProtected"/> 各自獨立。方向是保守的
+    /// (東西留在身上、不會多存),而且只在使用者主動開啟這個選項時才成立。</para>
+    ///
+    /// <para>📌 非裝備類別一律回 false,完全不受影響。</para></summary>
+    private static bool IsNonDeliverableGear(uint itemId, InventoryManagementSettings imSettings)
+    {
+        if(itemId == 0) return false;
+        var data = ExcelItemHelper.Get(itemId);
+        if(data == null) return false;
+        if(!data.Value.ItemUICategory.RowId.EqualsAny(Utils.GearUICategories)) return false;
+        return !GCExpertDeliveryLoop.IsDeliverableGear(itemId, imSettings);
     }
 
     private static bool? RecursivelyEntrustItems(EntrustPlan plan)
@@ -278,6 +324,33 @@ internal static unsafe class TaskEntrustDuplicates
                     itemList.Remove(AutoBuyFuelManager.FuelItemId);
                 }
 
+                // 「裝備類別只存放可繳交的稀有品」。放在這裡的理由與上面燃料那段完全相同:itemList 是
+                // 三條建立路徑(EntrustItems、EntrustCategories、multistack duplicates)的共同出口,
+                // 在這裡拔一次就同時蓋住三條。
+                // ⚠️ 同樣**不包括**下面 !DuplicatesMultiStack 的那條 duplicates 迴圈:它的條件是
+                // 「不在 itemList 裡」,從 itemList 拿掉反而會讓它開始處理 —— 那裡另外有一個明確的跳過。
+                // 📌 逐件點名在 EntrustItems 裡的道具刻意不受影響:那份清單的語意就是
+                // 「不管規則怎麼寫,這幾件我要存」,使用者已經明確指名過了。
+                if(plan.EntrustOnlyDeliverableGear && itemList.Count > 0)
+                {
+                    // 不能邊列舉邊移除,先收集再拔。
+                    List<uint> dropGear = null;
+                    foreach(var id in itemList.Keys)
+                    {
+                        if(plan.EntrustItems.Contains(id)) continue;
+                        if(!IsNonDeliverableGear(id, s)) continue;
+                        (dropGear ??= []).Add(id);
+                    }
+                    if(dropGear != null)
+                    {
+                        foreach(var id in dropGear)
+                        {
+                            itemList.Remove(id);
+                            FlowSkippedGear.Add(id);
+                        }
+                    }
+                }
+
                 // How many of each item the player is holding across the allowed containers. Built once
                 // per tick instead of calling Utils.GetItemCount inside the slot loop below, which
                 // rescanned every allowed container for every occupied slot - quadratic in slot count,
@@ -360,6 +433,16 @@ internal static unsafe class TaskEntrustDuplicates
                             // 見上面 itemList.Remove 那段：這條路徑的條件是「不在 itemList 裡」，
                             // 所以從 itemList 拔掉燃料對它是反效果，必須在這裡明確跳過。
                             if(AutoBuyFuelManager.IsFuelReservedForAutoBuy(item->ItemId)) continue;
+                            // 同上,「裝備類別只存放可繳交的稀有品」的濾網也必須在這裡再擋一次。
+                            // ⚠️ 目前裝備的 StackSize 都是 1,底下的 canFit 會算成 0 而自然跳過 ——
+                            // 但那是**別的條件**碰巧擋住,不是這個選項在生效。不要拿它當保證。
+                            if(plan.EntrustOnlyDeliverableGear
+                                && !plan.EntrustItems.Contains(item->ItemId)
+                                && IsNonDeliverableGear(item->ItemId, s))
+                            {
+                                if(itemCounts.ContainsKey(item->ItemId)) FlowSkippedGear.Add(item->ItemId);
+                                continue;
+                            }
                             if(item->ItemId != 0 && !itemList.ContainsKey(item->ItemId))
                             {
                                 var data = ExcelItemHelper.Get(item->ItemId);
@@ -390,7 +473,7 @@ internal static unsafe class TaskEntrustDuplicates
                     }
                 }
                 // Nothing left to move - the flow is over, so report where its time actually went.
-                ReportFlow();
+                ReportFlow(itemCounts);
                 return true;
             }
         }
