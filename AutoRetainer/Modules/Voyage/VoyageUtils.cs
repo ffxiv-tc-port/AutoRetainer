@@ -524,11 +524,11 @@ internal static unsafe class VoyageUtils
         //    取不到就回 null ＝「認不出型別」,與既有的「兩個字串都比不中」同一條路徑。
         if(addon == null) return null;
         if(!Utils.TryGetNodeText(&addon->UldManager, 3, out var text)) return null;
-        if(text.Contains("Select an airship."))
+        if(text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.PanelAirship))
         {
             return VoyageType.Airship;
         }
-        if(text.Contains("Select a submersible."))
+        if(text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.PanelSubmersible))
         {
             return VoyageType.Submersible;
         }
