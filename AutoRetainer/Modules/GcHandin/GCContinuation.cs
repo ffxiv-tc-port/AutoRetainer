@@ -558,28 +558,78 @@ internal static unsafe class GCContinuation
         return null;
     }
 
+    /// <summary>
+    /// 「這扇窗已經按過取消」的記號,兩扇窗各記各的。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <see cref="Addon"/> 存的是 <see cref="AtkUnitBase"/> 的位址,但<b>只拿來做等值比較,永遠不解參</b>。
+    /// 跨幀持有原生指標再解參是崩潰級的錯誤;這裡要的只是「下次看到的是不是同一扇窗」這個身分判斷。
+    /// </remarks>
+    private struct CancelGuard
+    {
+        public nint Addon;
+        public long Frame;
+    }
+
+    private static CancelGuard SelectYesnoCancelGuard;
+    private static CancelGuard ShopExchangeDialogCancelGuard;
+
+    /// <summary>
+    /// 已經按過取消、那扇窗卻還沒消失時,最多再等這麼多幀才允許補按一次。
+    /// </summary>
+    /// <remarks>
+    /// 🔑 這不是節流 —— 真正的防護是「同一扇窗只按一次」,這個值只是防死鎖的逃生口:
+    /// 永久封鎖會讓呼叫端的任務一路卡到逾時,而 NeoTaskManager 預設的逾時是清掉整條佇列。
+    /// 取 60 幀(約 0.5~1 秒)是為了遠遠大於「關閉中的那幾幀」,補按永遠不會落在危險窗口內。
+    /// </remarks>
+    private const int ReCancelEscapeFrames = 60;
+
+    /// <remarks>
+    /// 🔴 SelectYesno 被按下之後有「正在關閉中」的幾幀:<c>GetAddonByName</c> 仍然拿得到實例,
+    /// <c>IsVisible</c> 與 <c>UldManager.LoadedState == Loaded</c> 也都還成立(=<c>IsReady()</c> 三關全過),
+    /// 此時再送一次 callback 會踩到原生 AccessViolation(C0000005)。AVE 在 .NET Core 是
+    /// corrupted-state exception,<c>try</c>/<c>catch</c> 與任何例外隔離都攔不住 ——
+    /// 唯一的防護是「不要送第二次」,不是「送了再接住」。
+    ///
+    /// 呼叫端的 <see cref="Utils.GenericThrottle"/> <b>不是</b>這個防護:它是全外掛共用一把 key 的幀節流,
+    /// 記的是「上一次任何地方動作是哪一幀」,不是「這扇窗已經按過」。而且它的幀數是
+    /// <c>10 + C.ExtraFrameDelay</c>,設定裡 <c>ExtraFrameDelay</c> 的合法範圍是 <c>-10..100</c> ——
+    /// 設成 -10 時延遲為 0 幀,節流<b>每一幀都放行</b>,正在關閉的那扇窗會被連續幀重按。
+    /// </remarks>
     public static bool CleanupUI()
     {
-        {
-            if(TryGetAddonByName<AtkUnitBase>("SelectYesno", out var addon))
-            {
-                if(addon->IsReady())
-                {
-                    Callback.Fire(addon, true, -1);
-                    return true;
-                }
-            }
-        }
-        {
-            if(TryGetAddonByName<AtkUnitBase>("ShopExchangeCurrencyDialog", out var addon))
-            {
-                if(addon->IsReady())
-                {
-                    Callback.Fire(addon, true, -1);
-                    return true;
-                }
-            }
-        }
+        if(TryCancelDialogOnce("SelectYesno", ref SelectYesnoCancelGuard)) return true;
+        if(TryCancelDialogOnce("ShopExchangeCurrencyDialog", ref ShopExchangeDialogCancelGuard)) return true;
         return false;
+    }
+
+    /// <returns>
+    /// <see langword="true"/> 代表「這一輪呼叫端不要再往下走」—— 涵蓋「剛按了取消」與
+    /// 「按過了、窗還在關閉中」兩種情形,兩者對呼叫端的意義相同(畫面上還有擋路的窗)。
+    /// </returns>
+    private static bool TryCancelDialogOnce(string addonName, ref CancelGuard guard)
+    {
+        if(!TryGetAddonByName<AtkUnitBase>(addonName, out var addon) || addon == null)
+        {
+            // 窗真的從 addon 清單消失了 —— 這是唯一能確定「上一次按下的那扇已經收乾淨」的證據。
+            // 只有在這裡解除封鎖,下一扇同名窗才會被當成新的窗來處理。
+            guard = default;
+            return false;
+        }
+        var current = (nint)addon;
+        var frame = (long)Svc.PluginInterface.UiBuilder.FrameCount;
+        if(guard.Addon == current)
+        {
+            // 這一扇已經按過取消。窗還在 = 可能正在關閉中,此時再 FireCallback 就是上面說的 AVE。
+            if(frame - guard.Frame < ReCancelEscapeFrames) return true;
+            // 逃生口:等了遠超過關閉所需的時間,窗仍在。視為那次取消沒生效(或這是另一扇重用了
+            // 同一塊記憶體的新窗),放行補按一次。
+            PluginLog.Information($"{addonName} 按下取消後 {frame - guard.Frame} 幀仍未關閉,補按一次");
+            guard = default;
+        }
+        if(!addon->IsReady()) return false;
+        guard = new() { Addon = current, Frame = frame };
+        Callback.Fire(addon, true, -1);
+        return true;
     }
 }
