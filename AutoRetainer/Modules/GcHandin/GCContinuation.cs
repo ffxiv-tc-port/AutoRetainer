@@ -129,13 +129,21 @@ internal static unsafe class GCContinuation
         return false;
     }
 
+    /// <remarks>
+    /// 🔴 兩處「按是」都經過 <see cref="PressYesOnce"/>:同一扇確認框在它消失前只按一次。
+    /// 直接按會在窗「正在關閉中」的那幾幀踩到原生 AccessViolation,詳見 <see cref="PressYesOnce"/>。
+    /// 正常路徑的行為沒有改變 —— 第一次看到某扇窗一樣立刻按下去,回傳值也與改動前逐一相同。
+    /// </remarks>
     internal static bool? ConfirmExchange()
     {
+        // 先解除已經消失的那些窗的封鎖,下一扇同名窗才會被當成新的窗處理。
+        ReleaseYesnoGuardIfGone(ref CannotEquipYesGuard);
+        ReleaseYesnoGuardIfGone(ref SealExchangeYesGuard);
         {
             var x = Utils.GetSpecificYesno(x => x.RemoveWhitespaces().EqualsIgnoreCaseAny(Svc.Data.GetExcelSheet<Addon>().GetRow(2436).Text.GetText().RemoveWhitespaces(), Svc.Data.GetExcelSheet<Addon>().GetRow(11502).Text.GetText().RemoveWhitespaces()));
             if(x != null && FrameThrottler.Throttle("ConfirmCannotEquip", 4))
             {
-                new AddonMaster.SelectYesno((nint)x).Yes();
+                PressYesOnce((nint)x, ref CannotEquipYesGuard, "ConfirmCannotEquip");
                 return false;
             }
         }
@@ -143,7 +151,9 @@ internal static unsafe class GCContinuation
             var x = Utils.GetSpecificYesno(x => x.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.GCSealExchangeConfirm));
             if(x != null && EzThrottler.Throttle("GC ConfirmExchange"))
             {
-                new AddonMaster.SelectYesno((nint)x).Yes();
+                // 被封鎖時同樣回 true:這扇窗的「是」先前已經送出去了,這一步的工作確實已經完成,
+                // 回 false 會讓這一步空轉到逾時。
+                PressYesOnce((nint)x, ref SealExchangeYesGuard, "GC ConfirmExchange");
                 return true;
             }
         }
@@ -559,30 +569,32 @@ internal static unsafe class GCContinuation
     }
 
     /// <summary>
-    /// 「這扇窗已經按過取消」的記號,兩扇窗各記各的。
+    /// 「這扇窗已經按過了」的記號,每個按下點各記各的(不分按的是取消還是「是」)。
     /// </summary>
     /// <remarks>
     /// 🔴 <see cref="Addon"/> 存的是 <see cref="AtkUnitBase"/> 的位址,但<b>只拿來做等值比較,永遠不解參</b>。
     /// 跨幀持有原生指標再解參是崩潰級的錯誤;這裡要的只是「下次看到的是不是同一扇窗」這個身分判斷。
     /// </remarks>
-    private struct CancelGuard
+    private struct DialogGuard
     {
         public nint Addon;
         public long Frame;
     }
 
-    private static CancelGuard SelectYesnoCancelGuard;
-    private static CancelGuard ShopExchangeDialogCancelGuard;
+    private static DialogGuard SelectYesnoCancelGuard;
+    private static DialogGuard ShopExchangeDialogCancelGuard;
+    private static DialogGuard CannotEquipYesGuard;
+    private static DialogGuard SealExchangeYesGuard;
 
     /// <summary>
-    /// 已經按過取消、那扇窗卻還沒消失時,最多再等這麼多幀才允許補按一次。
+    /// 已經按過、那扇窗卻還沒消失時,最多再等這麼多幀才允許補按一次。
     /// </summary>
     /// <remarks>
     /// 🔑 這不是節流 —— 真正的防護是「同一扇窗只按一次」,這個值只是防死鎖的逃生口:
     /// 永久封鎖會讓呼叫端的任務一路卡到逾時,而 NeoTaskManager 預設的逾時是清掉整條佇列。
     /// 取 60 幀(約 0.5~1 秒)是為了遠遠大於「關閉中的那幾幀」,補按永遠不會落在危險窗口內。
     /// </remarks>
-    private const int ReCancelEscapeFrames = 60;
+    private const int RePressEscapeFrames = 60;
 
     /// <remarks>
     /// 🔴 SelectYesno 被按下之後有「正在關閉中」的幾幀:<c>GetAddonByName</c> 仍然拿得到實例,
@@ -607,7 +619,7 @@ internal static unsafe class GCContinuation
     /// <see langword="true"/> 代表「這一輪呼叫端不要再往下走」—— 涵蓋「剛按了取消」與
     /// 「按過了、窗還在關閉中」兩種情形,兩者對呼叫端的意義相同(畫面上還有擋路的窗)。
     /// </returns>
-    private static bool TryCancelDialogOnce(string addonName, ref CancelGuard guard)
+    private static bool TryCancelDialogOnce(string addonName, ref DialogGuard guard)
     {
         if(!TryGetAddonByName<AtkUnitBase>(addonName, out var addon) || addon == null)
         {
@@ -621,7 +633,7 @@ internal static unsafe class GCContinuation
         if(guard.Addon == current)
         {
             // 這一扇已經按過取消。窗還在 = 可能正在關閉中,此時再 FireCallback 就是上面說的 AVE。
-            if(frame - guard.Frame < ReCancelEscapeFrames) return true;
+            if(frame - guard.Frame < RePressEscapeFrames) return true;
             // 逃生口:等了遠超過關閉所需的時間,窗仍在。視為那次取消沒生效(或這是另一扇重用了
             // 同一塊記憶體的新窗),放行補按一次。
             PluginLog.Information($"{addonName} 按下取消後 {frame - guard.Frame} 幀仍未關閉,補按一次");
@@ -631,5 +643,61 @@ internal static unsafe class GCContinuation
         guard = new() { Addon = current, Frame = frame };
         Callback.Fire(addon, true, -1);
         return true;
+    }
+
+    /// <summary>
+    /// 按下某一扇 SelectYesno 的「是」,但同一扇窗只按一次 —— 與 <see cref="TryCancelDialogOnce"/>
+    /// 同一套機制,差別只在按的是「是」而不是取消。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 危險形狀與取消那邊完全相同:SelectYesno 被按下之後有「正在關閉中」的幾幀,
+    /// <c>GetAddonByName</c> 仍拿得到實例、<c>IsAddonReady</c> 三關也全過
+    /// (<see cref="Utils.GetSpecificYesno(Predicate{string})"/> 就是靠這個判定的,所以它<b>不是</b>防護),
+    /// 此時再按一次就是原生 AccessViolation(C0000005)。AVE 在 .NET Core 是 corrupted-state exception,
+    /// <c>try</c>/<c>catch</c> 攔不住 —— 唯一的防護是「不要按第二次」。
+    ///
+    /// 這裡的節流(<c>FrameThrottler.Throttle("ConfirmCannotEquip", 4)</c> 與
+    /// <c>EzThrottler.Throttle("GC ConfirmExchange")</c>)同樣<b>不是</b>防護:它們記的是「上次動作在哪一幀
+    /// /哪個時刻」,不是「這扇窗已經按過」,而 4 幀遠遠短於一扇窗關閉所需的時間。
+    ///
+    /// 不再檢查一次 <c>IsReady</c>:呼叫端拿到 addon 的路徑(<see cref="Utils.GetSpecificYesno(Predicate{string})"/>)
+    /// 已經做過 <c>IsAddonReady</c>,行為與改動前一致 —— 第一次看到某扇窗一律當場按下去。
+    /// </remarks>
+    private static void PressYesOnce(nint addon, ref DialogGuard guard, string label)
+    {
+        var frame = (long)Svc.PluginInterface.UiBuilder.FrameCount;
+        if(guard.Addon == addon)
+        {
+            // 這一扇已經按過「是」。窗還在 = 可能正在關閉中,此時再按就是上面說的 AVE。
+            if(frame - guard.Frame < RePressEscapeFrames) return;
+            // 逃生口:等了遠超過關閉所需的時間,窗仍在。視為那次沒生效,放行補按一次。
+            // (永久封鎖會讓這一步卡到逾時,而逾時預設是清掉整條佇列。)
+            PluginLog.Information($"{label}: 按下「是」後 {frame - guard.Frame} 幀仍未關閉,補按一次");
+        }
+        guard = new() { Addon = addon, Frame = frame };
+        new AddonMaster.SelectYesno(addon).Yes();
+    }
+
+    /// <summary>
+    /// 那扇被記下的窗已經從 SelectYesno 清單裡消失時解除封鎖 —— 這是唯一能確定
+    /// 「上一次按下的那扇已經收乾淨」的證據,與 <see cref="TryCancelDialogOnce"/> 用的是同一種判準。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 全程只做位址等值比較,<b>永遠不解參</b>。
+    /// 掃整串索引而不是只看第 1 個,是因為同時可能開著多扇 SelectYesno,被記下的那扇不一定在第 1 格;
+    /// 掃到第一個空的就停,與 <see cref="Utils.GetSpecificYesno(Predicate{string})"/> 的走法一致。
+    /// ⚠️ 判準刻意<b>不</b>用「文字還對不對」:窗在拆除途中可能有幾幀讀不到提示文字,
+    /// 拿那個當「窗不見了」會在最危險的那幾幀把封鎖解除掉。
+    /// </remarks>
+    private static void ReleaseYesnoGuardIfGone(ref DialogGuard guard)
+    {
+        if(guard.Addon == 0) return;
+        for(var i = 1; i < 100; i++)
+        {
+            var addon = (nint)Svc.GameGui.GetAddonByName("SelectYesno", i).Address;
+            if(addon == 0) break;
+            if(addon == guard.Addon) return;
+        }
+        guard = default;
     }
 }
