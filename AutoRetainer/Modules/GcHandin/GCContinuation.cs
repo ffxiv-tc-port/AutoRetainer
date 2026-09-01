@@ -568,45 +568,19 @@ internal static unsafe class GCContinuation
         return null;
     }
 
-    /// <summary>
-    /// 「這扇窗已經按過了」的記號,每個按下點各記各的(不分按的是取消還是「是」)。
-    /// </summary>
-    /// <remarks>
-    /// 🔴 <see cref="Addon"/> 存的是 <see cref="AtkUnitBase"/> 的位址,但<b>只拿來做等值比較,永遠不解參</b>。
-    /// 跨幀持有原生指標再解參是崩潰級的錯誤;這裡要的只是「下次看到的是不是同一扇窗」這個身分判斷。
-    /// </remarks>
-    private struct DialogGuard
-    {
-        public nint Addon;
-        public long Frame;
-    }
-
+    // 「這扇窗已經按過了」的記號,每個按下點各記各的(不分按的是取消還是「是」)。
+    // 🔴 機制、危險形狀與「為什麼節流不是防護」全部寫在 Helpers/DialogGuards.cs,那裡是唯一的一份;
+    //    這個外掛裡同一種崩潰有五個入口,所以守衛抽在共用位置,不要在這裡再長一份副本。
     private static DialogGuard SelectYesnoCancelGuard;
     private static DialogGuard ShopExchangeDialogCancelGuard;
     private static DialogGuard CannotEquipYesGuard;
     private static DialogGuard SealExchangeYesGuard;
 
-    /// <summary>
-    /// 已經按過、那扇窗卻還沒消失時,最多再等這麼多幀才允許補按一次。
-    /// </summary>
     /// <remarks>
-    /// 🔑 這不是節流 —— 真正的防護是「同一扇窗只按一次」,這個值只是防死鎖的逃生口:
-    /// 永久封鎖會讓呼叫端的任務一路卡到逾時,而 NeoTaskManager 預設的逾時是清掉整條佇列。
-    /// 取 60 幀(約 0.5~1 秒)是為了遠遠大於「關閉中的那幾幀」,補按永遠不會落在危險窗口內。
-    /// </remarks>
-    private const int RePressEscapeFrames = 60;
-
-    /// <remarks>
-    /// 🔴 SelectYesno 被按下之後有「正在關閉中」的幾幀:<c>GetAddonByName</c> 仍然拿得到實例,
-    /// <c>IsVisible</c> 與 <c>UldManager.LoadedState == Loaded</c> 也都還成立(=<c>IsReady()</c> 三關全過),
-    /// 此時再送一次 callback 會踩到原生 AccessViolation(C0000005)。AVE 在 .NET Core 是
-    /// corrupted-state exception,<c>try</c>/<c>catch</c> 與任何例外隔離都攔不住 ——
-    /// 唯一的防護是「不要送第二次」,不是「送了再接住」。
-    ///
-    /// 呼叫端的 <see cref="Utils.GenericThrottle"/> <b>不是</b>這個防護:它是全外掛共用一把 key 的幀節流,
-    /// 記的是「上一次任何地方動作是哪一幀」,不是「這扇窗已經按過」。而且它的幀數是
-    /// <c>10 + C.ExtraFrameDelay</c>,設定裡 <c>ExtraFrameDelay</c> 的合法範圍是 <c>-10..100</c> ——
-    /// 設成 -10 時延遲為 0 幀,節流<b>每一幀都放行</b>,正在關閉的那扇窗會被連續幀重按。
+    /// 🔴 兩處「按取消」都經過 <see cref="DialogGuards.TryCancelDialogOnce"/>:窗被按下之後有
+    /// 「正在關閉中」的幾幀,此時再送一次 callback 就是攔不到的原生 AccessViolation。
+    /// 完整的危險形狀、以及「為什麼呼叫端的 <see cref="Utils.GenericThrottle"/> 不是防護」寫在
+    /// <see cref="DialogGuards"/>。
     /// </remarks>
     public static bool CleanupUI()
     {
@@ -620,61 +594,26 @@ internal static unsafe class GCContinuation
     /// 「按過了、窗還在關閉中」兩種情形,兩者對呼叫端的意義相同(畫面上還有擋路的窗)。
     /// </returns>
     private static bool TryCancelDialogOnce(string addonName, ref DialogGuard guard)
-    {
-        if(!TryGetAddonByName<AtkUnitBase>(addonName, out var addon) || addon == null)
-        {
-            // 窗真的從 addon 清單消失了 —— 這是唯一能確定「上一次按下的那扇已經收乾淨」的證據。
-            // 只有在這裡解除封鎖,下一扇同名窗才會被當成新的窗來處理。
-            guard = default;
-            return false;
-        }
-        var current = (nint)addon;
-        var frame = (long)Svc.PluginInterface.UiBuilder.FrameCount;
-        if(guard.Addon == current)
-        {
-            // 這一扇已經按過取消。窗還在 = 可能正在關閉中,此時再 FireCallback 就是上面說的 AVE。
-            if(frame - guard.Frame < RePressEscapeFrames) return true;
-            // 逃生口:等了遠超過關閉所需的時間,窗仍在。視為那次取消沒生效(或這是另一扇重用了
-            // 同一塊記憶體的新窗),放行補按一次。
-            PluginLog.Information($"{addonName} 按下取消後 {frame - guard.Frame} 幀仍未關閉,補按一次");
-            guard = default;
-        }
-        if(!addon->IsReady()) return false;
-        guard = new() { Addon = current, Frame = frame };
-        Callback.Fire(addon, true, -1);
-        return true;
-    }
+        => DialogGuards.TryCancelDialogOnce(addonName, ref guard);
 
     /// <summary>
     /// 按下某一扇 SelectYesno 的「是」,但同一扇窗只按一次 —— 與 <see cref="TryCancelDialogOnce"/>
     /// 同一套機制,差別只在按的是「是」而不是取消。
     /// </summary>
     /// <remarks>
-    /// 🔴 危險形狀與取消那邊完全相同:SelectYesno 被按下之後有「正在關閉中」的幾幀,
-    /// <c>GetAddonByName</c> 仍拿得到實例、<c>IsAddonReady</c> 三關也全過
-    /// (<see cref="Utils.GetSpecificYesno(Predicate{string})"/> 就是靠這個判定的,所以它<b>不是</b>防護),
-    /// 此時再按一次就是原生 AccessViolation(C0000005)。AVE 在 .NET Core 是 corrupted-state exception,
-    /// <c>try</c>/<c>catch</c> 攔不住 —— 唯一的防護是「不要按第二次」。
-    ///
-    /// 這裡的節流(<c>FrameThrottler.Throttle("ConfirmCannotEquip", 4)</c> 與
-    /// <c>EzThrottler.Throttle("GC ConfirmExchange")</c>)同樣<b>不是</b>防護:它們記的是「上次動作在哪一幀
-    /// /哪個時刻」,不是「這扇窗已經按過」,而 4 幀遠遠短於一扇窗關閉所需的時間。
-    ///
-    /// 不再檢查一次 <c>IsReady</c>:呼叫端拿到 addon 的路徑(<see cref="Utils.GetSpecificYesno(Predicate{string})"/>)
-    /// 已經做過 <c>IsAddonReady</c>,行為與改動前一致 —— 第一次看到某扇窗一律當場按下去。
+    /// 🔴 危險形狀與取消那邊完全相同,寫在 <see cref="DialogGuards"/>。這裡只補兩件與本檔有關的:
+    /// <list type="bullet">
+    /// <item>呼叫端拿 addon 的路徑是 <see cref="Utils.GetSpecificYesno(Predicate{string})"/>,它靠
+    /// <c>IsAddonReady</c> 判定 —— 而關閉中的窗這三關全過,所以它<b>不是</b>防護。</item>
+    /// <item>這裡的節流(<c>FrameThrottler.Throttle("ConfirmCannotEquip", 4)</c> 與
+    /// <c>EzThrottler.Throttle("GC ConfirmExchange")</c>)同樣<b>不是</b>防護:4 幀遠遠短於一扇窗關閉所需的時間。</item>
+    /// </list>
+    /// 不在這裡再檢查一次 <c>IsReady</c>:上面那條路徑已經做過,行為與加守衛之前一致 ——
+    /// 第一次看到某扇窗一律當場按下去。
     /// </remarks>
     private static void PressYesOnce(nint addon, ref DialogGuard guard, string label)
     {
-        var frame = (long)Svc.PluginInterface.UiBuilder.FrameCount;
-        if(guard.Addon == addon)
-        {
-            // 這一扇已經按過「是」。窗還在 = 可能正在關閉中,此時再按就是上面說的 AVE。
-            if(frame - guard.Frame < RePressEscapeFrames) return;
-            // 逃生口:等了遠超過關閉所需的時間,窗仍在。視為那次沒生效,放行補按一次。
-            // (永久封鎖會讓這一步卡到逾時,而逾時預設是清掉整條佇列。)
-            PluginLog.Information($"{label}: 按下「是」後 {frame - guard.Frame} 幀仍未關閉,補按一次");
-        }
-        guard = new() { Addon = addon, Frame = frame };
+        if(!DialogGuards.TryPressOnce(addon, ref guard, label)) return;
         new AddonMaster.SelectYesno(addon).Yes();
     }
 
@@ -683,21 +622,9 @@ internal static unsafe class GCContinuation
     /// 「上一次按下的那扇已經收乾淨」的證據,與 <see cref="TryCancelDialogOnce"/> 用的是同一種判準。
     /// </summary>
     /// <remarks>
-    /// 🔴 全程只做位址等值比較,<b>永遠不解參</b>。
-    /// 掃整串索引而不是只看第 1 個,是因為同時可能開著多扇 SelectYesno,被記下的那扇不一定在第 1 格;
-    /// 掃到第一個空的就停,與 <see cref="Utils.GetSpecificYesno(Predicate{string})"/> 的走法一致。
-    /// ⚠️ 判準刻意<b>不</b>用「文字還對不對」:窗在拆除途中可能有幾幀讀不到提示文字,
-    /// 拿那個當「窗不見了」會在最危險的那幾幀把封鎖解除掉。
+    /// 🔴 全程只做位址等值比較,<b>永遠不解參</b>;掃法與判準的理由見
+    /// <see cref="DialogGuards.ReleaseGuardIfGone"/>。
     /// </remarks>
     private static void ReleaseYesnoGuardIfGone(ref DialogGuard guard)
-    {
-        if(guard.Addon == 0) return;
-        for(var i = 1; i < 100; i++)
-        {
-            var addon = (nint)Svc.GameGui.GetAddonByName("SelectYesno", i).Address;
-            if(addon == 0) break;
-            if(addon == guard.Addon) return;
-        }
-        guard = default;
-    }
+        => DialogGuards.ReleaseGuardIfGone("SelectYesno", ref guard);
 }

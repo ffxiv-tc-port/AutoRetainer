@@ -349,8 +349,19 @@ internal static unsafe class AutoGCHandin
         return false;
     }
 
+    // 「這扇確認框已經按過了」的記號。🔴 這支由 Tick 的狀態機每幀驅動，而窗被按下之後有「正在關閉中」
+    // 的幾幀：GetAddonByName 仍拿得到實例、IsAddonReady 三關也全過，此時再按一次就是攔不到的原生
+    // AccessViolation。原本唯一的閘門是下面那個 10 幀的 FrameThrottler —— 節流不是防護
+    // （它記的是「上次動作在哪一幀」而不是「這扇窗已經按過」），機制與理由寫在 Helpers/DialogGuards.cs。
+    // ⚠️ 上面的 Utils.IsButtonEnabled(addon->YesButton) 也不是防護：AddonMaster.SelectYesno.Yes()
+    //    對停用的「是」鈕會主動翻 NodeFlags bit 5 強制啟用，所以我們自己按過之後那顆鈕就一直是啟用的。
+    private static DialogGuard YesnoGuard;
+
     private static bool HandleYesno()
     {
+        // 窗不在了才解除封鎖，下一扇同名窗才會被當成新的窗處理。放在最前面、在 Operation 閘門之外，
+        // 免得 Operation 剛好在按下之後轉為 false 時記號永遠留著。
+        DialogGuards.ReleaseGuardIfGone("SelectYesno", ref YesnoGuard);
         if(TryGetAddonByName<AddonSelectYesno>("SelectYesno", out var addon) && IsAddonReady(&addon->AtkUnitBase) && Operation)
         {
             // 🔴 PromptText 是偏移 0x238 的指標欄位,開窗途中/版面未建好時為 null。
@@ -365,7 +376,8 @@ internal static unsafe class AutoGCHandin
                 //102434	Do you really want to trade a high-quality item?
                 if(str.Equals(GenericHelpers.GetText(Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(102434).Text).Cleanup()))
                 {
-                    if(FrameThrottler.Throttle(ThrottlerYesno, 10))
+                    if(FrameThrottler.Throttle(ThrottlerYesno, 10)
+                        && DialogGuards.TryPressOnce((nint)addon, ref YesnoGuard, ThrottlerYesno))
                     {
                         new AddonMaster.SelectYesno((IntPtr)addon).Yes();
                         DebugLog($"Selecting yes");
