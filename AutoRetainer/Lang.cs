@@ -1,5 +1,7 @@
 ﻿using AutoRetainerAPI.Configuration;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Utility;
+using ECommons.ExcelServices.Sheets;
 using Lumina.Excel.Sheets;
 using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
@@ -66,81 +68,95 @@ internal static class Lang
 
     internal static readonly (string Normal, string GameFont) Digits = ("0123456789", "");
 
-    internal static readonly string[] FieldExplorationNames =
+    //招募貝殼選單自己的文字表:客戶端跑哪個語言就讀到哪個語言,不必再逐語言硬編。
+    private const string RetainerBellDialogue = "custom/000/CmnDefRetainerCall_00010";
+
+    // 🔴 讀不到/讀到空值時一律回 fallback,**絕不回空字串**:
+    //    這些字串的消費端是 StartsWithAny / ContainsAny,而
+    //    "任何字串".StartsWith("") 與 "任何字串".Contains("") 恆為 true ——
+    //    一個空錨會讓「選單的第一項」或「任何一個 SelectYesno」被誤判成命中然後按下去。
+    //    (上游版本的 BellText 讀不到時回 "",這個洞在我方補上。)
+    // ⚠️ Lumina 的 GetSheet 在表不存在時是**擲例外**不是回 null,所以 ?. 擋不住,要 try/catch。
+    private static string BellText(uint row, string fallback)
+    {
+        try
+        {
+            var text = Svc.Data.GetExcelSheet<QuestDialogueText>(name: RetainerBellDialogue).GetRowOrDefault(row)?.Value.GetText();
+            if(!string.IsNullOrEmpty(text)) return text;
+            PluginLog.Information($"[Lang] {RetainerBellDialogue} row {row} is empty; falling back to the built-in literal.");
+        }
+        catch(Exception e)
+        {
+            PluginLog.Information($"[Lang] Could not read {RetainerBellDialogue} row {row} ({e.GetType().Name}: {e.Message}); falling back to the built-in literal.");
+        }
+        return fallback;
+    }
+
+    //Everything a log message says before its first macro, which is fixed text in any language.
+    // 🔴 同上:解析不出開頭的固定文字時回 fallback,不回空字串(空前綴會讓每一則訊息都命中)。
+    internal static string LogMessageOpening(uint row, string fallback)
+    {
+        try
+        {
+            var text = Svc.Data.GetExcelSheet<LogMessage>().GetRowOrDefault(row)?.Text.ToDalamudString();
+            if(text != null)
+            {
+                var opening = "";
+                foreach(var payload in text.Payloads)
+                {
+                    if(payload is not TextPayload literal) break;
+                    opening += literal.Text;
+                }
+                opening = opening.Trim();
+                if(!string.IsNullOrEmpty(opening)) return opening;
+            }
+            PluginLog.Information($"[Lang] LogMessage row {row} has no leading literal text; falling back to the built-in literal.");
+        }
+        catch(Exception e)
+        {
+            PluginLog.Information($"[Lang] Could not read LogMessage row {row} ({e.GetType().Name}: {e.Message}); falling back to the built-in literal.");
+        }
+        return fallback;
+    }
+
+    // 只取第一行當比對錨:確認框那幾條原文是兩行的,而 addon 端的斷行位置未必與表裡一致。
+    private static string FirstLine(string s)
+    {
+        var i = s.IndexOf('\n');
+        return (i < 0 ? s : s[..i]).TrimEnd('\r');
+    }
+
+    //196	TASK_CATEGORY_TREASURE	Field Exploration.
+    //198	TASK_CATEGORY_MINER_2	Highland Exploration.
+    //200	TASK_CATEGORY_BOTANIST_2	Woodland Exploration.
+    //202	TASK_CATEGORY_FISHER_2	Waterside Exploration.
+    // 🔴 這四格的**順序有語意**:VentureUtils.GetFieldExVentureName 拿 [0]~[3] 當位置索引用
+    //    (平地/山岳/森林/水岸),不可調換,也不可在中間插入別的字串。
+    // 📌 台服 7.20 sqpack 實查:196/198/200/202 全部存在且對應正確;字面值只是讀表失敗時的備援。
+    internal static string[] FieldExplorationNames => field ??=
     [
-        "Field Exploration.",
-        "Highland Exploration.",
-        "Woodland Exploration.",
-        "Waterside Exploration.",
-        "探索依頼：平地　　（必要ベンチャースクリップ：2枚）",
-        "探索依頼：山岳　　（必要ベンチャースクリップ：2枚）",
-        "探索依頼：森林　　（必要ベンチャースクリップ：2枚）",
-        "探索依頼：水辺　　（必要ベンチャースクリップ：2枚）",
-        "Felderkundung (2 Wertmarken)",
-        "Hochlanderkundung (2 Wertmarken)",
-        "Forsterkundung (2 Wertmarken)",
-        "Gewässererkundung (2 Wertmarken)",
-        "Exploration en plaine (2 jetons)",
-        "Exploration en montagne (2 jetons)",
-        "Exploration en forêt (2 jetons)",
-        "Exploration en rivage (2 jetons)",
-        "平地探索委托（需要2枚探险币）",
-        "山岳探索委托（需要2枚探险币）",
-        "森林探索委托（需要2枚探险币）",
-        "水岸探索委托（需要2枚探险币）",
-        "平地探索委託（需要2枚探險幣）",
-        "山岳探索委託（需要2枚探險幣）",
-        "森林探索委託（需要2枚探險幣）",
-        "水岸探索委託（需要2枚探險幣）",
-        "탐색수행: 평지 (필요한 집사 급료: 2개)",
-        "탐색수행: 산악 (필요한 집사 급료: 2개)",
-        "탐색수행: 삼림 (필요한 집사 급료: 2개)",
-        "탐색수행: 물가 (필요한 집사 급료: 2개)",
+        BellText(196, "平地探索委託（需要2枚探險幣）"),
+        BellText(198, "山岳探索委託（需要2枚探險幣）"),
+        BellText(200, "森林探索委託（需要2枚探險幣）"),
+        BellText(202, "水岸探索委託（需要2枚探險幣）"),
     ];
 
-    internal static readonly string[] HuntingVentureNames =
+    //195	TASK_CATEGORY_NORMAL	Hunting.
+    //197	TASK_CATEGORY_MINER_1	Mining.
+    //199	TASK_CATEGORY_BOTANIST_1	Botany.
+    //201	TASK_CATEGORY_FISHER_1	Fishing.
+    // 🔴 同上:[0]~[3] 被 VentureUtils.GetHuntingVentureName 當位置索引用(狩獵/採礦/採伐/捕魚)。
+    // 📌 台服 7.20 sqpack 實查:195/197/199/201 全部存在且對應正確。
+    internal static string[] HuntingVentureNames => field ??=
     [
-        "Hunting.",
-        "Mining.",
-        "Botany.",
-        "Fishing.",
-        "調達依頼：渉猟　　（必要ベンチャースクリップ：1枚）",
-        "調達依頼：採掘　　（必要ベンチャースクリップ：1枚）",
-        "調達依頼：園芸　　（必要ベンチャースクリップ：1枚）",
-        "調達依頼：漁猟　　（必要ベンチャースクリップ：1枚）",
-        "Beutezug (1 Wertmarke)",
-        "Mineraliensuche (1 Wertmarke)",
-        "Ernteausflug (1 Wertmarke)",
-        "Fischzug (1 Wertmarke)",
-        "Travail de chasse (1 jeton)",
-        "Travail de mineur (1 jeton)",
-        "Travail de botaniste (1 jeton)",
-        "Travail de pêche (1 jeton)",
-        "狩猎筹集委托（需要1枚探险币）",
-        "采矿筹集委托（需要1枚探险币）",
-        "采伐筹集委托（需要1枚探险币）",
-        "捕鱼筹集委托（需要1枚探险币）",
-        "狩獵籌集委託（需要1枚探險幣）",
-        "採礦籌集委託（需要1枚探險幣）",
-        "採伐籌集委託（需要1枚探險幣）",
-        "捕魚籌集委託（需要1枚探險幣）",
-        "조달수행: 사냥 (필요한 집사 급료: 1개)",
-        "조달수행: 광부 (필요한 집사 급료: 1개)",
-        "조달수행: 원예가 (필요한 집사 급료: 1개)",
-        "조달수행: 어부 (필요한 집사 급료: 1개)",
+        BellText(195, "狩獵籌集委託（需要1枚探險幣）"),
+        BellText(197, "採礦籌集委託（需要1枚探險幣）"),
+        BellText(199, "採伐籌集委託（需要1枚探險幣）"),
+        BellText(201, "捕魚籌集委託（需要1枚探險幣）"),
     ];
 
-    internal static readonly string[] QuickExploration =
-    [
-        "Quick Exploration.",
-        "ほりだしもの依頼　（必要ベンチャースクリップ：2枚）",
-        "Schneller Streifzug (2 Wertmarken)",
-        "Tâche improvisée (2 jetons)",
-        "自由探索委托（需要2枚探险币）",
-        "自由探索委託（需要2枚探險幣）",
-        "自由尋寶委託（需要2枚探險幣）",
-        "발굴수행 (필요한 집사 급료: 2개)",
-    ];
+    //402	TASK_CATEGORY_FORTUNE	Quick Exploration.
+    internal static string[] QuickExploration => field ??= [BellText(402, "自由尋寶委託（需要2枚探險幣）")];
 
     internal static readonly string[] Entrance =
     [
@@ -166,16 +182,8 @@ internal static class Lang
         "'주택'으로 들어가시겠습니까?",
     ];
 
-    internal static readonly string[] RetainerAskCategoryText =
-    [
-        "依頼するリテイナーベンチャーを選んでください",
-        "请选择要委托的探险",
-        "請選擇要委託的探險",
-        "Wähle eine Unternehmung, auf die du den Gehilfen schicken möchtest.",
-        "Choisissez un type de tâche :",
-        "Select a category.",
-        "집사 수행의 종류를 선택하십시오.",
-    ];
+    //194	ASK_CATEGORY	Select a category.
+    internal static string[] RetainerAskCategoryText => field ??= [BellText(194, "請選擇要委託的探險")];
 
     internal static string[] BellName => [Svc.Data.GetExcelSheet<EObjName>().GetRow(2000401).Singular.GetText(), "リテイナーベル"];
 
@@ -336,18 +344,10 @@ internal static class Lang
     ];
 
     //Your retainer will be unable to process item buyback requests once recalled. Are you sure you wish to proceed?
-    //215	TEXT_CMNDEFRETAINERCALL_00010_ASK_RETURN_WITH_BUYBACK	Wenn du deinen Gehilfen wegschickst, kannst du die von ihm verkauften Gegenstände nicht mehr zurückkaufen. Möchtest du trotzdem fortfahren?
-    //215	TEXT_CMNDEFRETAINERCALL_00010_ASK_RETURN_WITH_BUYBACK	Renvoyer le servant effacera la liste de rachat. Confirmer<Indent/>?
-
-    internal static readonly string[] WillBeUnableToProcessBuyback = [
-        "Your retainer will be unable to process item buyback requests once recalled. Are you sure you wish to proceed?",
-        "リテイナーを帰すと売却依頼アイテムの買い戻しができなくなりますが、よろしいですか？",
-        "Renvoyer le servant effacera la liste de rachat. Confirmer",
-        "Wenn du deinen Gehilfen wegschickst, kannst du die von ihm verkauften Gegenstände nicht mehr zurückkaufen. Möchtest du trotzdem fortfahren",
-        "让雇员返回后将无法购回委托卖掉的道具",
-        "讓僱員返回後將無法購回委託賣掉的道具",
-        "집사를 돌려보내면 판매 의뢰한 아이템을 재매입할 수 없게 됩니다. 계속하시겠습니까?",
-        ];
+    //215	TEXT_CMNDEFRETAINERCALL_00010_ASK_RETURN_WITH_BUYBACK
+    // 📌 台服 7.20 sqpack 實查:「讓僱員返回後將無法購回委託賣掉的道具，」+換行+「確定要繼續嗎？」。
+    //    比對端 Utils.GetSpecificYesno 走 ContainsAny,錨點只取第一行,避開換行段。
+    internal static string[] WillBeUnableToProcessBuyback => field ??= [FirstLine(BellText(215, "讓僱員返回後將無法購回委託賣掉的道具"))];
 
     internal static readonly string[] LogInPartialText = ["Logging in with", "Log in with", "でログインします。", "einloggen?", "eingeloggt.", "Se connecter avec", "Vous allez vous connecter avec", "Souhaitez-vous vous connecter avec", "登入吗", "登入嗎", "登录吗", "접속하시겠습니까?"];
 

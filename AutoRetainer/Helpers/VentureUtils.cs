@@ -394,20 +394,23 @@ internal static unsafe class VentureUtils
         return 34;
     }
 
+    // 這兩個是 VenturePlanner 的摺疊標題。索引 0~3 以前恆為英文字面值,所以直接切掉最後一個字元
+    // 用來去掉英文的句點;現在 0~3 改成讀遊戲表(客戶端語言),無條件切尾會把台服的「）」吃掉。
+    // 改成只去掉句點:英文的結果與原本完全相同,其他語言不再被截斷。
     internal static string GetHuntingVentureName(uint ClassJob)
     {
-        if(ClassJob == (int)Job.BTN) return Lang.HuntingVentureNames[2][..^1];
-        if(ClassJob == (int)Job.MIN) return Lang.HuntingVentureNames[1][..^1];
-        if(ClassJob == (int)Job.FSH) return Lang.HuntingVentureNames[3][..^1];
-        return Lang.HuntingVentureNames[0][..^1];
+        if(ClassJob == (int)Job.BTN) return Lang.HuntingVentureNames[2].TrimEnd('.');
+        if(ClassJob == (int)Job.MIN) return Lang.HuntingVentureNames[1].TrimEnd('.');
+        if(ClassJob == (int)Job.FSH) return Lang.HuntingVentureNames[3].TrimEnd('.');
+        return Lang.HuntingVentureNames[0].TrimEnd('.');
     }
 
     internal static string GetFieldExVentureName(uint ClassJob)
     {
-        if(ClassJob == (int)Job.BTN) return Lang.FieldExplorationNames[2][..^1];
-        if(ClassJob == (int)Job.MIN) return Lang.FieldExplorationNames[1][..^1];
-        if(ClassJob == (int)Job.FSH) return Lang.FieldExplorationNames[3][..^1];
-        return Lang.FieldExplorationNames[0][..^1];
+        if(ClassJob == (int)Job.BTN) return Lang.FieldExplorationNames[2].TrimEnd('.');
+        if(ClassJob == (int)Job.MIN) return Lang.FieldExplorationNames[1].TrimEnd('.');
+        if(ClassJob == (int)Job.FSH) return Lang.FieldExplorationNames[3].TrimEnd('.');
+        return Lang.FieldExplorationNames[0].TrimEnd('.');
     }
 
     internal static bool IsDoL(uint ClassJob)
