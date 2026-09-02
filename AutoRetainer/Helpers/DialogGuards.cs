@@ -52,8 +52,11 @@ namespace AutoRetainer.Helpers;
 /// </list>
 /// </para>
 /// <para>
-/// 🔑 解除點＝<see cref="Tick"/> 每幀掃 addon 清單（全索引 1..99，掃到第一個空的停，與
-/// <see cref="Utils.GetSpecificYesno(Predicate{string})"/> 的走法一致），被記下的位址不在清單裡才解除。
+/// 🔑 解除點＝<see cref="Tick"/> 每幀掃 addon 清單（全索引 1..<see cref="MaxAddonIndex"/>，
+/// 掃到第一個空的停），被記下的位址不在清單裡才解除。走法與
+/// <see cref="Utils.GetSpecificYesno(Predicate{string})"/> 相同，但<b>天花板不同</b>：那邊是「找窗」，
+/// 掃不到就是不按（fail-closed，只會少做事）；這裡是「解除封鎖」，掃不到會誤判成「窗已經收掉」而放行
+/// （fail-open，會崩），所以這裡的天花板必須取遊戲自己的真值。
 /// 判準刻意<b>不</b>用「文字還對不對」或「還可不可見」：窗在拆除途中可能有幾幀讀不到提示文字、或已經
 /// 被設成不可見，拿那些當「窗不見了」會<b>正好在最危險的那幾幀</b>把封鎖解除掉。
 /// ⚠️ 位址可能被下一扇新窗重用：舊窗消失與新窗建立若落在同一幀之間，<see cref="Tick"/> 看不出差別，
@@ -90,6 +93,36 @@ internal static unsafe class DialogGuards
     /// ⚠️ 判準刻意<b>不</b>用「文字變了」當翻頁證據：關閉中文字會讀壞，時間是唯一不靠未證實假設的判準。
     /// </remarks>
     internal const int RoutineRePressEscapeFrames = 15;
+
+    /// <summary>
+    /// <see cref="Tick"/> 掃同名 addon 清單時最多掃到第幾個實例；掃到第一個空的就提早停。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 📌 256 是<b>遊戲自己夾的上限</b>，不是估出來的數字：<c>AtkUnitManager::GetAddonByName</c>（台服
+    /// <c>0x14064B960</c>）走的是 <c>AtkUnitManager.AllLoadedUnitsList</c>（<c>FieldOffset(0x6900)</c>），
+    /// 而 <c>AtkUnitList</c> 的項目陣列是 <c>FixedSizeArray256</c>（<c>AtkUnitList.cs:8</c>：項目在 <c>+0x8</c>、
+    /// <c>Count</c> 在 <c>+0x808</c> ⇒ 相差 <c>0x800</c> ＝ 256×8）；反組譯裡把 <c>Count</c> 讀進來之後緊接著
+    /// <c>mov ebp, 0x100</c> 就把它硬夾成 256。同名實例不可能多過清單本身的長度，所以 256 就是真值。
+    /// </para>
+    /// <para>
+    /// 🔑 <c>index</c> 的語意是「掃完整份清單、數第 <c>index</c> 個<b>同名</b>命中」，<b>不是</b>原始槽位編號
+    /// （反組譯：逐項比對名字，命中就把傳入的 index 減 1，減到 0 才回傳）⇒ 同名實例的索引是<b>連續</b>的，
+    /// 「掃到第一個空的就停」在數學上不可能漏掉還活著的實例。
+    /// </para>
+    /// <para>
+    /// ⚠️ 這個值以前是 99，沒有任何出處。取太小的後果是 <b>fail-open</b>：被記下的那扇窗排在天花板之外時，
+    /// <see cref="Tick"/> 會誤判成「它已經收掉了」而解除封鎖，下一幀就對一扇正在關閉的窗再送一次
+    /// ＝ 本檔開頭講的那種 AVE。這個守衛<b>沒有</b> AddonLifecycle 那一軌兜底（理由見 <see cref="Tick"/>
+    /// 的說明），天花板是唯一的防線。
+    /// </para>
+    /// <para>
+    /// 📌 改大不花成本：這段只在「還有按下記號沒被解除」時才跑（同時存在的記號實務上 0~3 個），
+    /// 而且掃到第一個空的就 break —— 正常情況下每次只跑 1~3 圈，天花板只有在真的同時開著 256 扇
+    /// 同名窗時才碰得到。
+    /// </para>
+    /// </remarks>
+    private const int MaxAddonIndex = 256;
 
     /// <summary>
     /// 一把 key（窗名＋參數組）底下「已經按過的位址 → 按下當時的幀」。同一扇同名窗可能同時開好幾扇
@@ -268,8 +301,8 @@ internal static unsafe class DialogGuards
     /// 🔴 全程只做位址等值比較，<b>永遠不解參</b>。
     /// <para>
     /// 掃整串索引而不是只看第 1 個，是因為同時可能開著多扇同名窗（SelectYesno 就會），被記下的那扇
-    /// 不一定在第 1 格；掃到第一個空的就停。同一個窗名底下不管有幾把 key（不帶參數的、各參數組的）
-    /// 都只掃一次清單。
+    /// 不一定在第 1 格；掃到第一個空的就停，上限 <see cref="MaxAddonIndex"/>。同一個窗名底下不管有
+    /// 幾把 key（不帶參數的、各參數組的）都只掃一次清單。
     /// </para>
     /// <para>
     /// 📌 這個外掛所有按下點都是 Framework.Update 或 NeoTaskManager（同樣跑在 Framework.Update 上）驅動的，
@@ -298,7 +331,7 @@ internal static unsafe class DialogGuards
         foreach(var name in NamesBuf)
         {
             PresentBuf.Clear();
-            for(var i = 1; i < 100; i++)
+            for(var i = 1; i <= MaxAddonIndex; i++)
             {
                 var present = (nint)Svc.GameGui.GetAddonByName(name, i).Address;
                 if(present == 0) break;
