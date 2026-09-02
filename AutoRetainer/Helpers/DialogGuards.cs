@@ -14,7 +14,10 @@ internal struct DialogGuard
     /// <summary>上一次按下的那扇窗的位址；<c>0</c> ＝ 目前沒有任何窗被記著。</summary>
     public nint Addon;
 
-    /// <summary>按下當時的幀序號，只用來走 <see cref="DialogGuards.RePressEscapeFrames"/> 這個逃生口。</summary>
+    /// <summary>
+    /// 按下當時的幀序號，只用來走逃生口：單答終結窗用 <see cref="DialogGuards.RePressEscapeFrames"/>，
+    /// 翻頁式多次互動窗用 <see cref="DialogGuards.RoutineRePressEscapeFrames"/>。
+    /// </summary>
     public long Frame;
 }
 
@@ -62,6 +65,19 @@ internal static unsafe class DialogGuards
     /// </remarks>
     internal const int RePressEscapeFrames = 60;
 
+    /// <summary>
+    /// 「按一次翻一頁、窗不會因為被按而消失」的多次互動窗（Talk 是代表；同形狀還有翻頁式對話框）
+    /// 專用的逃生口：<see cref="TryPressOnce"/> 的 <c>escapeIsRoutine</c> 為 <see langword="true"/> 時用它
+    /// 取代 <see cref="RePressEscapeFrames"/>。
+    /// </summary>
+    /// <remarks>
+    /// 🔑 這類窗走逃生口是常態（那才是翻到下一頁的方式），所以逃生口的長度直接決定對話節奏。
+    /// 關閉中的危險窗口實測 &lt;10 幀，15 幀不落在裡面；每頁 +0.25s 幾乎無感。
+    /// 60 幀會把每一頁壓成 0.5~1 秒，使用者裁決（2026-09-02）改成 15。
+    /// ⚠️ 判準刻意<b>不</b>用「文字變了」當翻頁證據：關閉中文字會讀壞，時間是唯一不靠未證實假設的判準。
+    /// </remarks>
+    internal const int RoutineRePressEscapeFrames = 15;
+
     private static long CurrentFrame => (long)Svc.PluginInterface.UiBuilder.FrameCount;
 
     /// <summary>
@@ -74,7 +90,8 @@ internal static unsafe class DialogGuards
     /// <param name="label">逃生口觸發時寫進 log 的名字。</param>
     /// <param name="escapeIsRoutine">
     /// <see langword="true"/> ＝ 這個按下點「同一扇窗本來就會被按很多次」（例如 Talk 是按一次翻一頁，
-    /// 窗不會因為被按而消失），走逃生口是常態，寫 <c>Debug</c> 不洗版；
+    /// 窗不會因為被按而消失），逃生口縮成 <see cref="RoutineRePressEscapeFrames"/>（15 幀）而不是
+    /// <see cref="RePressEscapeFrames"/>（60 幀），走逃生口是常態，寫 <c>Debug</c> 不洗版；
     /// <see langword="false"/>（預設）＝ 走逃生口代表「按了是卻沒關掉」這種該被回報的異常，寫
     /// <c>Information</c>（使用者跑 LogLevel 2，Debug 收不到）。
     /// </param>
@@ -93,7 +110,10 @@ internal static unsafe class DialogGuards
         if(guard.Addon == addon)
         {
             // 這一扇已經按過。窗還在 ＝ 可能正在關閉中，此時再按就是上面說的 AVE。
-            if(frame - guard.Frame < RePressEscapeFrames) return false;
+            // 多次互動窗（Talk 類）按一次翻一頁、窗不消失：關閉中的危險窗口 <10 幀，15 幀不落在裡面，
+            // 每頁只多 +0.25s 幾乎無感；單答終結窗維持 60 幀，走到逃生口本身就是該回報的異常。
+            var escapeFrames = escapeIsRoutine ? RoutineRePressEscapeFrames : RePressEscapeFrames;
+            if(frame - guard.Frame < escapeFrames) return false;
             // 逃生口：等了遠超過關閉所需的時間，窗仍在。視為那次沒生效（或這是另一扇重用了同一塊
             // 記憶體的新窗），放行補按一次。
             var msg = $"{label}: 按下後 {frame - guard.Frame} 幀仍是同一扇窗，補按一次";

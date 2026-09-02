@@ -46,7 +46,7 @@ internal static unsafe class MiniTA
                     //    零節流,包含按完最後一頁之後的那幾幀。
                     // ⚠️ escapeIsRoutine: true —— Talk 與 SelectYesno 不同:它是「按一次翻一頁」,窗不會
                     //    因為被按而消失,所以走逃生口是常態(那才是翻到下一頁的方式),寫 Information 會洗版。
-                    //    代價是同一扇 Talk 的翻頁節奏被壓成每 RePressEscapeFrames 幀一頁;
+                    //    代價是同一扇 Talk 的翻頁節奏被壓成每 RoutineRePressEscapeFrames(15)幀一頁;
                     //    這是刻意選的:唯一能不靠未證實假設就分辨「換頁」與「關閉中」的判準只有時間。
                     if(DialogGuards.TryPressOnce((nint)addon, ref TalkGuard, "Talk", escapeIsRoutine: true))
                     {
