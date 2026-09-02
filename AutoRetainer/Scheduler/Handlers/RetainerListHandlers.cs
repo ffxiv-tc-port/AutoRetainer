@@ -42,6 +42,12 @@ internal static unsafe class RetainerListHandlers
                 {
                     return false;
                 }
+                // 選雇員後清單窗隱藏/關閉;同一扇對同一格 15 幀內只送一次(不同格各准一次),
+                // CloseRetainerList 對同一扇按過關閉後任何格都不再送。
+                if(!DialogGuards.TryPressOnce("RetainerList", (nint)retainerList, "SelectRetainerByName", $"Select{retainer.Index}", escapeIsRoutine: true))
+                {
+                    return false;
+                }
                 DebugLog($"Selecting retainer {retainer.Name} with index {retainer.Index}");
                 // Select() 自己還會再驗一次 IsActive；沒送出就回 false 讓上層重試，
                 // 不要再宣稱成功。
@@ -56,7 +62,8 @@ internal static unsafe class RetainerListHandlers
     {
         if(TryGetAddonByName<AtkUnitBase>("RetainerList", out var retainerList) && IsAddonReady(retainerList))
         {
-            if(Utils.GenericThrottle)
+            // 🔴 關窗即關;同一扇只送一次。被擋就不設 IsCloseActionAutomatic(那旗標只該跟著真的送出走)。
+            if(Utils.GenericThrottle && DialogGuards.TryPressOnce("RetainerList", (nint)retainerList, "CloseRetainerList"))
             {
                 var v = stackalloc AtkValue[1]
                 {

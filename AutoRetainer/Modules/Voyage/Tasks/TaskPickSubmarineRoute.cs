@@ -112,7 +112,8 @@ internal static unsafe class TaskPickSubmarineRoute
                 PluginLog.Error($"Invalid map index specified (specified {which}, max {cnt})");
                 return false;
             }
-            if(Utils.GenericThrottle && EzThrottler.Throttle("PickMapVoyage", 2000))
+            // 選海圖即關窗;同一扇只送一次。
+            if(Utils.GenericThrottle && EzThrottler.Throttle("PickMapVoyage", 2000) && DialogGuards.TryPressOnce("SubmarineExplorationMapSelect", (nint)addon, "PickMapVoyage"))
             {
                 Callback.Fire(addon, true, 2, Utils.ZeroAtkValue, which);
                 return true;

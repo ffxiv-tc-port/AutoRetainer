@@ -112,10 +112,14 @@ internal unsafe class Memory : IDisposable
         ((AtkUnitBase*)a1)->ReceiveEvent((AtkEventType)35, 0, (AtkEvent*)a2, (AtkEventData*)a3);
     }
 
-    internal void SelectRoutePointUnsafe(int which)
+    /// <returns><see langword="true"/> ＝ 真的送出了選取;<see langword="false"/> ＝ 窗不在/未就緒,或這扇窗對這個點位剛送過(守衛擋下)。</returns>
+    internal bool SelectRoutePointUnsafe(int which)
     {
         if(TryGetAddonByName<AtkUnitBase>("AirShipExploration", out var addon) && IsAddonReady(addon))
         {
+            // 航線面板選點期間不關窗、多點選取是刻意的:帶參數組(哪個點),同一扇同一點 15 幀內只送一次。
+            //    直送 ReceiveEvent 比 callback 更早踩到關閉中的窗,所以也要過守衛。
+            if(!DialogGuards.TryPressOnce("AirShipExploration", (nint)addon, "SelectRoutePoint", $"Point{which}", escapeIsRoutine: true)) return false;
             var dummyEvent = stackalloc AtkEvent[] { new() };
             var str3 = stackalloc AirshipExplorationInputData3[] { new() { Unk0 = 0x0FFFFFFF } };
             var str2 = stackalloc AirshipExplorationInputData2[] { new() { Unk0 = str3 } };
@@ -128,7 +132,9 @@ internal unsafe class Memory : IDisposable
                 }
             };
             AddonAirShipExploration_SelectDestinationDetour((nint)addon, (nint)dummyEvent, inputData);
+            return true;
         }
+        return false;
     }
 
     private delegate void SellItemDelegate(uint a1, InventoryType a2, uint a3);

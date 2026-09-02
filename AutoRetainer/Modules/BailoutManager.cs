@@ -24,7 +24,9 @@ internal static unsafe class BailoutManager
                 {
                     if(Environment.TickCount64 - NoSelectString > C.BailoutTimeout * 1000)
                     {
-                        if(Utils.GenericThrottle)
+                        // 🔴 BailoutTimeout 沒有下界(設 0 時每個 GenericThrottle 窗都可重按關閉中的窗):同一扇只送一次,
+                        //    與 TrySelectSpecificEntry 共用 SelectString 那把 key。
+                        if(Utils.GenericThrottle && DialogGuards.TryPressOnce("SelectString", (nint)addon, "Bailout.CloseSelectString"))
                         {
                             DuoLog.Warning($"[Bailout] Closing stuck SelectString window");
                             Callback.Fire(addon, true, -1);

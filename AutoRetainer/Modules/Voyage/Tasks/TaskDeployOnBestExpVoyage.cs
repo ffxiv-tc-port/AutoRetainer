@@ -43,7 +43,8 @@ internal static unsafe class TaskDeployOnBestExpVoyage
                 }
                 else
                 {
-                    if(Utils.GenericThrottle && EzThrottler.Throttle("Voyage.Deploy"))
+                    // 出航鈕按下後 Detail 開出前這扇窗是否關閉未證:帶參數組走 15 幀例行逃生口,補按仍受 500ms 節流。
+                    if(Utils.GenericThrottle && EzThrottler.Throttle("Voyage.Deploy") && DialogGuards.TryPressOnce("AirShipExploration", (nint)addon, "Voyage.DeployButton", "Deploy", escapeIsRoutine: true))
                     {
                         Callback.Fire(addon, true, 0);
                         return false;

@@ -49,7 +49,8 @@ public sealed unsafe class FCPointsUpdater
                 TaskManager.Enqueue(() => IsScreenReady() && Player.Interactable);
                 TaskManager.Enqueue(() =>
                 {
-                    if(TryGetAddonByName<AtkUnitBase>("FreeCompany", out var addon))
+                    // Close(true) 對關閉中的窗再叫一次同樣未證安全:同一扇 FreeCompany 只關一次。
+                    if(TryGetAddonByName<AtkUnitBase>("FreeCompany", out var addon) && DialogGuards.TryPressOnce("FreeCompany", (nint)addon, "FCPoints.CloseBefore"))
                     {
                         addon->Close(true);
                         TaskManager.InsertDelay(10, true);
@@ -72,6 +73,8 @@ public sealed unsafe class FCPointsUpdater
                 {
                     if(TryGetAddonByName<AtkUnitBase>("FreeCompany", out var addon))
                     {
+                        // 上一步關掉的那扇若還在關閉中(10 幀延遲與危險窗口同量級),這裡看到的是同一位址:不再關第二次。
+                        if(!DialogGuards.TryPressOnce("FreeCompany", (nint)addon, "FCPoints.CloseAfter")) return false;
                         addon->Close(true);
                         return true;
                     }

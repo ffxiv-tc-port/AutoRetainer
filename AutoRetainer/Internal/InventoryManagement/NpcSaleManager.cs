@@ -127,9 +127,11 @@ public static unsafe class NpcSaleManager
         {
             foreach(var entry in m.Entries)
             {
-                if(Svc.Data.GetExcelSheet<GilShop>().Select(x => x.Name.GetText()).Contains(entry.Text))
+                // 讀到 U+FFFD 這一幀不碰;選項按下即關窗,同一扇只按一次。
+                var entryText = entry.Text;
+                if(!DialogGuards.TextIsUnstable(entryText) && Svc.Data.GetExcelSheet<GilShop>().Select(x => x.Name.GetText()).Contains(entryText))
                 {
-                    if(EzThrottler.Throttle("SelectStringSell", 2000))
+                    if(EzThrottler.Throttle("SelectStringSell", 2000) && DialogGuards.TryPressOnce("SelectIconString", (nint)m.Base, "SelectStringSell"))
                     {
                         entry.Select();
                     }
@@ -144,7 +146,7 @@ public static unsafe class NpcSaleManager
     {
         if(TryGetAddonByName<AtkUnitBase>("Shop", out var addon) && IsAddonReady(addon))
         {
-            if(EzThrottler.Throttle("CloseShop", 2000))
+            if(EzThrottler.Throttle("CloseShop", 2000) && DialogGuards.TryPressOnce("Shop", (nint)addon, "CloseShop"))
             {
                 Callback.Fire(addon, true, -1);
             }

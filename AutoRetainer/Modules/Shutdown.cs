@@ -49,7 +49,8 @@ internal static unsafe class Shutdown
                             var yesno = Utils.GetSpecificYesno(Lang.LogOutAndExitGame);
                             if(yesno != null)
                             {
-                                if(EzThrottler.Throttle("ClickExit"))
+                                // 同一扇登出確認框只按一次(關閉中的窗三關全過,節流不是防護)。
+                                if(EzThrottler.Throttle("ClickExit") && DialogGuards.TryPressOnce("SelectYesno", (nint)yesno, "ClickExit"))
                                 {
                                     new AddonMaster.SelectYesno((nint)yesno).Yes();
                                     return true;

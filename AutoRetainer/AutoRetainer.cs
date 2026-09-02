@@ -542,6 +542,8 @@ public unsafe class AutoRetainer : IDalamudPlugin
 
     private void Tick(object _)
     {
+        // 🔴 最前面、無條件:解除那些「窗已經不在了」的按下記號。放在任何開關之前的理由寫在 DialogGuards.Tick。
+        DialogGuards.Tick();
         MultiModeDtr.Tick();
         // 🔴 必須在下面兩個消費端(SchedulerMain.Tick 與僱員感知自動開鈴)之前、而且**無條件**跑,
         //    這樣兩邊看到的是同一幀的同一個答案,而且「開始讓路／恢復」兩個邊緣都各印得到一行。
@@ -650,7 +652,13 @@ public unsafe class AutoRetainer : IDalamudPlugin
         }
         if(Utils.IsBusy && TryGetAddonByName<AtkUnitBase>("Trade", out var trade))
         {
-            Callback.Fire(trade, true, -1);
+            // 🔴 原本每幀無條件 Fire(-1)、零節流零狀態:拒絕之後 Trade 視窗「正在關閉中」的每一幀都再送一次,
+            //    那幾幀 GetAddonByName 仍拿得到實例,再送就是攔不到的原生 AccessViolation。
+            //    同一扇 Trade 只拒絕一次;窗消失後下一扇才會再被拒絕。其餘行為(不看 IsAddonReady、IsBusy 期間才做)不變。
+            if(DialogGuards.TryPressOnce("Trade", (nint)trade, "DeclineTrade"))
+            {
+                Callback.Fire(trade, true, -1);
+            }
         }
     }
 

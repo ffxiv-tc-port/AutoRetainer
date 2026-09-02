@@ -10,25 +10,14 @@ namespace AutoRetainer.Modules;
 
 internal static unsafe class MiniTA
 {
-    // 「這扇窗已經按過了」的記號,每個按下點各記各的。
     // 🔴 這裡每一個按下點都是**每幀**被 AutoRetainer.Tick() 驅動的,而窗被按下之後有「正在關閉中」的
     //    幾幀:GetAddonByName 仍拿得到實例、IsAddonReady 三關也全過,此時再按一次就是攔不到的原生
-    //    AccessViolation。機制與「為什麼節流不是防護」寫在 Helpers/DialogGuards.cs。
-    private static DialogGuard TalkGuard;
-    private static DialogGuard SkipItemYesGuard;
-    private static DialogGuard RepairYesGuard;
-    private static DialogGuard RegisterYesGuard;
+    //    AccessViolation。「這扇窗已經按過了」的記號集中在 Helpers/DialogGuards.cs(以窗名為 key,
+    //    同一扇 SelectYesno 不管是這裡還是 AutoGCHandin 按的都共用同一把),解除點在 DialogGuards.Tick
+    //    (AutoRetainer.Tick 最前面、無條件),機制與「為什麼節流不是防護」也寫在那裡。
 
     internal static void Tick()
     {
-        // 先解除那些「窗已經不在了」的記號,下一扇同名窗才會被當成新的窗處理。
-        // 🔑 刻意放在所有開關**外面**無條件跑:只在各自的分支裡解除的話,開關剛好在按下之後轉為關閉
-        //    (例如 IPC.Suppressed、VoyageScheduler.Enabled 變動)時記號會一直留著,下一扇重用同一塊
-        //    記憶體位址的窗會被白白擋到逃生口。guard.Addon == 0 時這四行各是一個整數比較,沒開窗時等於免費。
-        DialogGuards.ReleaseGuardIfGone("Talk", ref TalkGuard);
-        DialogGuards.ReleaseGuardIfGone("SelectYesno", ref SkipItemYesGuard);
-        DialogGuards.ReleaseGuardIfGone("SelectYesno", ref RepairYesGuard);
-        DialogGuards.ReleaseGuardIfGone("SelectYesno", ref RegisterYesGuard);
         if(!IPC.Suppressed)
         {
             if(VoyageScheduler.Enabled)
@@ -48,7 +37,7 @@ internal static unsafe class MiniTA
                     //    因為被按而消失,所以走逃生口是常態(那才是翻到下一頁的方式),寫 Information 會洗版。
                     //    代價是同一扇 Talk 的翻頁節奏被壓成每 RoutineRePressEscapeFrames(15)幀一頁;
                     //    這是刻意選的:唯一能不靠未證實假設就分辨「換頁」與「關閉中」的判準只有時間。
-                    if(DialogGuards.TryPressOnce((nint)addon, ref TalkGuard, "Talk", escapeIsRoutine: true))
+                    if(DialogGuards.TryPressOnce("Talk", (nint)addon, "Talk", escapeIsRoutine: true))
                     {
                         new AddonMaster.Talk((nint)addon).Click();
                     }
@@ -76,7 +65,7 @@ internal static unsafe class MiniTA
             //    (同檔只有這支和上面的 Talk 是完全裸奔的:ConfirmRepair/ConfirmRegister 至少還有
             //    GenericThrottle、ConfirmCutsceneSkip 有 EzThrottler —— 但那些也都不是防護。)
             //    IsAddonReady 不是防護:關閉中的窗三關全過。
-            if(DialogGuards.TryPressOnce((nint)x, ref SkipItemYesGuard, "SkipItemConfirmations"))
+            if(DialogGuards.TryPressOnce("SelectYesno", (nint)x, "SkipItemConfirmations"))
             {
                 new AddonMaster.SelectYesno(x).Yes();
             }
@@ -92,7 +81,7 @@ internal static unsafe class MiniTA
         //    「上一次任何地方動作在哪一幀」,不是「這扇窗已經按過」。
         if(x != null && Utils.GenericThrottle)
         {
-            if(DialogGuards.TryPressOnce((nint)x, ref RepairYesGuard, "ConfirmRepair"))
+            if(DialogGuards.TryPressOnce("SelectYesno", (nint)x, "ConfirmRepair"))
             {
                 // log 跟著實際按下走:被守衛擋下時不寫,否則 log 會宣稱按了但其實沒按。
                 VoyageUtils.Log("Confirming repair");
@@ -107,7 +96,7 @@ internal static unsafe class MiniTA
         // 🔴 GenericThrottle 不是防護,理由同 ConfirmRepair。
         if(x != null && Utils.GenericThrottle)
         {
-            if(DialogGuards.TryPressOnce((nint)x, ref RegisterYesGuard, "ConfirmRegister"))
+            if(DialogGuards.TryPressOnce("SelectYesno", (nint)x, "ConfirmRegister"))
             {
                 VoyageUtils.Log("Confirming registration");
                 new AddonMaster.SelectYesno((nint)x).Yes();
@@ -136,8 +125,13 @@ internal static unsafe class MiniTA
         var entryNode = Utils.GetNodeSafe(&selectStrAddon->AtkUnitBase.UldManager, 3);
         var entryTextNode = entryNode == null ? null : entryNode->GetAsAtkTextNode();
         if(entryTextNode == null) return;
-        if(!Lang.SkipCutsceneStr.Contains(entryTextNode->NodeText.ToString())) return;
-        if(EzThrottler.Throttle("SkipCutsceneConfirm"))
+        var entryText = entryTextNode->NodeText.ToString();
+        // 讀到 U+FFFD ＝ 這扇窗的記憶體正在變動(多半是關閉中),這一幀不碰它。
+        if(DialogGuards.TextIsUnstable(entryText)) return;
+        if(!Lang.SkipCutsceneStr.Contains(entryText)) return;
+        // 🔴 選項按下即關窗;EzThrottler 500ms 不是防護(關閉中的窗三關全過)。同一扇 SelectString 只按一次,
+        //    與 Utils.TrySelectSpecificEntry 共用同一把 key。
+        if(EzThrottler.Throttle("SkipCutsceneConfirm") && DialogGuards.TryPressOnce("SelectString", (nint)selectStrAddon, "SkipCutsceneConfirm"))
         {
             PluginLog.Debug("Selecting cutscene skipping");
             new AddonMaster.SelectString(addon).Entries[0].Select();

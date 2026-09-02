@@ -201,21 +201,17 @@ internal static unsafe class TaskEntrustDuplicates
         return !GCExpertDeliveryLoop.IsDeliverableGear(itemId, imSettings);
     }
 
-    // 「這扇數量輸入框已經送出過了」的記號。🔴 這支是任務回呼、每幀跑，而窗被送出之後有「正在關閉中」
-    // 的幾幀：GetAddonByName 仍拿得到實例、IsAddonReady 三關也全過，此時再 FireCallback 一次就是攔不到的
-    // 原生 AccessViolation。原本唯一的閘門是那個 200ms 的 EzThrottler —— 節流不是防護（EzThrottler 的 key
-    // 是全域且跨場景持久的，而且首次一定放行），機制與理由寫在 Helpers/DialogGuards.cs。
-    private static DialogGuard InputNumericGuard;
-
+    // 🔴 這支是任務回呼、每幀跑，而數量輸入框被送出之後有「正在關閉中」的幾幀：GetAddonByName 仍拿得到實例、
+    // IsAddonReady 三關也全過，此時再 FireCallback 一次就是攔不到的原生 AccessViolation。原本唯一的閘門是
+    // 那個 200ms 的 EzThrottler —— 節流不是防護（EzThrottler 的 key 是全域且跨場景持久的，而且首次一定放行）。
+    // 「這扇已經送出過了」的記號集中在 Helpers/DialogGuards.cs，解除點在 DialogGuards.Tick：每件要輸入數量的
+    // 道具都會開一扇新的，中間那幾幀 addon 清單裡沒有 InputNumeric，記號就歸零，所以正常流程一件也不會被擋。
     private static bool? RecursivelyEntrustItems(EntrustPlan plan)
     {
         try
         {
             var s = Data.GetIMSettings();
             var allowedPlayerInventories = plan.GetAllowedInventories();
-            // 窗不在了才解除封鎖 —— 每件要輸入數量的道具都會開一扇新的，中間那幾幀 addon 清單裡沒有
-            // InputNumeric，記號就在這裡歸零，所以正常流程一件也不會被擋。
-            DialogGuards.ReleaseGuardIfGone("InputNumeric", ref InputNumericGuard);
             if(TryGetAddonByName<AtkUnitBase>("InputNumeric", out var numeric))
             {
                 if(IsAddonReady(numeric))
@@ -223,7 +219,7 @@ internal static unsafe class TaskEntrustDuplicates
                     var maxAmount = numeric->AtkValues[3].UInt;
                     var result = Math.Clamp(RequestEntrustQuantity, 1, maxAmount);
                     if(EzThrottler.Throttle("EntrustItemInputNumeric", 200)
-                        && DialogGuards.TryPressOnce((nint)numeric, ref InputNumericGuard, "EntrustItemInputNumeric"))
+                        && DialogGuards.TryPressOnce("InputNumeric", (nint)numeric, "EntrustItemInputNumeric"))
                     {
                         InternalLog.Information($"Processing input numeric: {result} (max: {maxAmount})");
                         Callback.Fire(numeric, true, (int)result);

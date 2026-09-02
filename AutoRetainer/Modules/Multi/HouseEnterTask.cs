@@ -27,7 +27,8 @@ internal static unsafe class HouseEnterTask
         var addon = Utils.GetSpecificYesno(Lang.ConfirmHouseEntrance);
         if(addon != null)
         {
-            if(IsAddonReady(addon) && EzThrottler.Throttle("HET.SelectYesno"))
+            // 🔴 確認框按下即關;EzThrottler 不是防護。同一扇只按一次。
+            if(IsAddonReady(addon) && EzThrottler.Throttle("HET.SelectYesno") && DialogGuards.TryPressOnce("SelectYesno", (nint)addon, "HET.SelectYesno"))
             {
                 DebugLog("Select yes");
                 new AddonMaster.SelectYesno((nint)addon).Yes();

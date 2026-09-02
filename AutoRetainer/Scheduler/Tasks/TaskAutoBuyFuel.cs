@@ -97,9 +97,11 @@ internal static unsafe class TaskAutoBuyFuel
         {
             foreach(var entry in m.Entries)
             {
-                if(entry.Text.StartsWithAny(Lang.FreeCompanyCreditShopMenu))
+                // 讀到 U+FFFD ＝ 窗記憶體正在變動,這一幀不碰;選項按下即關窗,同一扇只按一次。
+                var entryText = entry.Text;
+                if(!DialogGuards.TextIsUnstable(entryText) && entryText.StartsWithAny(Lang.FreeCompanyCreditShopMenu))
                 {
-                    if(EzThrottler.Throttle("AutoBuyFuel.SelectMenu", 1000))
+                    if(EzThrottler.Throttle("AutoBuyFuel.SelectMenu", 1000) && DialogGuards.TryPressOnce("SelectIconString", (nint)m.Base, "AutoBuyFuel.SelectMenu"))
                     {
                         entry.Select();
                     }
@@ -115,9 +117,12 @@ internal static unsafe class TaskAutoBuyFuel
         // Confirm the "spend N points for x99" Yes/No prompt.
         if(TryGetAddonMaster<AddonMaster.SelectYesno>(out var m))
         {
-            if(m.Text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.WorkshopBuyFuelConfirm))
+            // 連續購買是刻意的:每次購買開一扇新的確認框。同一扇只按一次(關閉中的窗 IsAddonReady 全過,
+            // 信用點回寫讓 EzThrottler 重設時首次必放行,節流擋不住)。讀到 U+FFFD 這一幀不碰。
+            var text = m.Text;
+            if(!DialogGuards.TextIsUnstable(text) && text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.WorkshopBuyFuelConfirm))
             {
-                if(EzThrottler.Throttle("AutoBuyFuel.YesNo")) m.Yes();
+                if(EzThrottler.Throttle("AutoBuyFuel.YesNo") && DialogGuards.TryPressOnce("SelectYesno", (nint)m.Base, "AutoBuyFuel.YesNo")) m.Yes();
             }
             return false;
         }
@@ -153,7 +158,8 @@ internal static unsafe class TaskAutoBuyFuel
                 }
                 return false;
             }
-            if(EzThrottler.Throttle("AutoBuyFuel.Buy"))
+            // 商店窗按下不關(開出確認框):帶參數組;CloseCreditShop 對同一扇按過關閉後不再送。
+            if(EzThrottler.Throttle("AutoBuyFuel.Buy") && DialogGuards.TryPressOnce("FreeCompanyCreditShop", (nint)a, "AutoBuyFuel.Buy", "Buy0", escapeIsRoutine: true))
             {
                 new FreeCompanyCreditShop(a).Buy(0);
                 AmountSetForThisDialog = false;
@@ -199,7 +205,8 @@ internal static unsafe class TaskAutoBuyFuel
     {
         if(TryGetAddonByName<AtkUnitBase>("FreeCompanyCreditShop", out var a) && IsAddonReady(a))
         {
-            if(EzThrottler.Throttle("AutoBuyFuel.Close"))
+            // Close(true) 對關閉中的窗再叫一次同樣未證安全:同一扇只關一次。
+            if(EzThrottler.Throttle("AutoBuyFuel.Close") && DialogGuards.TryPressOnce("FreeCompanyCreditShop", (nint)a, "AutoBuyFuel.Close"))
             {
                 a->Close(true);
             }

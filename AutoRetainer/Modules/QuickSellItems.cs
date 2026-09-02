@@ -162,6 +162,13 @@ public unsafe class QuickSellItems : IDisposable
                                         DebugLog($"QRA found {i}:{contextItemName} but it's disabled");
                                         continue;
                                     }
+                                    // 🔴 上一扇 ContextMenu 仍在關閉中時同一位址再被交回來就是危險窗口:同一扇只送一次,
+                                    //    被擋就不自動選、讓遊戲自己的選單照常開(原函式已經跑過)。
+                                    if(!DialogGuards.TryPressOnce("ContextMenu", (nint)addon, "QuickSell"))
+                                    {
+                                        DebugLog($"QRA skipped {i}:{contextItemName}: same ContextMenu still closing");
+                                        return retVal;
+                                    }
                                     Callback.Fire(addon, true, 0, i, 0U, 0, 0);
                                     agent->AgentInterface.Hide();
                                     addon->Close(true);

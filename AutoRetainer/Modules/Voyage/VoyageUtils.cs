@@ -848,7 +848,12 @@ internal static unsafe class VoyageUtils
             if(dest.CanBeSelected)
             {
                 VoyageUtils.Log($"  Selecting {dest.NameFull} / {which}");
-                P.Memory.SelectRoutePointUnsafe(which);
+                if(!P.Memory.SelectRoutePointUnsafe(which))
+                {
+                    // 守衛擋下(同一扇窗對同一點剛送過)或面板在兩次讀取之間變了:當這次沒送出,交給呼叫端的既有失敗路徑。
+                    VoyageUtils.Log($"  Selection of {dest.NameFull} / {which} was not sent this frame");
+                    return false;
+                }
                 return true;
             }
             else

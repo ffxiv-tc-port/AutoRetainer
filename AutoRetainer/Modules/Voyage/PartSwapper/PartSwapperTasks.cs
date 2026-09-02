@@ -35,7 +35,8 @@ public static unsafe class PartSwapperTasks
         {
             if(Utils.GenericThrottle)
             {
-                if(Utils.IsButtonEnabled(addon.CloseButton))
+                // 關閉鈕按下即關窗;同一扇只按一次(GenericThrottle 下界 0 幀,不是防護)。
+                if(Utils.IsButtonEnabled(addon.CloseButton) && DialogGuards.TryPressOnce("CompanyCraftSupply", (nint)addon.Base, "RegisterSub"))
                 {
                     Log("Registering sub");
                     addon.Close();
@@ -114,6 +115,8 @@ public static unsafe class PartSwapperTasks
                     if(value.Type != ValueType.ManagedString && value.Type != ValueType.String) continue;
                     if(!value.String.ExtractText().Equals(partName, StringComparison.OrdinalIgnoreCase)) continue;
 
+                    // 🔴 選件即關 ContextIconMenu;同一扇只送一次,被擋就當這一輪沒送(下一輪再來)。
+                    if(!DialogGuards.TryPressOnce("ContextIconMenu", (nint)addon, t)) return false;
                     Callback.Fire(&addon->AtkUnitBase, true, Utils.ZeroAtkValue, i, componentId, Utils.ZeroAtkValue, Utils.ZeroAtkValue);
                     EzThrottler.Throttle(t, 1500, true);
                     Log($"Executing ContextIconMenu change request on slot {slot} ");
@@ -147,9 +150,13 @@ public static unsafe class PartSwapperTasks
 
             if(TryGetAddonByName<AtkUnitBase>("CompanyCraftSupply", out var addon2) && IsAddonReady(addon2))
             {
-                Callback.Fire(addon2, true, (int)2, (int)1, (int)slot, Utils.ZeroAtkValue, Utils.ZeroAtkValue, Utils.ZeroAtkValue);
-                EzThrottler.Throttle(t, 1500, true);
-                Log($"Executing CompanyCraftSupply request on slot {slot} ");
+                // 開選單不關窗:帶參數組(哪一格),同一格 15 幀內不重送。
+                if(DialogGuards.TryPressOnce("CompanyCraftSupply", (nint)addon2, t, $"Change{slot}", escapeIsRoutine: true))
+                {
+                    Callback.Fire(addon2, true, (int)2, (int)1, (int)slot, Utils.ZeroAtkValue, Utils.ZeroAtkValue, Utils.ZeroAtkValue);
+                    EzThrottler.Throttle(t, 1500, true);
+                    Log($"Executing CompanyCraftSupply request on slot {slot} ");
+                }
             }
             else
             {
@@ -164,7 +171,7 @@ public static unsafe class PartSwapperTasks
     {
         if(TryGetAddonByName<AtkUnitBase>("CompanyCraftSupply", out var addon) && IsAddonReady(addon))
         {
-            if(Utils.GenericThrottle)
+            if(Utils.GenericThrottle && DialogGuards.TryPressOnce("CompanyCraftSupply", (nint)addon, "CloseChangeComponents"))
             {
                 Log("Closing components window (CompanyCraftSupply)");
                 Callback.Fire(addon, true, 5);

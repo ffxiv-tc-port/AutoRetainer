@@ -1430,9 +1430,11 @@ public static unsafe class Utils
     {
         if(TryGetAddonByName<AddonSelectString>("SelectString", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
-            if(new AddonMaster.SelectString(addon).Entries.TryGetFirst(x => inputTextTest(x.Text), out var entry))
+            // 讀到 U+FFFD 的選項這一幀不碰(窗記憶體正在變動);選項按下即關窗,所以整扇 SelectString 一把 key。
+            // 🔑 這支是全外掛 SelectString 選項按下的唯一咽喉,在這裡接守衛就罩住全部 20 多個呼叫端。
+            if(new AddonMaster.SelectString(addon).Entries.TryGetFirst(x => !DialogGuards.TextIsUnstable(x.Text) && inputTextTest(x.Text), out var entry))
             {
-                if((Throttler?.Invoke() ?? GenericThrottle))
+                if((Throttler?.Invoke() ?? GenericThrottle) && DialogGuards.TryPressOnce("SelectString", (nint)addon, "TrySelectSpecificEntry"))
                 {
                     entry.Select();
                     DebugLog($"TrySelectSpecificEntry: selecting {entry}");
@@ -1544,7 +1546,8 @@ public static unsafe class Utils
                 {
                     // 取不到節點就當這個 SelectYesno「不是我們要找的那個」繼續往下掃(fail-closed):
                     // 沒讀到文字時不能讓 compare 拿空字串去判，否則會把「讀不到」誤判成「內容為空的相符」。
-                    if(TryGetNodeText(&addon->UldManager, 15, out var text) && compare(text))
+                    // 讀到 U+FFFD ＝ 這扇窗的記憶體正在變動(多半是關閉中),這一幀不碰它、掃下一扇。
+                    if(TryGetNodeText(&addon->UldManager, 15, out var text) && !DialogGuards.TextIsUnstable(text) && compare(text))
                     {
                         PluginLog.Verbose($"SelectYesno {text} addon {i} by predicate");
                         return addon;
@@ -1572,6 +1575,7 @@ public static unsafe class Utils
                 {
                     // 同上：讀不到就跳過這個 addon，不要拿空字串去做包含比對。
                     if(TryGetNodeText(&addon->UldManager, 15, out var rawText)
+                        && !DialogGuards.TextIsUnstable(rawText)
                         && rawText.Cleanup().ContainsAny(s.Select(x => x.Cleanup())))
                     {
                         PluginLog.Verbose($"SelectYesno {s.Print()} addon {i}");

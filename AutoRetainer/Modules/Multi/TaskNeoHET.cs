@@ -151,7 +151,8 @@ public static unsafe class TaskNeoHET
         {
             if(IsAddonReady(addon))
             {
-                if(EzThrottler.Throttle("CloseFCChest"))
+                // 🔴 關窗即關、窗仍在就 return false 重進:關閉中的窗三關全過,同一扇只送一次。
+                if(EzThrottler.Throttle("CloseFCChest") && DialogGuards.TryPressOnce("FreeCompanyChest", (nint)addon, "CloseFCChest"))
                 {
                     Callback.Fire(addon, true, -1, Callback.ZeroAtkValue);
                 }

@@ -13,9 +13,11 @@ public unsafe class TaskRecursivelyBuyFuel
         {
             if(TryGetAddonMaster<AddonMaster.SelectYesno>(out var m))
             {
-                if(m.Text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.WorkshopBuyFuelConfirm))
+                // 同 TaskAutoBuyFuel:同一扇確認框只按一次;讀到 U+FFFD 這一幀不碰。
+                var text = m.Text;
+                if(!DialogGuards.TextIsUnstable(text) && text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.WorkshopBuyFuelConfirm))
                 {
-                    if(EzThrottler.Throttle("CeruleumYesNo")) m.Yes();
+                    if(EzThrottler.Throttle("CeruleumYesNo") && DialogGuards.TryPressOnce("SelectYesno", (nint)m.Base, "CeruleumYesNo")) m.Yes();
                 }
             }
             if(TryGetAddonByName<AtkUnitBase>("FreeCompanyCreditShop", out var a) && IsAddonReady(a))
@@ -28,7 +30,7 @@ public unsafe class TaskRecursivelyBuyFuel
                     Amount = reader.Credits;
                 }
                 if(reader.Credits < 100) return true;
-                if(EzThrottler.Throttle("FCBuy", 2000))
+                if(EzThrottler.Throttle("FCBuy", 2000) && DialogGuards.TryPressOnce("FreeCompanyCreditShop", (nint)a, "FCBuy", "Buy0", escapeIsRoutine: true))
                 {
                     new FreeCompanyCreditShop(a).Buy(0);
                 }

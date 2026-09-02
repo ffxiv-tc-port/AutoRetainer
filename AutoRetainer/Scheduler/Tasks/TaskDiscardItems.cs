@@ -100,7 +100,10 @@ public static unsafe class TaskDiscardItems
             if(verb.Length > 0)
             {
                 var yesno = Utils.GetSpecificYesno(t => t.Cleanup().Contains(verb, StringComparison.OrdinalIgnoreCase));
-                if(yesno != null && IsAddonReady(yesno) && EzThrottler.Throttle("DiscardConfirm", 200))
+                // 🔴 下一件的 ConfirmWindowUntil 重設後,GetSpecificYesno 可能命中前一扇仍在關閉中的窗;
+                //    200ms 節流在低 FPS 時短於關閉窗口。同一扇只按一次。
+                if(yesno != null && IsAddonReady(yesno) && EzThrottler.Throttle("DiscardConfirm", 200)
+                    && DialogGuards.TryPressOnce("SelectYesno", (nint)yesno, "DiscardConfirm"))
                 {
                     new AddonMaster.SelectYesno((nint)yesno).Yes();
                     ConfirmWindowUntil = 0;

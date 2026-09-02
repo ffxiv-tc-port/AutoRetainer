@@ -122,6 +122,9 @@ internal static unsafe class GCContinuation
             var button = addon->GetComponentButtonById(17);
             if(Utils.IsButtonEnabled(button))
             {
+                // 🔴 按「交換」即關窗;同一扇只按一次(與 CleanupUI 對這扇窗按取消共用同一把 key)。
+                //    被擋＝這一輪沒按到,回 false 讓下一輪再來,不回 true 謊稱這一步做完。
+                if(!DialogGuards.TryPressOnce("ShopExchangeCurrencyDialog", (nint)addon, "GC SelectExchange")) return false;
                 (*button).ClickAddonButton(addon);
             }
             return true;
@@ -136,14 +139,11 @@ internal static unsafe class GCContinuation
     /// </remarks>
     internal static bool? ConfirmExchange()
     {
-        // 先解除已經消失的那些窗的封鎖,下一扇同名窗才會被當成新的窗處理。
-        ReleaseYesnoGuardIfGone(ref CannotEquipYesGuard);
-        ReleaseYesnoGuardIfGone(ref SealExchangeYesGuard);
         {
             var x = Utils.GetSpecificYesno(x => x.RemoveWhitespaces().EqualsIgnoreCaseAny(Svc.Data.GetExcelSheet<Addon>().GetRow(2436).Text.GetText().RemoveWhitespaces(), Svc.Data.GetExcelSheet<Addon>().GetRow(11502).Text.GetText().RemoveWhitespaces()));
             if(x != null && FrameThrottler.Throttle("ConfirmCannotEquip", 4))
             {
-                PressYesOnce((nint)x, ref CannotEquipYesGuard, "ConfirmCannotEquip");
+                PressYesOnce((nint)x, "ConfirmCannotEquip");
                 return false;
             }
         }
@@ -153,7 +153,7 @@ internal static unsafe class GCContinuation
             {
                 // 被封鎖時同樣回 true:這扇窗的「是」先前已經送出去了,這一步的工作確實已經完成,
                 // 回 false 會讓這一步空轉到逾時。
-                PressYesOnce((nint)x, ref SealExchangeYesGuard, "GC ConfirmExchange");
+                PressYesOnce((nint)x, "GC ConfirmExchange");
                 return true;
             }
         }
@@ -170,6 +170,8 @@ internal static unsafe class GCContinuation
             //    更不能回 null —— NeoTaskManager 的 bool? 是三態，null 是 Abort，會把整條佇列清掉。
             //    這與外層 addon 還沒就緒時走的那條 return false 是同一個語意。
             if(!Utils.TryGetRadioButtonById(addon, (uint)(37 + which), out var button)) return false;
+            // 分頁鈕按下窗不關:帶參數組,同一扇窗對不同分頁各准按一次;同一分頁 15 幀內不重送。
+            if(!DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC SelectGCExchangeVerticalTab", $"VTab{which}", escapeIsRoutine: true)) return false;
             button->ClickRadioButton(addon);
             return true;
         }
@@ -183,6 +185,7 @@ internal static unsafe class GCContinuation
         {
             // fail-closed 同上：取不到就當「這一輪沒切成」重試，不是 Abort。
             if(!Utils.TryGetRadioButtonById(addon, (uint)(44 + which), out var button)) return false;
+            if(!DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC SelectGCExchangeHorizontalTab", $"HTab{which}", escapeIsRoutine: true)) return false;
             button->ClickRadioButton(addon);
             return true;
         }
@@ -257,6 +260,7 @@ internal static unsafe class GCContinuation
         {
             // fail-closed 同上：取不到就當「這一輪沒切成」重試，不是 Abort。
             if(!Utils.TryGetRadioButtonById(addon, (uint)(11 + which), out var button)) return false;
+            if(!DialogGuards.TryPressOnce("GrandCompanySupplyList", (nint)addon, "GC SelectSupplyListTab", $"Tab{which}", escapeIsRoutine: true)) return false;
             button->ClickRadioButton(addon);
             return true;
         }
@@ -292,6 +296,8 @@ internal static unsafe class GCContinuation
     {
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC CloseSupplyList"))
         {
+            // 🔴 關窗即關;同一扇只送一次(關閉中的窗三關全過,再送就是 AVE)。
+            if(!DialogGuards.TryPressOnce("GrandCompanySupplyList", (nint)addon, "GC CloseSupplyList")) return false;
             Callback.Fire(addon, true, -1);
             return true;
         }
@@ -302,6 +308,7 @@ internal static unsafe class GCContinuation
     {
         if(TryGetAddonByName<AtkUnitBase>("SelectString", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC CloseSelectString"))
         {
+            if(!DialogGuards.TryPressOnce("SelectString", (nint)addon, "GC CloseSelectString")) return false;
             Callback.Fire(addon, true, -1);
             return true;
         }
@@ -312,6 +319,7 @@ internal static unsafe class GCContinuation
     {
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanyExchange", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC GrandCompanyExchange"))
         {
+            if(!DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC CloseExchange")) return false;
             Callback.Fire(addon, true, -1);
             return true;
         }
@@ -343,7 +351,9 @@ internal static unsafe class GCContinuation
                     var currentRank = AutoGCHandin.GetRank();
                     if(currentRank >= itemInfo.RankReq && GetAdjustedSeals() >= itemInfo.Seals)
                     {
-                        if(FrameThrottler.Throttle("GCCont.OpenItem", 20))
+                        // 兌換窗按下不關(開出 ShopExchangeCurrencyDialog):帶參數組。
+                        if(FrameThrottler.Throttle("GCCont.OpenItem", 20)
+                            && DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC OpenSeals", $"Open{i}", escapeIsRoutine: true))
                         {
                             Callback.Fire(addon, true, 0, i, 1, Callback.ZeroAtkValue, currentRank >= itemInfo.RankReq, itemInfo.OpenCurrencyExchange, itemInfo.ItemID, itemInfo.IconID, itemInfo.Seals);
                             return true;
@@ -472,6 +482,8 @@ internal static unsafe class GCContinuation
                             if(Utils.GenericThrottle && EzThrottler.Throttle("GCBuy"))
                             {
                                 if(CleanupUI()) return false;
+                                // 兌換窗按下不關(開出兌換數量框/確認框):帶參數組,同一列 15 幀內不重送。
+                                if(!DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC PurchaseItem", $"Buy{i}", escapeIsRoutine: true)) return false;
                                 if(!DebugConf)
                                 {
                                     Callback.Fire(addon, true, 0, i, 1, Callback.ZeroAtkValue, canPurchase, itemInfo.OpenCurrencyExchange, itemInfo.ItemID, itemInfo.IconID, itemInfo.Seals);
@@ -489,6 +501,7 @@ internal static unsafe class GCContinuation
                             if(Utils.GenericThrottle && EzThrottler.Throttle("GCBuy"))
                             {
                                 if(CleanupUI()) return false;
+                                if(!DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC PurchaseItem", $"Buy{i}", escapeIsRoutine: true)) return false;
                                 if(!DebugConf)
                                 {
                                     Callback.Fire(addon, true, 0, i, adjustedAmount, Callback.ZeroAtkValue, canPurchase, itemInfo.OpenCurrencyExchange, Callback.ZeroAtkValue, Callback.ZeroAtkValue, Callback.ZeroAtkValue);
@@ -568,36 +581,26 @@ internal static unsafe class GCContinuation
         return null;
     }
 
-    // 「這扇窗已經按過了」的記號,每個按下點各記各的(不分按的是取消還是「是」)。
-    // 🔴 機制、危險形狀與「為什麼節流不是防護」全部寫在 Helpers/DialogGuards.cs,那裡是唯一的一份;
-    //    這個外掛裡同一種崩潰有五個入口,所以守衛抽在共用位置,不要在這裡再長一份副本。
-    private static DialogGuard SelectYesnoCancelGuard;
-    private static DialogGuard ShopExchangeDialogCancelGuard;
-    private static DialogGuard CannotEquipYesGuard;
-    private static DialogGuard SealExchangeYesGuard;
+    // 「這扇窗已經按過了」的記號集中在 Helpers/DialogGuards.cs(以窗名為 key,不分按的是取消還是「是」,
+    // 也不分是哪個模組按的),解除點在 DialogGuards.Tick。
+    // 🔴 機制、危險形狀與「為什麼節流不是防護」全部寫在那裡,那裡是唯一的一份;不要在這裡再長一份副本。
 
     /// <remarks>
     /// 🔴 兩處「按取消」都經過 <see cref="DialogGuards.TryCancelDialogOnce"/>:窗被按下之後有
     /// 「正在關閉中」的幾幀,此時再送一次 callback 就是攔不到的原生 AccessViolation。
     /// 完整的危險形狀、以及「為什麼呼叫端的 <see cref="Utils.GenericThrottle"/> 不是防護」寫在
-    /// <see cref="DialogGuards"/>。
+    /// <see cref="DialogGuards"/>。回 <see langword="true"/> 代表「這一輪呼叫端不要再往下走」——
+    /// 涵蓋「剛按了取消」與「按過了、窗還在關閉中」兩種情形,兩者對呼叫端的意義相同(畫面上還有擋路的窗)。
     /// </remarks>
     public static bool CleanupUI()
     {
-        if(TryCancelDialogOnce("SelectYesno", ref SelectYesnoCancelGuard)) return true;
-        if(TryCancelDialogOnce("ShopExchangeCurrencyDialog", ref ShopExchangeDialogCancelGuard)) return true;
+        if(DialogGuards.TryCancelDialogOnce("SelectYesno")) return true;
+        if(DialogGuards.TryCancelDialogOnce("ShopExchangeCurrencyDialog")) return true;
         return false;
     }
 
-    /// <returns>
-    /// <see langword="true"/> 代表「這一輪呼叫端不要再往下走」—— 涵蓋「剛按了取消」與
-    /// 「按過了、窗還在關閉中」兩種情形,兩者對呼叫端的意義相同(畫面上還有擋路的窗)。
-    /// </returns>
-    private static bool TryCancelDialogOnce(string addonName, ref DialogGuard guard)
-        => DialogGuards.TryCancelDialogOnce(addonName, ref guard);
-
     /// <summary>
-    /// 按下某一扇 SelectYesno 的「是」,但同一扇窗只按一次 —— 與 <see cref="TryCancelDialogOnce"/>
+    /// 按下某一扇 SelectYesno 的「是」,但同一扇窗只按一次 —— 與 <see cref="DialogGuards.TryCancelDialogOnce"/>
     /// 同一套機制,差別只在按的是「是」而不是取消。
     /// </summary>
     /// <remarks>
@@ -611,20 +614,9 @@ internal static unsafe class GCContinuation
     /// 不在這裡再檢查一次 <c>IsReady</c>:上面那條路徑已經做過,行為與加守衛之前一致 ——
     /// 第一次看到某扇窗一律當場按下去。
     /// </remarks>
-    private static void PressYesOnce(nint addon, ref DialogGuard guard, string label)
+    private static void PressYesOnce(nint addon, string label)
     {
-        if(!DialogGuards.TryPressOnce(addon, ref guard, label)) return;
+        if(!DialogGuards.TryPressOnce("SelectYesno", addon, label)) return;
         new AddonMaster.SelectYesno(addon).Yes();
     }
-
-    /// <summary>
-    /// 那扇被記下的窗已經從 SelectYesno 清單裡消失時解除封鎖 —— 這是唯一能確定
-    /// 「上一次按下的那扇已經收乾淨」的證據,與 <see cref="TryCancelDialogOnce"/> 用的是同一種判準。
-    /// </summary>
-    /// <remarks>
-    /// 🔴 全程只做位址等值比較,<b>永遠不解參</b>;掃法與判準的理由見
-    /// <see cref="DialogGuards.ReleaseGuardIfGone"/>。
-    /// </remarks>
-    private static void ReleaseYesnoGuardIfGone(ref DialogGuard guard)
-        => DialogGuards.ReleaseGuardIfGone("SelectYesno", ref guard);
 }

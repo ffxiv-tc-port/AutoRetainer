@@ -29,7 +29,8 @@ internal static unsafe class VoyageScheduler
     {
         if(TryGetAddonByName<AtkUnitBase>("CompanyCraftSupply", out var addon) && IsAddonReady(addon))
         {
-            if(Utils.GenericThrottle)
+            // 🔴 關窗即關;同一扇只送一次(GenericThrottle 下界 0 幀,不是防護)。
+            if(Utils.GenericThrottle && DialogGuards.TryPressOnce("CompanyCraftSupply", (nint)addon, "CloseRepair"))
             {
                 Log("Closing repair window (CompanyCraftSupply)");
                 Callback.Fire(addon, true, 5);
@@ -38,7 +39,7 @@ internal static unsafe class VoyageScheduler
         }
         else if(TryGetAddonByName<AtkUnitBase>("AirShipPartsMenu", out var addon2) && IsAddonReady(addon2))
         {
-            if(Utils.GenericThrottle)
+            if(Utils.GenericThrottle && DialogGuards.TryPressOnce("AirShipPartsMenu", (nint)addon2, "CloseRepair"))
             {
                 Log("Closing repair window (AirShipPartsMenu)");
                 Callback.Fire(addon2, true, 5);
@@ -80,7 +81,8 @@ internal static unsafe class VoyageScheduler
         {
             if(TryGetAddonByName<AtkUnitBase>("CompanyCraftSupply", out var addon) && IsAddonReady(addon))
             {
-                if(Utils.GenericThrottle)
+                // 修理請求不關窗(開出確認框才 return true):帶參數組(哪一格),同一格 15 幀內不重送。
+                if(Utils.GenericThrottle && DialogGuards.TryPressOnce("CompanyCraftSupply", (nint)addon, t, $"Repair{slot}", escapeIsRoutine: true))
                 {
                     Callback.Fire(addon, true, (int)3, Utils.ZeroAtkValue, (int)slot, Utils.ZeroAtkValue, Utils.ZeroAtkValue, Utils.ZeroAtkValue);
                     EzThrottler.Throttle(t, 1000, true);
@@ -90,7 +92,7 @@ internal static unsafe class VoyageScheduler
             }
             else if(TryGetAddonByName<AtkUnitBase>("AirShipPartsMenu", out var addon2) && IsAddonReady(addon2))
             {
-                if(Utils.GenericThrottle)
+                if(Utils.GenericThrottle && DialogGuards.TryPressOnce("AirShipPartsMenu", (nint)addon2, t, $"Repair{slot}", escapeIsRoutine: true))
                 {
                     Callback.Fire(addon2, true, (int)3, Utils.ZeroAtkValue, (int)slot, Utils.ZeroAtkValue, Utils.ZeroAtkValue, Utils.ZeroAtkValue);
                     EzThrottler.Throttle(t, 1000, true);
@@ -230,9 +232,10 @@ internal static unsafe class VoyageScheduler
             if(TryGetAddonByName<AddonSelectString>("SelectString", out var addon) && IsAddonReady(&addon->AtkUnitBase))
             {
                 var entries = Utils.GetEntries(addon);
-                if(index.Value < entries.Count && entries[index.Value].Contains(name))
+                // 讀到 U+FFFD 這一幀不碰;選項按下即關窗,同一扇 SelectString 只按一次。
+                if(index.Value < entries.Count && !DialogGuards.TextIsUnstable(entries[index.Value]) && entries[index.Value].Contains(name))
                 {
-                    if(index >= 0 && Utils.GenericThrottle && EzThrottler.Throttle("SelectVesselByName"))
+                    if(index >= 0 && Utils.GenericThrottle && EzThrottler.Throttle("SelectVesselByName") && DialogGuards.TryPressOnce("SelectString", (nint)addon, "SelectVesselByName"))
                     {
                         DebugLog($"Selecting vessel {name}/{type}/{entries[index.Value]}/{index}");
                         new AddonMaster.SelectString(addon).Entries[index.Value].Select();
@@ -278,7 +281,7 @@ internal static unsafe class VoyageScheduler
             }
             else
             {
-                if(Utils.GenericThrottle && EzThrottler.Throttle($"Voyage.Redeploy_{(nint)addon}", 5000))
+                if(Utils.GenericThrottle && EzThrottler.Throttle($"Voyage.Redeploy_{(nint)addon}", 5000) && DialogGuards.TryPressOnce("AirShipExplorationResult", (nint)addon, "Voyage.Redeploy"))
                 {
                     Callback.Fire(addon, true, 1);
                     return false;
@@ -297,7 +300,8 @@ internal static unsafe class VoyageScheduler
         if(!TryGetAddonByName<AtkUnitBase>("AirShipExplorationResult", out _)) return true;
         if(TryGetAddonByName<AtkUnitBase>("AirShipExplorationResult", out var addon) && IsAddonReady(addon))
         {
-            if(Utils.GenericThrottle && EzThrottler.Throttle($"Voyage.Redeploy_{(nint)addon}", 1000))
+            // 🔴 按下即關、按完 return false 輪詢到窗消失:關閉中的窗三關全過,同一扇只按一次。
+            if(Utils.GenericThrottle && EzThrottler.Throttle($"Voyage.Redeploy_{(nint)addon}", 1000) && DialogGuards.TryPressOnce("AirShipExplorationResult", (nint)addon, "Voyage.Finalize"))
             {
                 Callback.Fire(addon, true, 0);
                 return false;
@@ -314,7 +318,7 @@ internal static unsafe class VoyageScheduler
     {
         if(TryGetAddonByName<AtkUnitBase>("AirShipExplorationDetail", out var addon) && IsAddonReady(addon))
         {
-            if(Utils.GenericThrottle && EzThrottler.Throttle("Voyage.Deploy"))
+            if(Utils.GenericThrottle && EzThrottler.Throttle("Voyage.Deploy") && DialogGuards.TryPressOnce("AirShipExplorationDetail", (nint)addon, "Voyage.Deploy"))
             {
                 Callback.Fire(addon, true, 0);
                 return true;
@@ -331,7 +335,7 @@ internal static unsafe class VoyageScheduler
     {
         if(TryGetAddonByName<AtkUnitBase>("AirShipExplorationDetail", out var addon) && IsAddonReady(addon))
         {
-            if(Utils.GenericThrottle && EzThrottler.Throttle("Voyage.CancelDeploy"))
+            if(Utils.GenericThrottle && EzThrottler.Throttle("Voyage.CancelDeploy") && DialogGuards.TryPressOnce("AirShipExplorationDetail", (nint)addon, "Voyage.CancelDeploy"))
             {
                 Callback.Fire(addon, true, -1);
                 return true;
