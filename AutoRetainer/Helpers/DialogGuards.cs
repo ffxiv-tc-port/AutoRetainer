@@ -109,7 +109,41 @@ internal static unsafe class DialogGuards
     private static readonly List<nint> RemoveBuf = [];
     private static readonly List<string> EmptyKeysBuf = [];
 
-    private static long CurrentFrame => (long)Svc.PluginInterface.UiBuilder.FrameCount;
+    /// <summary>
+    /// 守衛專用的幀計數器。<b>刻意不用 <c>Svc.PluginInterface.UiBuilder.FrameCount</c></b> ——
+    /// 那個計數器在外掛 UI 被隱藏的期間<b>完全停止前進</b>，逃生口會永遠不到期。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 Dalamud 的 <c>UiBuilder.OnDraw()</c>（本 pin <c>Dalamud/Interface/UiBuilder.cs</c>）在三種情形成立時
+    /// <b>直接 <c>return</c></b>：①使用者按熱鍵隱藏 UI ＋ <c>ToggleUiHide</c>　②<b>過場動畫</b> ＋
+    /// <c>ToggleUiHideDuringCutscenes</c>（預設<b>開</b>）　③GPose ＋ <c>ToggleUiHideDuringGpose</c>；
+    /// 而 <c>this.FrameCount++</c> 寫在那個 <c>return</c> 的<b>後面</b>（中間還隔著整段 <c>Draw</c> 派送）。
+    /// </para>
+    /// <para>
+    /// ⇒ 過場動畫播放中、或使用者按下隱藏 UI 熱鍵的期間，拿它當時鐘的話「已經按過」的記號會
+    /// <b>永遠</b>停在 <c>frame - pressedAt == 0</c>，<see cref="RePressEscapeFrames"/> 與
+    /// <see cref="RoutineRePressEscapeFrames"/> 一律不到期：守衛從「按過就等一下」變成「按過就永久封鎖」。
+    /// 這個方向不會崩（fail-closed），但「按一次翻一頁、窗不會消失」的窗（<c>Talk</c> 最典型）會停在
+    /// 第一頁不動，整條任務卡到 NeoTaskManager 逾時、再被 <c>abortOnTimeout</c> 清掉<b>整條</b>佇列。
+    /// </para>
+    /// <para>
+    /// 🔑 改成自己在 <c>Framework.Update</c> 上數（遞增點在 <see cref="Tick"/> 的最前面）。Dalamud 的
+    /// <c>Framework.Update</c> 是掛在遊戲自己的 <c>Framework::Tick</c> 虛擬函式 hook 裡（<c>Dalamud/Game/Framework.cs</c>
+    /// 的 <c>HandleFrameworkUpdate</c>），與 <c>UiBuilder.OnDraw</c> 完全無關，唯一的關閉點是遊戲結束
+    /// （<c>HandleFrameworkDestroy</c> 把 <c>DispatchUpdateEvents</c> 設成 <see langword="false"/>），
+    /// <b>不受 UI 隱藏／過場／GPose 影響</b>。同樣做法的先例：TCToolbox <c>Core/AddonPressGuard.cs</c>。
+    /// </para>
+    /// <para>
+    /// 📌 兩種時鐘的速率：遊戲主迴圈是「跑一次 <c>Framework::Tick</c> 再畫一張」，正常情況下 1:1，
+    /// 所以 15／60 這兩個幀數的意義沒有改變（那是艦隊政策值，這次<b>只換時鐘來源、不動數值</b>）。
+    /// 真要說差別的話新時鐘只會更<b>保守</b>：UI 隱藏時它照走、繪製幀不走。
+    /// 只有這裡讀寫它，而且全部發生在 framework 執行緒上；只做差值比較，不依賴絕對值（從 0 開始也對）。
+    /// </para>
+    /// </remarks>
+    private static long frameCounter;
+
+    private static long CurrentFrame => frameCounter;
 
     /// <summary>
     /// 從窗上讀出來的文字含 U+FFFD（替換字元）＝ 這幾幀窗的記憶體正在變動（多半是關閉中），
@@ -210,8 +244,9 @@ internal static unsafe class DialogGuards
     }
 
     /// <summary>
-    /// 每幀從 <c>AutoRetainer.Tick</c> 的最前面無條件呼叫：被記下的位址已經從該窗名的清單裡消失時解除封鎖。
-    /// 這是唯一能確定「上一次按下的那扇已經收乾淨」的證據。
+    /// 每幀無條件呼叫（<c>AutoRetainer.DialogGuardsTick</c>，在 <c>Load()</c> 最前面獨立訂閱 <c>Framework.Update</c>）。
+    /// 做兩件事：①推進 <see cref="CurrentFrame"/> 這個守衛專用的時鐘　②被記下的位址已經從該窗名的清單裡
+    /// 消失時解除封鎖 —— 後者是唯一能確定「上一次按下的那扇已經收乾淨」的證據。
     /// </summary>
     /// <remarks>
     /// 🔴 全程只做位址等值比較，<b>永遠不解參</b>。
@@ -229,6 +264,9 @@ internal static unsafe class DialogGuards
     /// </remarks>
     internal static void Tick()
     {
+        // 🔴 遞增必須排在下面那行「沒有記號就回來」的前面：這個計數器是逃生口唯一的時間來源，
+        //    沒有窗被記著的時候就停住的話，下一次按下之後的等待會從一個早就過期的值開始算，等於沒有時鐘。
+        frameCounter++;
         if(Slots.Count == 0) return;
         NamesBuf.Clear();
         EmptyKeysBuf.Clear();
