@@ -147,6 +147,19 @@ public unsafe class AutoRetainer : IDalamudPlugin
         SubmarineUnlockPlanUI = new();
         SubmarinePointPlanUI = new();
 
+        // 🔴 訂閱順序＝每幀的呼叫順序:這一行必須排在下面 TaskManager = new(...) 之前。
+        //    ECommons 的 NeoTaskManager 建構式自己就 Svc.Framework.Update += Tick
+        //    (ECommons/Automation/NeoTaskManager/TaskManager.cs),而排程任務(TaskEntrustDuplicates
+        //    的數量輸入框、TaskDiscardItems 的丟棄確認框、買燃料確認框…)全是掛在那條鏈上按窗的。
+        //    守衛的解除點若排在它後面,每幀就變成「先按、後解除」:舊窗在兩幀之間被遊戲移出清單、
+        //    同一輪任務又開出一扇重用同一塊位址的新窗時,解除掃描看到位址還在就把舊記號留著,
+        //    新窗會被白白擋到逃生口(道具逐件迴圈＝每件多等 60 幀 ≈ 1 秒)。排在最前面才是
+        //    「先解除、再按」,與這個守衛集中化之前(各任務在自己 tick 開頭 ReleaseGuardIfGone)一致。
+        //    另一個理由:Dalamud 把一個外掛的整條 Framework.Update 鏈包在同一個 try/catch 裡
+        //    (PluginErrorHandler.InvokeAndCatch),前面任何一個處理器丟例外會讓後面的處理器整幀被跳過;
+        //    解除點掛在最前面就不會被別人的例外連累而漏掉一幀。
+        Svc.Framework.Update += DialogGuardsTick;
+
         TaskManager = new(new(abortOnTimeout: true, timeLimitMS: 20000, showDebug: true));
         Memory = new();
         Svc.PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -540,10 +553,21 @@ public unsafe class AutoRetainer : IDalamudPlugin
         }
     }
 
+    /// <summary>
+    /// 只做一件事:每幀解除那些「窗已經不在了」的按下記號(<see cref="DialogGuards.Tick"/>)。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 刻意獨立成一個處理器、而且在 <see cref="Load"/> 的<b>最前面</b>訂閱(排在
+    /// <c>TaskManager = new(...)</c> 之前),理由寫在訂閱處。原本這一行是 <see cref="Tick"/> 的第一個
+    /// 敘述,但 <see cref="Tick"/> 自己排在 NeoTaskManager 的 Tick 後面,等於「先按、後解除」。
+    /// </remarks>
+    private void DialogGuardsTick(object _) => DialogGuards.Tick();
+
     private void Tick(object _)
     {
-        // 🔴 最前面、無條件:解除那些「窗已經不在了」的按下記號。放在任何開關之前的理由寫在 DialogGuards.Tick。
-        DialogGuards.Tick();
+        // 🔴 解除按下記號的 DialogGuards.Tick() 已經移到 Load() 最前面獨立訂閱(DialogGuardsTick):
+        //    這個 Tick 排在 NeoTaskManager 的 Tick 後面,擺在這裡等於「先按、後解除」。
+        //    下面每一個模組 Tick 看到的都已經是「這一幀掃過、該解除的都解除了」的守衛狀態。
         MultiModeDtr.Tick();
         // 🔴 必須在下面兩個消費端(SchedulerMain.Tick 與僱員感知自動開鈴)之前、而且**無條件**跑,
         //    這樣兩邊看到的是同一幀的同一個答案,而且「開始讓路／恢復」兩個邊緣都各印得到一行。
@@ -691,6 +715,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
             Safe(() => Svc.ClientState.Logout -= Logout);
             Safe(() => Svc.Condition.ConditionChange -= ConditionChange);
             Safe(() => Svc.Framework.Update -= Tick);
+            Safe(() => Svc.Framework.Update -= DialogGuardsTick);
             Safe(() => Svc.Toasts.ErrorToast -= Toasts_ErrorToast);
             Safe(() => Svc.Toasts.Toast -= Toasts_Toast);
             Safe(() => NewYesAlreadyManager.Unlock());
