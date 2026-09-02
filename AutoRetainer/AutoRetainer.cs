@@ -160,7 +160,21 @@ public unsafe class AutoRetainer : IDalamudPlugin
         //    解除點掛在最前面就不會被別人的例外連累而漏掉一幀。
         Svc.Framework.Update += DialogGuardsTick;
 
-        TaskManager = new(new(abortOnTimeout: true, timeLimitMS: 20000, showDebug: true));
+        // showDebug 跟隨 /autoretainer debug（C.Verbose），不再寫死 true。
+        // 寫死 true 時 NeoTaskManager 每啟動／完成一個任務就往 dalamud.log 寫一行 Debug。
+        // 2026-09-02 實機量測（單一 91MB 的 dalamud log，共 900,412 行）：光
+        // 「→Starting to execute task […], timeout=20000」這一種就有 85,837 行（全檔 9.5%），
+        // AutoRetainer 一家佔 37.7%、DBG 級佔 77%，而同一份 log 裡真正的 TaskTimeoutException
+        // 只有 4 筆（全是 Lifestream 的）。log 只留約 11 個 .old，等於把有價值的 Information
+        // 級診斷提前沖掉 —— 損害是診斷資料被擠掉，不是效能。
+        // 📌 上游自己在 Modules/FCPointsUpdater.cs 就是用 showDebug: false，所以不是不能關。
+        // ⚠️ 關掉只影響 dalamud.log：ECommons 的 TaskManager.Log() 在 showDebug 為 false 時改走
+        //    InternalLog.Debug()，任務起訖／排入佇列這些行照樣進環形緩衝區，
+        //    外掛自己的「AutoRetainer log」視窗（LogWindow → InternalLog.PrintImgui）看得到。
+        //    真的只在 dalamud.log 才有的是 BeginStack/InsertStack 那幾行（TaskManager.Stack.cs
+        //    直接 if(ShowDebug) PluginLog.Debug，沒有 InternalLog 退路）。
+        // 🔴 切換要即時生效必須同時改 DefaultConfiguration：見 SyncTaskManagerDebugOutput()。
+        TaskManager = new(new(abortOnTimeout: true, timeLimitMS: 20000, showDebug: C.Verbose));
         Memory = new();
         Svc.PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         Svc.PluginInterface.UiBuilder.OpenMainUi += () =>
@@ -203,7 +217,8 @@ public unsafe class AutoRetainer : IDalamudPlugin
         MultiMode.Init();
         MultiModeDtr.Init();
         NotificationMasterApi = new(Svc.PluginInterface);
-        ODMTaskManager = new(new(timeLimitMS: 60 * 1000, abortOnTimeout: true, showDebug: true));
+        // 同上：showDebug 跟隨 /autoretainer debug，理由與代價寫在上面 TaskManager 那處。
+        ODMTaskManager = new(new(timeLimitMS: 60 * 1000, abortOnTimeout: true, showDebug: C.Verbose));
 
         Safety.Check();
 
@@ -272,11 +287,33 @@ public unsafe class AutoRetainer : IDalamudPlugin
         }
     }
 
+    /// <summary>
+    /// 讓兩個常駐 TaskManager 的 dalamud.log 除錯輸出跟上 <see cref="Config.Verbose"/>
+    /// （<c>/autoretainer debug</c>）當下的值。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>改 <see cref="Config.Verbose"/> 的地方都要呼叫這支</b>，否則切換只會在下次載入才生效。
+    /// 目前唯一的寫入點是 <see cref="CommandHandler"/> 的 debug 分支（2026-09-02 全 repo grep 確認）。
+    /// 📌 之所以即時生效：ECommons 的 NeoTaskManager 每個 Tick／Enqueue 都重新讀一次
+    /// <c>CurrentTask.Configuration?.ShowDebug ?? DefaultConfiguration.ShowDebug</c>
+    /// （NeoTaskManager/TaskManager.cs:139、Enqueue.cs:51/56、Insert.cs:51/56），
+    /// 而 <c>ShowDebug</c> 是可寫的屬性，不是建構時就凍結的值。
+    /// 🔴 只能寫 true/false，<b>不可以寫 null</b> —— Tick 開頭的 <c>AssertNotNull()</c> 會擲例外。
+    /// </remarks>
+    internal void SyncTaskManagerDebugOutput()
+    {
+        var verbose = C.Verbose;
+        // 兩個都可能還沒建好（Load() 途中被呼叫、或第二實例根本沒跑 Load）。
+        if(TaskManager != null) TaskManager.DefaultConfiguration.ShowDebug = verbose;
+        if(ODMTaskManager != null) ODMTaskManager.DefaultConfiguration.ShowDebug = verbose;
+    }
+
     private void CommandHandler(string command, string arguments)
     {
         if(arguments.EqualsIgnoreCase("debug"))
         {
             config.Verbose = !config.Verbose;
+            SyncTaskManagerDebugOutput();
             DuoLog.Information($"Debug mode {(config.Verbose ? "enabled" : "disabled")}");
             S.NeoWindow.Reload();
         }
