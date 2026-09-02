@@ -464,10 +464,50 @@ internal static unsafe class RetainerHandlers
         return ProcessBankOrCancel(false);
     }
 
+    // 上一輪已經對這個位址的 Bank 視窗送出「提領／取消」callback、而那扇窗還沒消失時記下的位址。
+    // 🔴 只做等值比較，永遠不解參（與 DialogGuards 同一條紀律）。位址可能被下一扇窗重用，
+    //    所以要判「是不是同一扇還沒關掉的窗」時一律再問一次 DialogGuards.WasPressed：
+    //    那邊的紀錄會在窗真的從 addon 清單消失時被清掉，光靠這個欄位分不出
+    //    「同一扇窗還開著」與「新的一扇窗剛好落在同一塊記憶體」。
+    private static nint bankPendingClose;
+
     internal static bool? ProcessBankOrCancel(bool forceCancel = false)
     {
         if(TryGetAddonByName<AtkUnitBase>("Bank", out var addon) && IsAddonReady(addon))
         {
+            var current = (nint)addon;
+            if(bankPendingClose == current && DialogGuards.WasPressed("Bank", current))
+            {
+                // 🔴 上一輪送出的提領／取消 callback 沒有把這扇窗關掉（同一個位址還在 addon 清單裡），
+                //    現在才補送 Close(true)。
+                //
+                //    ⚠️ 原本這兩件事寫在同一個呼叫堆疊裡：addon->FireCallback(2, v) 的下一行就是
+                //    addon->Close(true)。先講清楚一件容易讀反的事：FireCallback 的第三個參數 close
+                //    這裡用的是 CS 宣告的預設值 **false**（FireCallback(uint, AtkValue*, bool close = false)），
+                //    所以原生端**不會**替我們關窗 —— Close(true) 並不多餘，刪掉會讓 Bank 視窗留在畫面上。
+                //    危險的是「順序」而不是「多餘」：FireCallback 會在同一個呼叫堆疊裡同步跑完處理常式
+                //    （agent），處理常式若自己把這扇窗收掉，下一行的 Close(true) 就落在「正在關閉中」的
+                //    窗上；而 AtkUnitBase::Close 沒有「已經關過就跳過」的 early-out，會照樣再跑一次
+                //    FireCloseCallback→agent、把窗從管理器清單移除、再 Hide 一次。那是 try/catch 與
+                //    HookSafety 都攔不到的原生 AccessViolation（corrupted-state exception）。
+                //
+                //    改法＝把 Close 挪到「下一輪、重新用窗名解出來的位址」上，兩種可能都安全：
+                //      ・那一發真的關掉了窗 ⇒ 下一輪找不到 Bank，走下面的 else if 分支回報這一步完成；
+                //      ・沒關掉 ⇒ 窗撐過了整個關閉危險窗口、還活著，這時候關它是安全的。
+                //
+                //    等待長度直接借用守衛既有的「常態逃生口」15 幀（關閉中的危險窗口實測 <10 幀，
+                //    15 幀不落在裡面），走這條是常態所以只寫 Debug 不洗版。
+                //    🔴 這裡刻意**不**掛 Utils.GenericThrottle：它是 FrameThrottler ＝ 數繪製幀
+                //    （UiBuilder.FrameCount），過場動畫與隱藏 UI 期間會凍結；DialogGuards 自己的時鐘
+                //    掛在 Framework.Update 上，不受那些影響。
+                if(!DialogGuards.TryPressOnce("Bank", current, "ProcessBank.Close", escapeIsRoutine: true)) return false;
+                bankPendingClose = 0;
+                addon->Close(true);
+                DebugLog($"Closed bank window");
+                return true;
+            }
+            // 不是那扇待關的窗（位址對不上，或那扇已經消失、現在這扇是新的）⇒ 記號作廢，走正常流程。
+            bankPendingClose = 0;
             // 🔴 兩個節點原本都是裸解參考。這裡的失敗語意刻意分兩層:
             //    ①「提領」節點取不到 → 落到 else 走「取消」分支(與「提領鈕不可見／未啟用」相同,
             //       forceCancel 的既有行為也是靠這條路),不是直接放棄整步;
@@ -477,8 +517,8 @@ internal static unsafe class RetainerHandlers
             var withdraw = withdrawNode == null ? null : (AtkComponentButton*)withdrawNode->GetComponent();
             if(withdrawNode != null && withdrawNode->IsVisible() && Utils.IsButtonEnabled(withdraw) && !forceCancel)
             {
-                // 🔴 提領/取消按下即關(還緊接 Close(true));同一扇 Bank 只按一次。
-                if(Utils.GenericThrottle && DialogGuards.TryPressOnce("Bank", (nint)addon, "ProcessBank"))
+                // 🔴 提領/取消按下即關;同一扇 Bank 只按一次。關窗那一步移到下一輪(理由見上面的長註解)。
+                if(Utils.GenericThrottle && DialogGuards.TryPressOnce("Bank", current, "ProcessBank"))
                 {
                     var v = stackalloc AtkValue[]
                     {
@@ -486,11 +526,12 @@ internal static unsafe class RetainerHandlers
                         new() { Type = 0, Int = 0 }
                     };
                     addon->FireCallback(2, v);
-                    addon->Close(true);
-
-                    DebugLog($"Clicked withdraw");
+                    // 🔴 送出之後這一輪不再碰這扇窗（連 Close 都不行）。回 false 的意義是「這一輪沒做完，
+                    //    下一輪再來」，與「addon 還沒出現」「節流還沒放行」走的是同一條既有路徑。
+                    bankPendingClose = current;
+                    DebugLog($"Withdraw callback sent; window close deferred to next round");
                     //new ClickButtonGeneric(addon, "Bank").Click(withdraw);
-                    return true;
+                    return false;
                 }
             }
             else
@@ -499,21 +540,30 @@ internal static unsafe class RetainerHandlers
                 var cancel = cancelNode == null ? null : (AtkComponentButton*)cancelNode->GetComponent();
                 if(cancelNode != null && cancelNode->IsVisible() && Utils.IsButtonEnabled(cancel))
                 {
-                    if(Utils.GenericThrottle && DialogGuards.TryPressOnce("Bank", (nint)addon, "CancelBank"))
+                    if(Utils.GenericThrottle && DialogGuards.TryPressOnce("Bank", current, "CancelBank"))
                     {
                         var v = stackalloc AtkValue[]
-                    {
+                        {
                             new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int, Int = 1 },
                             new() { Type = 0, Int = 0 }
                         };
                         addon->FireCallback(2, v);
-                        addon->Close(true);
-                        DebugLog($"Clicked cancel");
+                        // 理由同提領那一支:Close 移到下一輪重新解位址之後再做。
+                        bankPendingClose = current;
+                        DebugLog($"Cancel callback sent; window close deferred to next round");
                         //new ClickButtonGeneric(addon, "Bank").Click(cancel);
-                        return true;
+                        return false;
                     }
                 }
             }
+        }
+        else if(bankPendingClose != 0)
+        {
+            // 我們送過提領／取消 callback，而那扇窗現在已經不在（或已經進入不 ready 的拆除狀態）⇒
+            // 那一發自己把窗關掉了，這一步完成。🔴 這裡刻意不再碰那個位址，只是把記號清掉。
+            bankPendingClose = 0;
+            DebugLog($"Bank window closed by its own callback");
+            return true;
         }
         else
         {

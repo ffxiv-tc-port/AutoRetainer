@@ -152,6 +152,22 @@ internal static unsafe class DialogGuards
     internal static bool TextIsUnstable(string text) => text != null && text.IndexOf('\uFFFD') >= 0;
 
     /// <summary>
+    /// 這扇窗（位址）現在是不是還被記著「已經按過」—— 也就是「我們按過它，而它還沒從 addon 清單消失」。
+    /// 只認<b>不帶參數組</b>的那把 key（＝「回答一次即終結」的那種按下）。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 只做位址等值比較，<b>永遠不解參</b>。
+    /// <para>
+    /// 🔑 用途是讓呼叫端把「對同一扇窗的第二個動作」延到下一輪去做（例如送完 callback 之後隔一輪才關窗），
+    /// 而且分得出「同一扇窗還開著」與「新的一扇窗剛好落在同一塊記憶體」—— 後者在 <see cref="Tick"/>
+    /// 把舊紀錄清掉之後就會回 <see langword="false"/>，光靠呼叫端自己存一個位址是分不出來的。
+    /// </para>
+    /// </remarks>
+    internal static bool WasPressed(string addonName, nint addon)
+        => addon != 0 && !string.IsNullOrEmpty(addonName)
+        && Slots.TryGetValue(addonName, out var slot) && slot.Pressed.ContainsKey(addon);
+
+    /// <summary>
     /// 問「這扇窗現在可以按嗎」，可以的話<b>順便記下</b>已經按過。呼叫端拿到
     /// <see langword="true"/> 才去按，按法（<c>AddonMaster</c>、<c>Callback.Fire</c>、送輸入事件……）
     /// 留給呼叫端自己決定。
