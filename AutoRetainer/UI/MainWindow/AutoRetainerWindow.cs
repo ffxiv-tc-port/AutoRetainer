@@ -219,10 +219,26 @@ internal unsafe class AutoRetainerWindow : Window
         if(IPC.Suppressed)
         {
             ImGuiEx.Text(ImGuiColors.DalamudRed, Loc.T("Plugin operation is suppressed by other plugin."));
+            // 具名租約（AutoRetainer.AcquireSuppression）：「是誰壓著」要在列上看得見，
+            // tooltip 只補「還剩幾秒到期」。舊的無主布林沒有名字，所以清單可能是空的 —— 那時候不畫這一段。
+            var suppressionOwners = SuppressionLeases.Snapshot();
+            if(suppressionOwners.Count > 0)
+            {
+                ImGui.SameLine();
+                ImGuiEx.Text(ImGuiColors.DalamudRed, $"[{string.Join(", ", suppressionOwners.Select(x => x.Owner))}]");
+                if(ImGui.IsItemHovered())
+                {
+                    ImGuiEx.Tooltip(string.Join(Environment.NewLine,
+                        suppressionOwners.Select(x => $"{x.Owner}: {Math.Max(0, x.RemainingMs) / 1000}s")));
+                }
+            }
             ImGui.SameLine();
             if(ImGui.SmallButton(Loc.T("Cancel")))
             {
+                // 使用者的逃生口：舊的無主布林與所有具名租約一起清掉，
+                // 否則按了「取消」卻還被別人的租約壓著＝按鈕看起來壞了。
                 IPC.Suppressed = false;
+                SuppressionLeases.ReleaseAll("使用者在主視窗按下取消");
             }
         }
 

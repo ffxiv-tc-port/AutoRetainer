@@ -13,7 +13,25 @@ internal static class IPC
         DebugLog($"[IPC] {s}");
     }
 
-    internal static bool Suppressed = false;
+    /// <summary>舊端點 <c>AutoRetainer.SetSuppressed</c> 寫的那個無主布林。</summary>
+    /// <remarks>
+    /// 🔴 語意與行為都<b>沒有</b>改變，只是從 <c>Suppressed</c> 這個名字底下搬出來，
+    /// 好讓它與 <see cref="SuppressionLeases"/>（具名、可計數、會逾時的租約）並存。
+    /// 舊端點是無主的：誰都可以寫、誰寫的最後一次算數 —— 所以新的消費端請改用租約端點。
+    /// </remarks>
+    internal static bool ManualSuppressed = false;
+
+    /// <summary>AutoRetainer 的自動化現在是不是被壓制著。</summary>
+    /// <remarks>
+    /// 讀＝「舊的無主布林」<b>或</b>「還有任何一筆有效租約」。寫＝只寫舊的無主布林
+    /// （所以既有呼叫點 <c>IPC.Suppressed = false</c> 的語意逐字不變：它清的是自己那一份，
+    /// 清不掉別人的租約 —— 這正是無主布林原本互相踩踏的地方）。
+    /// </remarks>
+    internal static bool Suppressed
+    {
+        get => ManualSuppressed || SuppressionLeases.AnyActive;
+        set => ManualSuppressed = value;
+    }
 
     internal static void Init()
     {
@@ -21,6 +39,8 @@ internal static class IPC
         Svc.PluginInterface.GetIpcProvider<object>("AutoRetainer.Init").RegisterAction(() => { });
         Svc.PluginInterface.GetIpcProvider<bool>("AutoRetainer.GetSuppressed").RegisterFunc(GetSuppressed);
         Svc.PluginInterface.GetIpcProvider<bool, object>("AutoRetainer.SetSuppressed").RegisterAction(SetSuppressed);
+        Svc.PluginInterface.GetIpcProvider<string, bool>("AutoRetainer.AcquireSuppression").RegisterFunc(AcquireSuppression);
+        Svc.PluginInterface.GetIpcProvider<string, bool>("AutoRetainer.ReleaseSuppression").RegisterFunc(ReleaseSuppression);
         Svc.PluginInterface.GetIpcProvider<bool>("AutoRetainer.GetMultiModeEnabled").RegisterFunc(GetMultiModeEnabled);
         Svc.PluginInterface.GetIpcProvider<bool, object>("AutoRetainer.SetMultiModeEnabled").RegisterAction(SetMultiModeEnabled);
         Svc.PluginInterface.GetIpcProvider<bool>("AutoRetainer.IsBusy").RegisterFunc(GetIsBusy);
@@ -49,6 +69,9 @@ internal static class IPC
         Svc.PluginInterface.GetIpcProvider<object>("AutoRetainer.Init").UnregisterAction();
         Svc.PluginInterface.GetIpcProvider<bool>("AutoRetainer.GetSuppressed").UnregisterFunc();
         Svc.PluginInterface.GetIpcProvider<bool, object>("AutoRetainer.SetSuppressed").UnregisterAction();
+        Svc.PluginInterface.GetIpcProvider<string, bool>("AutoRetainer.AcquireSuppression").UnregisterFunc();
+        Svc.PluginInterface.GetIpcProvider<string, bool>("AutoRetainer.ReleaseSuppression").UnregisterFunc();
+        SuppressionLeases.ReleaseAll("AutoRetainer 正在卸載");
         Svc.PluginInterface.GetIpcProvider<bool>("AutoRetainer.GetMultiModeEnabled").UnregisterFunc();
         Svc.PluginInterface.GetIpcProvider<bool, object>("AutoRetainer.SetMultiModeEnabled").UnregisterAction();
         Svc.PluginInterface.GetIpcProvider<bool>("AutoRetainer.IsBusy").UnregisterFunc();
@@ -162,6 +185,22 @@ internal static class IPC
     {
         Suppressed = s;
     }
+
+    /// <summary>取得（或續租）一筆具名的壓制租約。<b>這是新的消費端該用的端點。</b></summary>
+    /// <remarks>
+    /// 🔴 與 <c>SetSuppressed</c> 的差別就是「誰先結束誰就把別人的壓制解除」這個 bug 的解法：
+    /// 每個租用者一筆租約，<b>全部還完</b>壓制才真的解除。<br/>
+    /// 🔴 租約會逾時（<see cref="SuppressionLeases.LeaseTimeoutMs"/>），租用者必須週期性重新呼叫本端點續租
+    /// （建議間隔 <see cref="SuppressionLeases.RenewIntervalHintMs"/>）—— 這同時也是「AutoRetainer 比我晚載入」時的重試機會。<br/>
+    /// 📌 回傳值是「這一刻你確實持有租約嗎」。呼叫端拿不到 AutoRetainer（IPC 不存在）時應該<b>照現況跑</b>，
+    /// 不要卡住自己的流程。
+    /// </remarks>
+    /// <param name="owner">租用者識別字串，慣例是對方外掛的 InternalName。</param>
+    private static bool AcquireSuppression(string owner) => SuppressionLeases.Acquire(owner);
+
+    /// <summary>歸還一筆具名的壓制租約。</summary>
+    /// <returns>呼叫完之後該租用者確定不再持有租約（本來就沒有也算 <c>true</c>）。</returns>
+    private static bool ReleaseSuppression(string owner) => SuppressionLeases.Release(owner);
 
     private static bool GetMultiModeEnabled()
     {
