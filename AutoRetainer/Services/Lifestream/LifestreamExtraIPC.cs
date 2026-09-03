@@ -22,7 +22,14 @@ namespace AutoRetainer.Services.Lifestream;
 ///   我們的 pin 沒有那段。若照搬到套件實例,呼叫時會是 NullReferenceException,而且
 ///   SafeWrapper 攔不到(欄位從沒被指派,根本沒有 wrapper 可言)。
 ///   ⇒ 這兩個仍用我們原本的 Action 形狀留在這裡,**行為與遷移前逐字相同**。
-///   📌 等 ECommons repin 到含 AnalyzeDelegateField 的版本後,(乙)這組可以刪掉改用套件實例。
+///   📌 2026-09-03 更新:ECommons repin 到 4906fd97 之後,上面那個限制已經解除——
+///   EzIPC 的訂閱端改走 TryGetDelegateSignature(EzIPC.cs:272),接受任何委派型別,
+///   自訂具名委派會正常綁上。修好它的函式不叫 AnalyzeDelegateField,我們這條分支也不會
+///   出現那個名字,所以不要再拿那個名字當「可以刪了」的判準。
+///   ⚠ 但「刪掉改用套件實例」仍未實機驗證:套件的參數型別是 PropertyType /
+///   HouseEnterMode? 列舉,與這裡的 int / int? 會讓 GetIpcSubscriber 的泛型實體化不同
+///   (Dalamud 的 CallGateChannel 會用 JSON 來回轉吸收掉,離線讀碼看是相容的)。
+///   要刪請先在實機確認 TaskTeleportToProperty 與 TaskNeoHET 兩個呼叫點仍然動作。
 /// </summary>
 public class LifestreamExtraIPC
 {
