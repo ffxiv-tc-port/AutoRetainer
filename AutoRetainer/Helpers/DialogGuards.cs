@@ -139,8 +139,16 @@ internal static unsafe class DialogGuards
     /// <remarks>
     /// 🔑 <see cref="Represses"/> 只為了診斷存在：純節流那一類窗（<c>escapeIsRoutine</c>）不再每按一次
     /// 寫一行 log，改成累加，等這扇窗真的從 addon 清單消失時由 <see cref="Tick"/> 寫一行總結。
+    /// <para>
+    /// 🔴 <b>刻意是 class 不是 struct。</b>當初寫成 struct 時，<c>TryGetValue</c> 拿到的是複本，
+    /// 「改完要寫回字典」就成了承重的一行 —— 而漏掉寫回<b>不會編譯失敗</b>，只會讓間隔判斷永遠
+    /// 拿到舊的 <see cref="Frame"/>：到期之後<b>每一幀都放行</b>，正好是這個守衛在防的那種
+    /// AccessViolation（corrupted-state exception，<c>try</c>/<c>catch</c> 攔不到）。
+    /// 改成 class 之後取出的是參考、就地改就生效，這個地雷從根本上不存在。
+    /// ⚠️ 同時存在的紀錄實務上只有 0~3 個，多出來的配置可以忽略。
+    /// </para>
     /// </remarks>
-    private struct PressRecord
+    private sealed class PressRecord
     {
         /// <summary>最近一次按下的幀。所有間隔判斷都拿它跟現在的幀比。</summary>
         public long Frame;
@@ -296,6 +304,10 @@ internal static unsafe class DialogGuards
                 var msg = $"{label ?? key}: 按下後 {frame - rec.Frame} 幀仍是同一扇窗，補按一次";
                 PluginLog.Information(msg);
             }
+            // PressRecord 是 class，上面兩條分支對 rec 的改動已經就地生效了。
+            // 🔑 下面這行寫回是「刻意保留」的冗餘：class 語意下它只是把同一個參考放回去，
+            //    struct 語意下它才是承重的那一行 —— 留著它，兩種語意下這段都正確，
+            //    未來有人把型別改回 struct、或改成先取區域複本，也不會靜默生出崩潰面。
             rec.Frame = frame;
             slot.Pressed[addon] = rec;
             return true;
