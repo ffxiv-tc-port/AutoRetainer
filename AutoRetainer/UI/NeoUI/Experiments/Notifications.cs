@@ -12,7 +12,9 @@ public class Notifications : ExperimentUIEntry
         ImGui.Checkbox(Loc.T("Display notification in game chat"), ref C.NotifyDisplayInChatX);
         ImGuiEx.Text(Loc.T("If game is inactive: (requires NotificationMaster to be installed and enabled)"));
         ImGui.Checkbox(Loc.T("Send desktop notification on retainers available"), ref C.NotifyDeskopToast);
+        ImGuiEx.HelpMarker(Loc.T("Fires once on the edge where retainers first become collectable, not once per retainer and not every frame. Skipped while the game window is in the foreground - you can already see the chat line and the overlay. The balloon itself comes from NotificationMaster over IPC; without that plugin only the taskbar flash below works, and a single line is written to the log to say so."));
         ImGui.Checkbox(Loc.T("Flash taskbar"), ref C.NotifyFlashTaskbar);
+        ImGuiEx.HelpMarker(Loc.T("Uses the taskbar flash built into Dalamud, so this one keeps working even without NotificationMaster installed. It stops on its own once you bring the game window back."));
         ImGui.Checkbox(Loc.T("Do not notify if AutoRetainer is enabled or MultiMode is running"), ref C.NotifyNoToastWhenRunning);
         ImGui.Separator();
         ImGui.Checkbox(Loc.T("Ask Tataru to remind you when deployables return or the expert delivery loop finishes (requires TataruPraise)"), ref C.TataruPraiseOnCompletion);

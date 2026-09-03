@@ -23,6 +23,9 @@ internal static class NotificationHandler
                 });
                 IsHidden = false;
                 IsNotified = true;
+                // 🔴 這裡是<b>狀態邊緣</b>（currentState 剛從 false 翻成 true），
+                //    不是輪詢路徑——放進 GetNotifyState 或 Tick 開頭的話會變成每幀一顆氣球。
+                RetainerTrayNotify.OnRetainersBecameAvailable();
             }
             else
             {
