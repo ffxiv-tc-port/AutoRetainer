@@ -91,8 +91,19 @@ internal static unsafe class DialogGuards
     /// 關閉中的危險窗口實測 &lt;10 幀，15 幀不落在裡面；每頁 +0.25s 幾乎無感。
     /// 60 幀會把每一頁壓成 0.5~1 秒，使用者裁決（2026-09-02）改成 15；走逃生口寫 <c>Debug</c> 不洗版。
     /// ⚠️ 判準刻意<b>不</b>用「文字變了」當翻頁證據：關閉中文字會讀壞，時間是唯一不靠未證實假設的判準。
+    /// <para>
+    /// 🔑 2026-09-04 更名：這個值的角色是<b>節流間隔</b>，不是「出了事才走的逃生口」。這一類窗本來就會被
+    /// 按很多次，間隔到期再按一次是它<b>唯一</b>的前進方式 ⇒ 每次都寫一行 log 等於把正常流程當異常記錄，
+    /// 實機兩天光 <c>Talk</c> 就 10,423 行（而且是 <c>Debug</c>，使用者的 <c>LogLevel</c> 是 1，收得到）。
+    /// 現在改成：走這條完全不寫 log，只累加次數，窗收掉時寫一行總結。
+    /// </para>
+    /// <para>
+    /// 🔴 <b>值沒有改，也不該在沒有實機證據的情況下改。</b>要讓這類窗前進得更快，唯一的辦法是拿「內容變了沒」
+    /// 當「這扇窗還活著」的證據，而讀內容必須解參那扇可能正在拆除的窗的節點 —— 那正是這個守衛在防的 AVE，
+    /// 而且失敗形式是崩潰不是回錯值。時間是唯一不必解參就能用的判準。
+    /// </para>
     /// </remarks>
-    internal const int RoutineRePressEscapeFrames = 15;
+    internal const int RoutineRepressIntervalFrames = 15;
 
     /// <summary>
     /// <see cref="Tick"/> 掃同名 addon 清單時最多掃到第幾個實例；掃到第一個空的就提早停。
@@ -124,6 +135,21 @@ internal static unsafe class DialogGuards
     /// </remarks>
     private const int MaxAddonIndex = 256;
 
+    /// <summary>一個位址的按下紀錄。</summary>
+    /// <remarks>
+    /// 🔑 <see cref="Represses"/> 只為了診斷存在：純節流那一類窗（<c>escapeIsRoutine</c>）不再每按一次
+    /// 寫一行 log，改成累加，等這扇窗真的從 addon 清單消失時由 <see cref="Tick"/> 寫一行總結。
+    /// </remarks>
+    private struct PressRecord
+    {
+        /// <summary>最近一次按下的幀。所有間隔判斷都拿它跟現在的幀比。</summary>
+        public long Frame;
+        /// <summary>第一次按下的幀，只用來寫總結那行的「前後共幾幀」。</summary>
+        public long FirstFrame;
+        /// <summary>間隔到期後又按了幾次。0 ＝ 只按過一次。</summary>
+        public int Represses;
+    }
+
     /// <summary>
     /// 一把 key（窗名＋參數組）底下「已經按過的位址 → 按下當時的幀」。同一扇同名窗可能同時開好幾扇
     /// （SelectYesno 就會），所以是集合不是單一格。
@@ -131,7 +157,9 @@ internal static unsafe class DialogGuards
     private sealed class Slot
     {
         public string AddonName;
-        public readonly Dictionary<nint, long> Pressed = new();
+        /// <summary>總結那行要印的名字（第一個給了 label 的呼叫端說了算）；沒有就退回 key。</summary>
+        public string Label;
+        public readonly Dictionary<nint, PressRecord> Pressed = new();
     }
 
     private static readonly Dictionary<string, Slot> Slots = new(StringComparer.Ordinal);
@@ -156,7 +184,7 @@ internal static unsafe class DialogGuards
     /// <para>
     /// ⇒ 過場動畫播放中、或使用者按下隱藏 UI 熱鍵的期間，拿它當時鐘的話「已經按過」的記號會
     /// <b>永遠</b>停在 <c>frame - pressedAt == 0</c>，<see cref="RePressEscapeFrames"/> 與
-    /// <see cref="RoutineRePressEscapeFrames"/> 一律不到期：守衛從「按過就等一下」變成「按過就永久封鎖」。
+    /// <see cref="RoutineRepressIntervalFrames"/> 一律不到期：守衛從「按過就等一下」變成「按過就永久封鎖」。
     /// 這個方向不會崩（fail-closed），但「按一次翻一頁、窗不會消失」的窗（<c>Talk</c> 最典型）會停在
     /// 第一頁不動，整條任務卡到 NeoTaskManager 逾時、再被 <c>abortOnTimeout</c> 清掉<b>整條</b>佇列。
     /// </para>
@@ -213,10 +241,15 @@ internal static unsafe class DialogGuards
     /// 非空＝按下不會關的窗，同一扇窗對不同參數組各准按一次。
     /// </param>
     /// <param name="escapeIsRoutine">
-    /// <see langword="true"/> ＝ 這個按下點「同一扇窗本來就會被按很多次」（Talk 按一次翻一頁、分頁鈕、
-    /// 清單選列、隱藏而不拆除的標題畫面窗…），逃生口縮成 <see cref="RoutineRePressEscapeFrames"/>（15 幀）
-    /// 而不是 <see cref="RePressEscapeFrames"/>（60 幀），走逃生口是常態，寫 <c>Debug</c> 不洗版；
-    /// <see langword="false"/>（預設）＝ 走逃生口代表「按了是卻沒關掉」這種該被回報的異常，寫 <c>Information</c>。
+    /// <see langword="true"/> ＝ 這個按下點是「多次互動窗」：同一扇窗本來就會被按很多次而且按了不會消失
+    /// （<c>Talk</c> 按一次翻一頁、分頁鈕、清單選列、隱藏而不拆除的標題畫面窗…）。對這一類窗這個守衛的角色
+    /// 是<b>純節流</b>：每 <see cref="RoutineRepressIntervalFrames"/>（15）幀最多按一次，間隔到期再按就是它前進
+    /// 的正常方式 ⇒ <b>不寫任何 log</b>（只累加次數，窗收掉時由 <see cref="Tick"/> 寫一行總結）。
+    /// <see langword="false"/>（預設）＝「回答一次即終結」的窗，按下去就該關。間隔改成
+    /// <see cref="RePressEscapeFrames"/>（60）幀，而且走到那裡代表「按了卻沒關掉」，是該被回報的異常 ⇒
+    /// 每次都寫 <c>Information</c>。
+    /// 🔴 兩類的<b>安全性完全相同</b>（都是「窗還在就不准再送」＋位址等值比較、永不解參），差別只在間隔長度
+    /// 與要不要寫 log。這次（2026-09-04）只動 log，兩邊的幀數都沒改。
     /// </param>
     /// <returns>
     /// <see langword="true"/> ＝ 可以按（而且已經記下）；<see langword="false"/> ＝ 這一輪不要按。
@@ -231,11 +264,11 @@ internal static unsafe class DialogGuards
     {
         if(addon == 0 || string.IsNullOrEmpty(addonName)) return false;
         var frame = CurrentFrame;
-        if(paramKey != null && Slots.TryGetValue(addonName, out var answered) && answered.Pressed.TryGetValue(addon, out var answeredAt))
+        if(paramKey != null && Slots.TryGetValue(addonName, out var answered) && answered.Pressed.TryGetValue(addon, out var answeredRec))
         {
             // 這扇窗已經被「回答」過（我們自己按了關閉／取消／是）。窗還在 ＝ 正在關閉中，任何參數組都不准再送。
             // 超過逃生口仍在的話交給不帶參數那把 key 自己去判，這裡放行。
-            if(frame - answeredAt < RePressEscapeFrames) return false;
+            if(frame - answeredRec.Frame < RePressEscapeFrames) return false;
         }
         var key = paramKey == null ? addonName : addonName + "|" + paramKey;
         if(!Slots.TryGetValue(key, out var slot))
@@ -243,17 +276,31 @@ internal static unsafe class DialogGuards
             slot = new() { AddonName = addonName };
             Slots[key] = slot;
         }
-        if(slot.Pressed.TryGetValue(addon, out var pressedAt))
+        slot.Label ??= label;
+        if(slot.Pressed.TryGetValue(addon, out var rec))
         {
             // 這一扇已經按過。窗還在 ＝ 可能正在關閉中，此時再按就是上面說的 AVE。
-            var escapeFrames = escapeIsRoutine ? RoutineRePressEscapeFrames : RePressEscapeFrames;
-            if(frame - pressedAt < escapeFrames) return false;
-            // 逃生口：等了遠超過關閉所需的時間，窗仍在。視為那次沒生效（或這是另一扇重用了同一塊
-            // 記憶體的新窗），放行補按一次。
-            var msg = $"{label ?? key}: 按下後 {frame - pressedAt} 幀仍是同一扇窗，補按一次";
-            if(escapeIsRoutine) PluginLog.Debug(msg); else PluginLog.Information(msg);
+            if(escapeIsRoutine)
+            {
+                // 純節流：這一類窗按了不會消失，間隔到期再按一次就是它前進的正常方式，不是異常。
+                // ⇒ 這裡刻意不寫 log：實機兩天光 Talk 就 10,423 行 Debug（LogLevel 1 收得到）。
+                //   只累加次數，窗真的收掉時由 Tick 寫一行總結，行數從「按了幾次」降到「開過幾扇窗」。
+                if(frame - rec.Frame < RoutineRepressIntervalFrames) return false;
+                rec.Represses++;
+            }
+            else
+            {
+                // 逃生口：等了遠超過關閉所需的時間，窗仍在。視為那次沒生效（或這是另一扇重用了同一塊
+                // 記憶體的新窗），放行補按一次。
+                if(frame - rec.Frame < RePressEscapeFrames) return false;
+                var msg = $"{label ?? key}: 按下後 {frame - rec.Frame} 幀仍是同一扇窗，補按一次";
+                PluginLog.Information(msg);
+            }
+            rec.Frame = frame;
+            slot.Pressed[addon] = rec;
+            return true;
         }
-        slot.Pressed[addon] = frame;
+        slot.Pressed[addon] = new PressRecord { Frame = frame, FirstFrame = frame };
         return true;
     }
 
@@ -272,13 +319,13 @@ internal static unsafe class DialogGuards
         var current = (nint)addon;
         var frame = CurrentFrame;
         Slots.TryGetValue(addonName, out var slot);
-        if(slot != null && slot.Pressed.TryGetValue(current, out var pressedAt))
+        if(slot != null && slot.Pressed.TryGetValue(current, out var cancelRec))
         {
             // 這一扇已經按過。窗還在 ＝ 可能正在關閉中，此時再 FireCallback 就是 AVE。
-            if(frame - pressedAt < RePressEscapeFrames) return true;
+            if(frame - cancelRec.Frame < RePressEscapeFrames) return true;
             // 逃生口，理由同 TryPressOnce。先把記號拿掉：下面若還沒 ready 就回 false，下一幀 ready 時再記再送，
             // 不要每幀都印一次逃生口。
-            PluginLog.Information($"{addonName} 按下取消後 {frame - pressedAt} 幀仍未關閉，補按一次");
+            PluginLog.Information($"{addonName} 按下取消後 {frame - cancelRec.Frame} 幀仍未關閉，補按一次");
             slot.Pressed.Remove(current);
         }
         if(!addon->IsReady()) return false;
@@ -287,7 +334,7 @@ internal static unsafe class DialogGuards
             slot = new() { AddonName = addonName };
             Slots[addonName] = slot;
         }
-        slot.Pressed[current] = frame;
+        slot.Pressed[current] = new PressRecord { Frame = frame, FirstFrame = frame };
         Callback.Fire(addon, true, -1);
         return true;
     }
@@ -345,7 +392,14 @@ internal static unsafe class DialogGuards
                 {
                     if(!PresentBuf.Contains(addr)) RemoveBuf.Add(addr);
                 }
-                foreach(var addr in RemoveBuf) slot.Pressed.Remove(addr);
+                foreach(var addr in RemoveBuf)
+                {
+                    // 純節流那一類窗的總結：一扇窗一行，取代原本「每按一次一行」。
+                    // 這裡是唯一能確定「這扇窗已經收乾淨」的時點，所以總次數也只有在這裡才是完整的。
+                    if(slot.Pressed.TryGetValue(addr, out var done) && done.Represses > 0)
+                        PluginLog.Debug($"{slot.Label ?? key}: 這扇窗按了 {done.Represses + 1} 次（每 {RoutineRepressIntervalFrames} 幀最多一次）才收掉，前後共 {done.Frame - done.FirstFrame} 幀");
+                    slot.Pressed.Remove(addr);
+                }
                 if(slot.Pressed.Count == 0) EmptyKeysBuf.Add(key);
             }
         }
