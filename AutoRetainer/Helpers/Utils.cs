@@ -161,9 +161,6 @@ public static unsafe class Utils
     }
 
     public static int FrameDelay => 10 + C.ExtraFrameDelay;
-    // TC(台服)客戶端在 Dalamud 13.0.0.16 之後回報 ClientLanguage 7(TraditionalChinese),
-    // 舊版回報 4(ChineseSimplified)。用數值比較才能同時相容 CI 釘的 13.0.0.6(列舉沒有 7 這個名字)與執行期新版。
-    public static bool IsCN => (int)Svc.ClientState.ClientLanguage is 4 or 5 or 7;
     /// <summary>
     /// 部隊點數。⚠️ 取不到時回 <c>0</c> —— 0 同時代表「真的沒有點數」與「讀不到」,
     /// 這與呼叫端既有語意一致(<c>OfflineDataManager</c> 本來就用 <c>!= 0</c> 當「有資料才寫入」的閘門)。
