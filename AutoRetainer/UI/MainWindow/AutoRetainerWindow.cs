@@ -219,7 +219,7 @@ internal unsafe class AutoRetainerWindow : Window
         if(IPC.Suppressed)
         {
             ImGuiEx.Text(ImGuiColors.DalamudRed, Loc.T("Plugin operation is suppressed by other plugin."));
-            // 具名租約（AutoRetainer.AcquireSuppression）：「是誰壓著」要在列上看得見，
+            // 具名租約（AutoRetainer.AcquireSuppressionFor）：「是誰壓著」要在列上看得見，
             // tooltip 只補「還剩幾秒到期」。舊的無主布林沒有名字，所以清單可能是空的 —— 那時候不畫這一段。
             var suppressionOwners = SuppressionLeases.Snapshot();
             if(suppressionOwners.Count > 0)
