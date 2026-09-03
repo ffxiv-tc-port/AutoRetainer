@@ -115,7 +115,7 @@ internal static unsafe class TaskEntrustDuplicates
                 kinds++;
                 pieces += n;
             }
-            // 寫 Information:使用者跑的 log 等級收不到 Debug,而這一行正是「東西怎麼沒被存進去」的答案。
+            // 寫 Information:使用者跑的 log 等級收得到 Debug,但單檔數十萬行會淹沒,而這一行正是「東西怎麼沒被存進去」的答案。
             if(pieces > 0) PluginLog.Information($"[TED] 「裝備類別只存放可繳交的稀有品」讓 {pieces} 件裝備({kinds} 種)留在身上沒有存進雇員 —— 它們不是稀有品繳交循環拿得走的東西(時裝、白色稀有度、不可分解的裝備都在此列)。");
             FlowSkippedGear.Clear();
         }

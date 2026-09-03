@@ -161,7 +161,7 @@ internal static unsafe class AutoGCHandin
     private const string ThrottlerDeliver = "Handin.Deliver";
     private const string ThrottlerYesno = "Handin.Yesno";
 
-    // 節奏量測：一律 Information，使用者的記錄等級會濾掉 Debug/Verbose。
+    // 節奏量測：一律 Information，使用者的記錄等級只會濾掉 Verbose、Debug 收得到但單檔數十萬行會淹沒。
     // Grep 標記：GCHandin
     private static long CycleStartedAt;
     private static long CycleDeliveredAt;

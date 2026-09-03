@@ -77,7 +77,7 @@ internal static unsafe class DialogGuards
     /// 永久封鎖會讓呼叫端的任務一路卡到逾時，而 NeoTaskManager 預設的 <c>abortOnTimeout</c>
     /// 會清掉<b>整條</b>佇列（不只是卡住的那一步）。取 60 幀（約 0.5~1 秒）是為了遠遠大於
     /// 「關閉中的那幾幀」，補按永遠不會落在危險窗口內。走到這個逃生口代表「按了卻沒關掉」，
-    /// 寫 <c>Information</c>（使用者跑 LogLevel 2，Debug 收不到）。
+    /// 寫 <c>Information</c>（使用者跑 LogLevel 1，Debug 收得到但單檔數十萬行會淹沒）。
     /// </remarks>
     internal const int RePressEscapeFrames = 60;
 

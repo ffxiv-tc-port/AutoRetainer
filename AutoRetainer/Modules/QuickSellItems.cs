@@ -215,7 +215,7 @@ public unsafe class QuickSellItems : IDisposable
                                         addon->Close(true);
                                     }
                                     DebugLog($"QRA Selected {i}:{contextItemName}");
-                                    // 使用者跑 LogLevel 2(Debug 收不到)。這一行同時是「原生端到底替不替我們關窗」
+                                    // 使用者跑 LogLevel 1(Debug 收得到但單檔數十萬行會淹沒)。這一行同時是「原生端到底替不替我們關窗」
                                     // 這個問題的實測資料點,而且只有在按著快捷鍵右鍵點道具時才各出現一次,不會洗版。
                                     PluginLog.Information($"QuickSellItems:已送出「{contextItemName}」的選單 callback,原生端{(closedByGame ? "已" : "未")}替我們關閉選單");
                                     return retVal;

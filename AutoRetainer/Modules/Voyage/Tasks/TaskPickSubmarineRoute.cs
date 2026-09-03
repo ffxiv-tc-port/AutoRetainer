@@ -50,7 +50,7 @@ internal static unsafe class TaskPickSubmarineRoute
 
     /// <summary>
     /// 把「這趟實際點到了哪幾個點」寫進 log。
-    /// 📌 刻意用 Information 而不是 Debug：使用者跑 LogLevel 2，Debug 收不到，
+    /// 📌 刻意用 Information 而不是 Debug：使用者跑 LogLevel 1，Debug 收得到但單檔數十萬行會淹沒，
     /// 而「設了 A 卻跑了 B」正是他唯一會來回報的那件事。
     /// 🔴 只記錄、不改變流程 —— 沒選滿照樣出航，維持既有行為。
     /// </summary>

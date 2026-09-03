@@ -102,7 +102,7 @@ public static unsafe class TaskDesynthItems
         var salvage = AgentSalvage.Instance();
         if(salvage == null)
         {
-            // 使用者跑 LogLevel 2，這種「該做的事沒做」要看得見。這裡不是每幀路徑。
+            // 使用者跑 LogLevel 1，這種「該做的事沒做」要看得見。這裡不是每幀路徑。
             Svc.Log.Information("AgentSalvage 尚未就緒，這一輪不分解。");
             return;
         }

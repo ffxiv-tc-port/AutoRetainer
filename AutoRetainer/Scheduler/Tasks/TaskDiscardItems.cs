@@ -162,7 +162,7 @@ public static unsafe class TaskDiscardItems
             LastAttemptCount++;
             if(LastAttemptCount > MaxAttemptsPerSlot)
             {
-                // 這行刻意是 Information：使用者跑 LogLevel 2，Debug/Verbose 收不到，
+                // 這行刻意是 Information：使用者跑 LogLevel 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒，
                 // 而「為什麼有東西沒被丟掉」正是最需要使用者回報的資訊。
                 PluginLog.Information($"Giving up on {ExcelItemHelper.GetName(itemId)} [{type}#{slot}] after {MaxAttemptsPerSlot} attempts (no confirmation dialog appeared). Press the button again to retry.");
                 FailedThisRun.Add((type, slot));

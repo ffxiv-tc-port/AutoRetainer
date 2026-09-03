@@ -13,7 +13,7 @@ namespace AutoRetainer.Services.Lifestream;
 /// SafeWrapper.AnyException 吞掉 ⇒ 兩條路都收斂成「回 null,什麼都沒說」,
 /// 而呼叫端會把它讀成「這個角色沒登記房子」,完全合理地繼續跑下去。
 ///
-/// 所以這裡在**第一次真的拿到資料**時印一行 Information(使用者跑 LogLevel 2 收得到),
+/// 所以這裡在**第一次真的拿到資料**時印一行 Information(使用者跑 LogLevel 1 收得到),
 /// 把「複合型別跨 IPC 不通」變成看得見的缺席:log 裡有這行=通了;沒有=沒通。
 /// </summary>
 public static class LifestreamHousePath
