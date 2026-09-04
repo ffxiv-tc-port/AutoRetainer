@@ -67,6 +67,8 @@ public unsafe class QuickSellItems : IDisposable
     private const long SkipLogIntervalMs = 3000;
     private long lastSkipLogAt;
     private int skippedSinceLog;
+    private long lastNotReadyLogAt;
+    private int notReadySinceLog;
 
     public QuickSellItems()
     {
@@ -173,6 +175,34 @@ public unsafe class QuickSellItems : IDisposable
                                     {
                                         DebugLog($"QRA found {i}:{contextItemName} but it's disabled");
                                         continue;
+                                    }
+                                    // 🔴 送出前的就地就緒檢查。改動前這裡只判 addon == null,完全沒有就緒檢查 ——
+                                    //    也就是說「這扇窗正在拆除」這件事**只靠幀數守衛擋**,安全性整個押在
+                                    //    DialogGuards 的幀數值上,而那些數字沒有一個是離線證得了的。
+                                    //
+                                    // 🔑 補上這一關之後,安全性不再取決於任何幀數:
+                                    //    ・DialogGuards 新的常駐窗解除路徑,解除條件是「連續 20 幀**不可見**」;
+                                    //    ・這一關的放行條件是「**可見**」(IsAddonReady 三關之一);
+                                    //    兩者是邏輯上的反面 ⇒ 記號被解除之後還要能送出,中間必須有一次遊戲自己把這扇窗
+                                    //    重新 Show 起來 —— 而正在拆除的窗不會被重新 Show。所以就算 HiddenReleaseFrames
+                                    //    設得太短、記號在拆除途中被解除,這一發也會停在這裡,
+                                    //    後果從「AccessViolation(攔不到,直接崩)」降級成「這一次沒送出,再右鍵一次即可」。
+                                    //
+                                    // ⚠️ 這一關本身帶一個新假設:detour 是在原函式跑完之後執行的,此時遊戲已經把
+                                    //    ContextMenu Show 起來(IsVisible 為真)。假設不成立的後果**不是崩潰**,是這個
+                                    //    快捷功能整個停止動作 —— 所以下面那行 Information 存在的意義就是讓它自證:
+                                    //    實機 log 一出現那行,就代表這個假設破了,把這一關拿掉即可(只有這一段)。
+                                    if(!IsAddonReady(addon))
+                                    {
+                                        notReadySinceLog++;
+                                        var readyNow = Environment.TickCount64;
+                                        if(readyNow - lastNotReadyLogAt >= SkipLogIntervalMs)
+                                        {
+                                            lastNotReadyLogAt = readyNow;
+                                            PluginLog.Information($"QuickSellItems:道具選單這一刻還沒就緒(IsAddonReady 為否),沒有自動選「{contextItemName}」。近期累計 {notReadySinceLog} 次。");
+                                            notReadySinceLog = 0;
+                                        }
+                                        return retVal;
                                     }
                                     // 🔴 上一扇 ContextMenu 仍在關閉中時同一位址再被交回來就是危險窗口:同一扇只送一次,
                                     //    被擋就不自動選、讓遊戲自己的選單照常開(原函式已經跑過)。

@@ -169,6 +169,20 @@ internal static unsafe class DialogGuards
     /// <para>
     /// 🔴 這個值只在 <see cref="PersistentAddons"/> 裡的窗名上生效；其餘窗名的解除條件<b>一個字都沒有改</b>。
     /// </para>
+    /// <para>
+    /// 🔑 <b>這條路徑在每一發的安全性上不是退步</b>：既有的 <see cref="RePressEscapeFrames"/> 逃生口是
+    /// 「距上次按下滿 60 幀就放行」，<b>完全不看那扇窗當下的狀態</b>，而且那條路徑實機已經跑了 290 次；
+    /// 新路徑要的是「連續觀察到隱藏 20 幀」——那是<b>拆除已完成的直接證據</b>，比「按下後過了 60 幀」這個
+    /// 間接證據強。
+    /// </para>
+    /// <para>
+    /// 🔴 但上面那段是<b>論證不是證明</b>，所以真正把崩潰面拆掉的是另一件事：唯一的消費端
+    /// （<c>QuickSellItems</c> 的 detour）在送 callback 之前補了一道就地的 <c>IsAddonReady</c>。
+    /// 它的放行條件是「可見」，正好是這裡解除條件（「連續 20 幀不可見」）的反面 ⇒ 記號被解除之後還要能送出，
+    /// 中間必須有一次遊戲自己把窗重新 Show 起來。所以<b>就算這個幀數設得太短</b>，最壞的結果也只是
+    /// 「那一發沒送出」，不會變成對正在拆除的窗再送一次（＝攔不到的 AccessViolation）。
+    /// ⚠️ 要把新的窗名加進 <see cref="PersistentAddons"/> 時，<b>連它的每一個按下點有沒有這道就地檢查一起看</b>。
+    /// </para>
     /// </remarks>
     internal const int HiddenReleaseFrames = 20;
 
