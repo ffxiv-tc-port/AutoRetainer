@@ -26,8 +26,9 @@ namespace AutoRetainer.Modules;
 /// </remarks>
 internal static class TataruPraiseIPC
 {
-    /// <summary><c>Func&lt;bool&gt;</c>：總開關開著而且真的有可播的內容。</summary>
-    internal const string TagIsAvailable = "TataruPraise.IsAvailable";
+    /// <summary><c>Func&lt;string, bool&gt;</c>：<b>這一個情境</b>現在出不出得了聲（總開關＋這個情境的開關＋這個情境有已合成的語音）。</summary>
+    /// <remarks>📌 刻意<b>不</b>看冷卻：冷卻是「這一次剛好不出聲」，不是「不能出聲」。</remarks>
+    internal const string TagIsAvailableFor = "TataruPraise.IsAvailableFor";
 
     /// <summary><c>Func&lt;string, bool&gt;</c>：從指定情境的誇獎池挑一句念。</summary>
     internal const string TagPraise = "TataruPraise.Praise";
@@ -66,8 +67,11 @@ internal static class TataruPraiseIPC
 
         try
         {
-            // 每次呼叫前先問一次：對方的總開關關著、或池裡一句已合成的都沒有，就不要浪費它的冷卻。
-            if(!Svc.PluginInterface.GetIpcSubscriber<bool>(TagIsAvailable).InvokeFunc()) return;
+            // 每次呼叫前先問一次「這一個情境」出不出得了聲：總開關關著、使用者把這個情境關掉、
+            // 或這個情境一句已合成的都沒有，都在這裡擋掉。
+            // 🔴 不要退回去問 IsAvailable：那個問的是「整池」，於是「潛艇有句子、僱員一句都沒有」
+            //    這種情況它照樣回 true，這道閘門等於白做。
+            if(!Svc.PluginInterface.GetIpcSubscriber<string, bool>(TagIsAvailableFor).InvokeFunc(category)) return;
 
             var accepted = Svc.PluginInterface.GetIpcSubscriber<string, bool>(TagPraise).InvokeFunc(category);
             // Information 級：這是「使用者說沒出聲」時唯一問得出真相的一行(使用者跑 LogLevel 1)。
