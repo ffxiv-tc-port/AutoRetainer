@@ -56,6 +56,18 @@ public unsafe class QuickSellItems : IDisposable
     private string retrieveFromRetainerText;
     private string putUpForSaleText;
 
+    /// <summary>「被守衛擋下」的 <c>Information</c> 診斷最短間隔（毫秒）。</summary>
+    /// <remarks>
+    /// 🔑 右鍵很頻繁，每次被擋都寫一行會洗版（改動前這個情形實機一場 144 次）。改成「每 3 秒最多一行、
+    /// 行內附上這段期間累計被擋幾次」：踩到的使用者一定看得到，而且看得到規模，log 又不會爆。
+    /// 🔴 刻意<b>不</b>用 <c>EzThrottler</c>：它是全外掛共用的靜態 <c>Dictionary</c> 且零同步，
+    /// 而這裡是在原生 hook 的 detour 裡執行。<c>Environment.TickCount64</c> 只讀一個單調時鐘，沒有共用狀態。
+    /// 🔴 也刻意不用 <c>DuoLog</c>：它在<b>每一個等級</b>都會無條件 <c>Svc.Chat.Print</c> 到聊天視窗。
+    /// </remarks>
+    private const long SkipLogIntervalMs = 3000;
+    private long lastSkipLogAt;
+    private int skippedSinceLog;
+
     public QuickSellItems()
     {
         //5480	Have Retainer Sell Items
@@ -167,6 +179,20 @@ public unsafe class QuickSellItems : IDisposable
                                     if(!DialogGuards.TryPressOnce("ContextMenu", (nint)addon, "QuickSell"))
                                     {
                                         DebugLog($"QRA skipped {i}:{contextItemName}: same ContextMenu still closing");
+                                        // 使用者踩到這條時的現象是「按了沒反應」：原函式已經跑完，遊戲自己的右鍵選單
+                                        // 就留在畫面上（上面正好是「到市場出售／委託僱員出售物品」兩項），很容易被讀成
+                                        // 「外掛選錯項目」。改動前這裡只寫 Debug，使用者完全看不到提示。
+                                        // ⇒ 升到 Information（使用者的 LogLevel 是 1），但每 3 秒最多一行、附累計次數。
+                                        skippedSinceLog++;
+                                        var now = Environment.TickCount64;
+                                        if(now - lastSkipLogAt >= SkipLogIntervalMs)
+                                        {
+                                            lastSkipLogAt = now;
+                                            // FramesSincePress 只做位址等值比較、不解參；-1 代表記號剛好在這一瞬間被解除。
+                                            var since = DialogGuards.FramesSincePress("ContextMenu", (nint)addon);
+                                            PluginLog.Information($"QuickSellItems:上一扇道具選單還沒收乾淨(距上次送出 {since} 幀),這次右鍵沒有自動選「{contextItemName}」,遊戲自己的選單會留在畫面上。近期累計 {skippedSinceLog} 次;等選單關掉再按即可。");
+                                            skippedSinceLog = 0;
+                                        }
                                         return retVal;
                                     }
                                     // 🔴 原本這裡是 Callback.Fire(addon, true, …) 之後緊接 agent->Hide() 與
