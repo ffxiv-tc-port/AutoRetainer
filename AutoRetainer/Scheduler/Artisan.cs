@@ -13,7 +13,7 @@ internal static class Artisan
     internal static bool GetEnduranceStatus => Svc.PluginInterface.GetIpcSubscriber<bool>("Artisan.GetEnduranceStatus").InvokeFunc();
     internal static void SetEnduranceStatus(bool b)
     {
-        Svc.PluginInterface.GetIpcSubscriber<bool, object>("Artisan.IsListRunning").InvokeAction(b);
+        Svc.PluginInterface.GetIpcSubscriber<bool, object>("Artisan.SetEnduranceStatus").InvokeAction(b);
     }
 
     internal static void SetListPause(bool b)

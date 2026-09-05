@@ -1,4 +1,5 @@
 ﻿using ECommons.EzIpcManager;
+using ECommons.IPC.Subscribers.LifestreamIPC;
 
 namespace AutoRetainer.Services.Lifestream;
 
@@ -27,8 +28,7 @@ namespace AutoRetainer.Services.Lifestream;
 ///   自訂具名委派會正常綁上。修好它的函式不叫 AnalyzeDelegateField,我們這條分支也不會
 ///   出現那個名字,所以不要再拿那個名字當「可以刪了」的判準。
 ///   ⚠ 但「刪掉改用套件實例」仍未實機驗證:套件的參數型別是 PropertyType /
-///   HouseEnterMode? 列舉,與這裡的 int / int? 會讓 GetIpcSubscriber 的泛型實體化不同
-///   (Dalamud 的 CallGateChannel 會用 JSON 來回轉吸收掉,離線讀碼看是相容的)。
+///   HouseEnterMode? 列舉;本檔已於 2026-09-05 改用同一組列舉,型別不再是差異點。
 ///   要刪請先在實機確認 TaskTeleportToProperty 與 TaskNeoHET 兩個呼叫點仍然動作。
 /// </summary>
 public class LifestreamExtraIPC
@@ -60,9 +60,7 @@ public class LifestreamExtraIPC
 
     // ---- (乙)套件有、但本版 ECommons 的 EzIPC 綁不上自訂 delegate,故沿用原形狀 ----
 
-    /// <summary>type(home=1, fc=2, apartment=3), mode(none=0, walk to door=1, enter house=2)。
-    /// 這兩個 int 的值域與套件的 PropertyType / HouseEnterMode 列舉逐一對齊(皆自 0 起算)。</summary>
-    [EzIPC] public Action<int, int?> EnqueuePropertyShortcut;
+    [EzIPC] public Action<PropertyType, HouseEnterMode?> EnqueuePropertyShortcut;
 
     [EzIPC] public Action MoveToWorkshop;
 }

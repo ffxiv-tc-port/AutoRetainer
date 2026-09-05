@@ -4,6 +4,7 @@ using ECommons.ExcelServices;
 using ECommons.ExcelServices.TerritoryEnumeration;
 using ECommons.GameHelpers;
 using ECommons.IPC;
+using ECommons.IPC.Subscribers.LifestreamIPC;
 
 namespace AutoRetainer.Scheduler.Tasks;
 public static class TaskTeleportToProperty
@@ -122,7 +123,7 @@ public static class TaskTeleportToProperty
                     return true; //already here
                 }
             }
-            P.TaskManager.Enqueue(() => S.LifestreamExtra.EnqueuePropertyShortcut(fc ? 2 : 1, 1));
+            P.TaskManager.Enqueue(() => S.LifestreamExtra.EnqueuePropertyShortcut(fc ? PropertyType.FC : PropertyType.Home, HouseEnterMode.Walk_to_door));
             P.TaskManager.Enqueue(() =>
             {
                 if(!Svc.ClientState.IsLoggedIn)
@@ -157,7 +158,7 @@ public static class TaskTeleportToProperty
                 TaskNeoHET.Enqueue(null);
                 return true; //already here
             }
-            P.TaskManager.Enqueue(() => S.LifestreamExtra.EnqueuePropertyShortcut(fc ? 2 : 1, 1));
+            P.TaskManager.Enqueue(() => S.LifestreamExtra.EnqueuePropertyShortcut(fc ? PropertyType.FC : PropertyType.Home, HouseEnterMode.Walk_to_door));
             P.TaskManager.Enqueue(() =>
             {
                 if(!Svc.ClientState.IsLoggedIn)
