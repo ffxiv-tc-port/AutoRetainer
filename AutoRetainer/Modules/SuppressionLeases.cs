@@ -157,7 +157,7 @@ internal static class SuppressionLeases
         }
 
         owner = owner.Trim();
-        var duration = ClampDuration(milliseconds);
+        var duration = ClampDuration(milliseconds, owner);
         var id = Guid.NewGuid();
 
         lock(Gate)
@@ -225,7 +225,7 @@ internal static class SuppressionLeases
             Volatile.Write(ref liveCount, Leases.Count);
             if(!Leases.TryGetValue(id, out var lease)) return false;
 
-            var duration = milliseconds is { } ms ? ClampDuration(ms) : lease.DurationMs;
+            var duration = milliseconds is { } ms ? ClampDuration(ms, lease.Owner) : lease.DurationMs;
             lease.DurationMs = duration;
 
             // 🔴 取 max：續約永遠只會往後延，不會把已經談好的到期時間往前搬。
@@ -253,8 +253,44 @@ internal static class SuppressionLeases
         }
     }
 
-    private static int ClampDuration(int milliseconds)
-        => milliseconds < 1 ? 1 : milliseconds > MaxLeaseMilliseconds ? MaxLeaseMilliseconds : milliseconds;
+    /// <summary>租期夾限的「只講一次」去重表。</summary>
+    /// <remarks>
+    /// 🔴 這裡<b>不能</b>用 <c>ECommons.Throttlers.EzThrottler</c>：它是整個外掛共用的靜態
+    /// <c>Dictionary</c> 且零同步，而 <see cref="Acquire"/>／<see cref="Renew"/> 是從 IPC 端點進來的
+    /// —— 跑在<b>呼叫端的執行緒</b>上，會與 framework 執行緒並行插入。失敗形式不是「拿到舊值」
+    /// 而是<b>字典本身壞掉</b>，還會連帶弄壞這個外掛內所有模組的節流。所以自帶一張表和自己的鎖。
+    /// </remarks>
+    private static readonly HashSet<string> ClampNotified = [];
+
+    private static readonly object ClampGate = new();
+
+    /// <summary>把要求的租期夾進合法範圍；<b>真的被夾到時寫一次 <c>Information</c></b>。</summary>
+    /// <remarks>
+    /// 🔴 <b>靜默夾限是壞的失敗形式</b>：呼叫端要 30 分鐘、拿到 5 分鐘、而且完全沒有訊息，
+    /// 於是它以為自己壓制著 AutoRetainer，實際上第 5 分鐘就放開了。回傳值是夾過的沒錯，
+    /// 但呼叫端不會去比對「我要的」和「我拿到的」—— 型別簽章擋不住這種錯。
+    /// ⇒ 夾到就講一次，讓「我的租約怎麼提早失效」在實機 log 上有跡可循。
+    /// 📌 用 <c>Information</c> 而不是 <c>Debug</c>：這是要使用者回報得出來的診斷，
+    /// 而 <c>Debug</c> 單檔有數十萬行，寫進去等於淹沒。
+    /// 📌 只在<b>真的夾到</b>時寫，而且同一個（租用者，要求值）只寫一次 ——
+    /// <see cref="Renew"/> 會被反覆呼叫，每次都寫就是洗版。
+    /// </remarks>
+    private static int ClampDuration(int milliseconds, string owner)
+    {
+        var clamped = milliseconds < 1 ? 1 : milliseconds > MaxLeaseMilliseconds ? MaxLeaseMilliseconds : milliseconds;
+        if(clamped == milliseconds) return clamped;
+
+        lock(ClampGate)
+        {
+            // 這張表只為了去重，不能無限長大（呼叫端可能每次帶不同的要求值）。滿了就整個丟掉重來，
+            // 代價只是同一組合可能再講一次，比無限制成長好。
+            if(ClampNotified.Count >= LeaseCap * 4) ClampNotified.Clear();
+            if(!ClampNotified.Add($"{owner}|{milliseconds}")) return clamped;
+        }
+
+        PluginLog.Information($"[SuppressionLeases]「{owner}」要求 {milliseconds} ms 的壓制租期，實際給 {clamped} ms（硬性上限 {MaxLeaseMilliseconds} ms）。長工作要自己每 {RenewIntervalHintMs} ms 續約一次，不要假設拿到了要求的時長。");
+        return clamped;
+    }
 
     /// <summary>這個名字現在有沒有租約。<b>呼叫端必須已經持有 <see cref="Gate"/>。</b></summary>
     private static bool HasOwnerLocked(string owner)
