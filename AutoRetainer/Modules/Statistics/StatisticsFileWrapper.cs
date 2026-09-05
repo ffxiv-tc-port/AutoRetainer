@@ -15,7 +15,7 @@ internal class StatisticsFileWrapper
         this.CID = CID;
         this.RetainerName = RetainerName;
         File = EzConfig.LoadConfiguration<StatisticsFile>(FileName);
-        if(CID == SvcEx.PlayerState.ContentId)
+        if(CID == Svc.PlayerState.ContentId)
         {
             File.PlayerName = Svc.Objects.LocalPlayer.Name.ToString() + "@" + Svc.Objects.LocalPlayer.HomeWorld.ValueNullable?.Name.ToString();
         }

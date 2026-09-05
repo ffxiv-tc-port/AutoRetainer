@@ -50,7 +50,7 @@ internal unsafe class RetainersOld : DebugSectionBase
         ImGui.TableSetupColumn(Loc.T("Venture"));
         ImGui.TableSetupColumn(Loc.T("Interaction"));
         ImGui.TableHeadersRow();
-        var retainers = P.GetSelectedRetainers(SvcEx.PlayerState.ContentId);
+        var retainers = P.GetSelectedRetainers(Svc.PlayerState.ContentId);
         for(var i = 0; i < GameRetainerManager.Count; i++)
         {
             var ret = GameRetainerManager.Retainers[i];

@@ -86,7 +86,6 @@ public unsafe class AutoRetainer : IDalamudPlugin
         {
             P = this;
             ECommonsMain.Init(pi, this, Module.DalamudReflector);
-            SvcEx.Init(pi);
             // 讓「呼叫了對方沒有的 IPC 方法」不再完全靜默。
             // 訂閱越早越好：事件只在 IPC **呼叫**當下才被查閱，在這裡訂閱就涵蓋往後所有呼叫。
             EzIpcFailureLog.Enable();
@@ -271,7 +270,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
             // 🔴 讀不到時 Lang.LogMessageOpening 回的是字面備援而不是空字串 —— 空前綴會讓每一則 toast 都命中。
             if(text.StartsWithAny(Lang.LogMessageOpening(4330, "向僱員下達了").Cleanup())
                 && Utils.TryGetCurrentRetainer(out var ret)
-                && C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var offlineData)
+                && C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var offlineData)
                 && offlineData.RetainerData.TryGetFirst(x => x.Name == ret, out var offlineRetainerData))
             {
                 offlineRetainerData.VentureBeginsAt = P.Time;
@@ -614,9 +613,9 @@ public unsafe class AutoRetainer : IDalamudPlugin
             if(SchedulerMain.PluginEnabled && Svc.Objects.LocalPlayer != null)
             {
                 SchedulerMain.Tick();
-                if(!C.SelectedRetainers.ContainsKey(SvcEx.PlayerState.ContentId))
+                if(!C.SelectedRetainers.ContainsKey(Svc.PlayerState.ContentId))
                 {
-                    C.SelectedRetainers[SvcEx.PlayerState.ContentId] = [];
+                    C.SelectedRetainers[Svc.PlayerState.ContentId] = [];
                 }
             }
         }

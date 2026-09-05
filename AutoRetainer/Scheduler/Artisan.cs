@@ -77,7 +77,7 @@ internal static class Artisan
 
     internal static bool AnyRetainersAvailable()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var data))
         {
             return data.GetEnabledRetainers().Any(z => z.GetVentureSecondsRemaining() <= C.UnsyncCompensation);
         }

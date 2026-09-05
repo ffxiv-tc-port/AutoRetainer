@@ -21,7 +21,7 @@ internal static unsafe class AutoGCHandin
 
     internal static bool IsEnabled()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var d))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var d))
         {
             return d.GCDeliveryType != GCDeliveryType.Disabled;
         }
@@ -29,7 +29,7 @@ internal static unsafe class AutoGCHandin
     }
     internal static bool IsArmoryChestEnabled()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var d))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var d))
         {
             return d.GCDeliveryType.EqualsAny(GCDeliveryType.Hide_Gear_Set_Items, GCDeliveryType.Show_All_Items);
         }
@@ -39,7 +39,7 @@ internal static unsafe class AutoGCHandin
     internal static bool IsAllItemsEnabled()
     {
         Safety.Check();
-        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var d))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var d))
         {
             return d.GCDeliveryType == GCDeliveryType.Show_All_Items;
         }
@@ -704,7 +704,7 @@ internal static unsafe class AutoGCHandin
         }
         else
         {
-            if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
+            if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var data))
             {
                 if(text.EqualsAny(hideGearSet))
                 {

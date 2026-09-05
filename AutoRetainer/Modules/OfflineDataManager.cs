@@ -71,13 +71,13 @@ internal static unsafe class OfflineDataManager
     internal static void WriteOfflineData(bool writeGatherables, bool saveConfig)
     {
         if(!ProperOnLogin.PlayerPresent) return;
-        if(C.Blacklist.Any(x => x.CID == SvcEx.PlayerState.ContentId)) return;
+        if(C.Blacklist.Any(x => x.CID == Svc.PlayerState.ContentId)) return;
         if(Svc.Condition[ConditionFlag.DutyRecorderPlayback]) return;
-        if(!C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
+        if(!C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var data))
         {
             data = new()
             {
-                CID = SvcEx.PlayerState.ContentId,
+                CID = Svc.PlayerState.ContentId,
             };
             C.OfflineData.Add(data);
         }
@@ -234,7 +234,7 @@ internal static unsafe class OfflineDataManager
 
     internal static OfflineRetainerData GetData(string name, ulong? CID = null)
     {
-        var cid = CID ?? SvcEx.PlayerState.ContentId;
+        var cid = CID ?? Svc.PlayerState.ContentId;
         if(C.OfflineData.TryGetFirst(x => x.CID == cid, out var data) && data.RetainerData.TryGetFirst(x => x.Name == name, out var rdata))
         {
             return rdata;

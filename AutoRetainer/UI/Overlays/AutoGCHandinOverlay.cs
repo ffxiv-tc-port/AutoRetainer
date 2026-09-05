@@ -22,7 +22,7 @@ internal unsafe class AutoGCHandinOverlay : Window
         {
             ImGui.Checkbox(Loc.T("Enable Automatic Expert Delivery"), ref AutoGCHandin.Operation);
         }
-        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var d) && !AutoGCHandin.Operation)
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var d) && !AutoGCHandin.Operation)
         {
             ImGui.SameLine();
             ImGuiEx.SetNextItemWidthScaled(200);

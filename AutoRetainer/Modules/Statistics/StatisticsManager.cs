@@ -58,7 +58,7 @@ internal static unsafe class StatisticsManager
                     {
                         if(C.RecordStats)
                         {
-                            GetWrapper(SvcEx.PlayerState.ContentId, retName).Add(new()
+                            GetWrapper(Svc.PlayerState.ContentId, retName).Add(new()
                             {
                                 ItemId = p.ItemId,
                                 IsHQ = p.IsHQ,

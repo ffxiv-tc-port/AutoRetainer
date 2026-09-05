@@ -56,7 +56,7 @@ internal static class NotificationHandler
         }
         else
         {
-            if(SvcEx.PlayerState.ContentId != 0 && C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var x))
+            if(Svc.PlayerState.ContentId != 0 && C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var x))
             {
                 foreach(var r in x.RetainerData)
                 {

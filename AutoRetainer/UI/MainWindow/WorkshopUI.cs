@@ -28,13 +28,13 @@ internal static unsafe class WorkshopUI
         }
         else
         {
-            if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var cdata))
+            if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var cdata))
             {
                 sortedData.Add(cdata);
             }
             foreach(var x in C.OfflineData.ApplyOrder(C.DeployablesVisualOrders))
             {
-                if(x.CID != SvcEx.PlayerState.ContentId)
+                if(x.CID != Svc.PlayerState.ContentId)
                 {
                     sortedData.Add(x);
                 }

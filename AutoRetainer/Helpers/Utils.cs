@@ -1211,7 +1211,7 @@ public static unsafe class Utils
     internal static bool IsAnyRetainersCompletedVenture()
     {
         if(!ProperOnLogin.PlayerPresent) return false;
-        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var data))
         {
             var selectedRetainers = data.GetEnabledRetainers().Where(z => z.HasVenture);
             return selectedRetainers.Any(z => z.GetVentureSecondsRemaining() <= 10);
@@ -1221,7 +1221,7 @@ public static unsafe class Utils
 
     internal static bool IsAllCurrentCharacterRetainersHaveMoreThan5Mins()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var data))
         {
             foreach(var z in data.GetEnabledRetainers())
             {
@@ -1338,7 +1338,7 @@ public static unsafe class Utils
 
     internal static bool AnyRetainersAvailableCurrentChara()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == SvcEx.PlayerState.ContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var data))
         {
             return data.GetEnabledRetainers().Any(z => z.GetVentureSecondsRemaining() <= C.UnsyncCompensation);
         }
@@ -1606,7 +1606,7 @@ public static unsafe class Utils
 
     internal static bool IsCurrentRetainerEnabled()
     {
-        return TryGetCurrentRetainer(out var ret) && C.SelectedRetainers.TryGetValue(SvcEx.PlayerState.ContentId, out var rets) && rets.Contains(ret);
+        return TryGetCurrentRetainer(out var ret) && C.SelectedRetainers.TryGetValue(Svc.PlayerState.ContentId, out var rets) && rets.Contains(ret);
     }
 
     internal static bool TryGetCurrentRetainer(out string name)
