@@ -53,7 +53,10 @@ namespace AutoRetainer.UI
                 ImGui.SameLine();
                 if(ImGui.Button(Loc.T("Repository")))
                 {
-                    ImGui.SetClipboardText("https://love.puni.sh/ment.json");
+                    // 這裡絕對不能指國際服的外掛庫：那裡的 AutoRetainer 內部名與台服版
+                    // 完全相同，使用者複製這個網址加進去會裝到 API15/net10 的版本，在台服
+                    // 的 API13 Dalamud 上載不起來，而且會撞掉台服版的已安裝鍵。
+                    ImGui.SetClipboardText("https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/repo.json");
                     Notify.Success(Loc.T("Link copied to clipboard"));
                 }
                 ImGui.SameLine();
