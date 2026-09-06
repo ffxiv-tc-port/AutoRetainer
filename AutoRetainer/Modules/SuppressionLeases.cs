@@ -23,6 +23,9 @@ namespace AutoRetainer.Modules;
 /// <br/>
 /// 📌 <b>這不是自動接手鏈</b>：租約只會讓 AutoRetainer <b>不做事</b>，不觸發任何新的自動化。<br/>
 /// ⚠️ IPC 呼叫在呼叫端的執行緒上同步跑（沒有任何「一定在 Framework 執行緒」的保證），所以整張表用 lock 保護。
+/// 🔴 <b>鎖內絕不寫 log、絕不做檔案 I/O、絕不呼叫 ImGui</b>：逾時／夾值／滿載訊息在鎖內先收進
+/// 一個 list，出了鎖才由 <see cref="Flush"/> 送出（<b>等級原樣保留</b>）。
+/// UI 走「鎖內拍快照、鎖外畫」—— <see cref="Snapshot"/> 只在鎖裡蒐集資料，投影與配置都在鎖外。
 /// </remarks>
 /// <remarks>
 /// 🔑🔑 <b>形狀為什麼是 <see cref="Guid"/> 憑證，而不是「用租用者名字當鍵」</b>
@@ -102,11 +105,18 @@ internal static class SuppressionLeases
         get
         {
             if(Volatile.Read(ref liveCount) == 0) return false;
+
+            List<(bool IsWarning, string Message)> logs = null;
+            bool active;
+
             lock(Gate)
             {
-                PruneExpired();
-                return Leases.Count > 0;
+                PruneExpired(ref logs);
+                active = Leases.Count > 0;
             }
+
+            Flush(logs);
+            return active;
         }
     }
 
@@ -117,27 +127,34 @@ internal static class SuppressionLeases
     /// </remarks>
     internal static List<(string Owner, long RemainingMs)> Snapshot()
     {
+        List<(bool IsWarning, string Message)> logs = null;
+        Dictionary<string, long> byOwner = null;
+
         lock(Gate)
         {
-            PruneExpired();
-            if(Leases.Count == 0) return [];
-
-            var now = Environment.TickCount64;
-            var byOwner = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-            foreach(var lease in Leases.Values)
+            PruneExpired(ref logs);
+            if(Leases.Count != 0)
             {
-                var remaining = lease.ExpiresAt - now;
-                if(remaining < 0) remaining = 0;
-                if(!byOwner.TryGetValue(lease.Owner, out var existing) || remaining > existing)
+                var now = Environment.TickCount64;
+                byOwner = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                foreach(var lease in Leases.Values)
                 {
-                    byOwner[lease.Owner] = remaining;
+                    var remaining = lease.ExpiresAt - now;
+                    if(remaining < 0) remaining = 0;
+                    if(!byOwner.TryGetValue(lease.Owner, out var existing) || remaining > existing)
+                    {
+                        byOwner[lease.Owner] = remaining;
+                    }
                 }
             }
-
-            var ret = new List<(string, long)>(byOwner.Count);
-            foreach(var (owner, remaining) in byOwner) ret.Add((owner, remaining));
-            return ret;
         }
+
+        Flush(logs);
+        if(byOwner == null) return [];
+
+        var ret = new List<(string, long)>(byOwner.Count);
+        foreach(var (owner, remaining) in byOwner) ret.Add((owner, remaining));
+        return ret;
     }
 
     /// <summary>取得一把新的租約。回傳的 <see cref="Guid"/> 就是憑證。</summary>
@@ -157,54 +174,66 @@ internal static class SuppressionLeases
         }
 
         owner = owner.Trim();
-        var duration = ClampDuration(milliseconds, owner);
+        List<(bool IsWarning, string Message)> logs = null;
+        var duration = ClampDuration(milliseconds, owner, ref logs);
         var id = Guid.NewGuid();
+        var rejected = false;
 
         lock(Gate)
         {
-            PruneExpired();
+            PruneExpired(ref logs);
             if(Leases.Count >= LeaseCap)
             {
-                PluginLog.Warning($"[SuppressionLeases] 壓制租約已達上限 {LeaseCap} 把，拒絕「{owner}」的請求。目前持有者：{string.Join(", ", DistinctOwnersLocked())}");
-                return Guid.Empty;
+                (logs ??= []).Add((true, $"[SuppressionLeases] 壓制租約已達上限 {LeaseCap} 把，拒絕「{owner}」的請求。目前持有者：{string.Join(", ", DistinctOwnersLocked())}"));
+                rejected = true;
             }
-
-            var firstForOwner = !HasOwnerLocked(owner);
-            Leases[id] = new Lease(id, owner, Environment.TickCount64 + duration) { DurationMs = duration };
-            Volatile.Write(ref liveCount, Leases.Count);
-
-            if(firstForOwner)
+            else
             {
-                PluginLog.Information($"[SuppressionLeases] 「{owner}」取得壓制租約 {id}（{duration}ms），AutoRetainer 的自動化在它還完之前不會動作。目前持有者：{string.Join(", ", DistinctOwnersLocked())}");
+                var firstForOwner = !HasOwnerLocked(owner);
+                Leases[id] = new Lease(id, owner, Environment.TickCount64 + duration) { DurationMs = duration };
+                Volatile.Write(ref liveCount, Leases.Count);
+
+                if(firstForOwner)
+                {
+                    (logs ??= []).Add((false, $"[SuppressionLeases] 「{owner}」取得壓制租約 {id}（{duration}ms），AutoRetainer 的自動化在它還完之前不會動作。目前持有者：{string.Join(", ", DistinctOwnersLocked())}"));
+                }
             }
         }
 
-        return id;
+        Flush(logs);
+        return rejected ? Guid.Empty : id;
     }
 
     /// <summary>交回一把租約。</summary>
     /// <returns><c>false</c>＝這把不存在（已經還過、或已經逾時被掃掉）。冪等。</returns>
     internal static bool Release(Guid id)
     {
-        string owner;
-        int left;
-        string remaining;
+        List<(bool IsWarning, string Message)> logs = null;
+        var found = false;
+        string owner = null;
+        int left = 0;
+        string remaining = null;
 
         lock(Gate)
         {
             if(!Leases.Remove(id, out var lease))
             {
-                PruneExpired();
+                PruneExpired(ref logs);
                 Volatile.Write(ref liveCount, Leases.Count);
-                return false;
             }
-
-            owner = lease.Owner;
-            PruneExpired();
-            Volatile.Write(ref liveCount, Leases.Count);
-            left = Leases.Count;
-            remaining = left == 0 ? "（壓制解除）" : $"：{string.Join(", ", DistinctOwnersLocked())}";
+            else
+            {
+                found = true;
+                owner = lease.Owner;
+                PruneExpired(ref logs);
+                Volatile.Write(ref liveCount, Leases.Count);
+                left = Leases.Count;
+                remaining = left == 0 ? "（壓制解除）" : $"：{string.Join(", ", DistinctOwnersLocked())}";
+            }
         }
+
+        Flush(logs);
+        if(!found) return false;
 
         PluginLog.Information($"[SuppressionLeases] 「{owner}」歸還壓制租約 {id}，剩餘 {left} 把{remaining}。");
         return true;
@@ -219,38 +248,54 @@ internal static class SuppressionLeases
     /// </returns>
     internal static bool Renew(Guid id, int? milliseconds = null)
     {
+        List<(bool IsWarning, string Message)> logs = null;
+        bool renewed;
+
         lock(Gate)
         {
-            PruneExpired();
+            PruneExpired(ref logs);
             Volatile.Write(ref liveCount, Leases.Count);
-            if(!Leases.TryGetValue(id, out var lease)) return false;
+            if(Leases.TryGetValue(id, out var lease))
+            {
+                var duration = milliseconds is { } ms ? ClampDuration(ms, lease.Owner, ref logs) : lease.DurationMs;
+                lease.DurationMs = duration;
 
-            var duration = milliseconds is { } ms ? ClampDuration(ms, lease.Owner) : lease.DurationMs;
-            lease.DurationMs = duration;
-
-            // 🔴 取 max：續約永遠只會往後延，不會把已經談好的到期時間往前搬。
-            var until = Environment.TickCount64 + duration;
-            if(until > lease.ExpiresAt) lease.ExpiresAt = until;
-            return true;
+                // 🔴 取 max：續約永遠只會往後延，不會把已經談好的到期時間往前搬。
+                var until = Environment.TickCount64 + duration;
+                if(until > lease.ExpiresAt) lease.ExpiresAt = until;
+                renewed = true;
+            }
+            else
+            {
+                renewed = false;
+            }
         }
+
+        Flush(logs);
+        return renewed;
     }
 
     /// <summary>把所有租約一次清掉。</summary>
     /// <remarks>使用者在主視窗按「取消」時的逃生口，以及外掛卸載時的收尾。</remarks>
     internal static void ReleaseAll(string reason)
     {
+        List<(bool IsWarning, string Message)> logs = null;
+
         lock(Gate)
         {
             if(Leases.Count == 0)
             {
                 Volatile.Write(ref liveCount, 0);
-                return;
             }
-
-            PluginLog.Information($"[SuppressionLeases] 清掉全部 {Leases.Count} 把壓制租約（{reason}）：{string.Join(", ", DistinctOwnersLocked())}");
-            Leases.Clear();
-            Volatile.Write(ref liveCount, 0);
+            else
+            {
+                (logs ??= []).Add((false, $"[SuppressionLeases] 清掉全部 {Leases.Count} 把壓制租約（{reason}）：{string.Join(", ", DistinctOwnersLocked())}"));
+                Leases.Clear();
+                Volatile.Write(ref liveCount, 0);
+            }
         }
+
+        Flush(logs);
     }
 
     /// <summary>租期夾限的「只講一次」去重表。</summary>
@@ -275,7 +320,7 @@ internal static class SuppressionLeases
     /// 📌 只在<b>真的夾到</b>時寫，而且同一個（租用者，要求值）只寫一次 ——
     /// <see cref="Renew"/> 會被反覆呼叫，每次都寫就是洗版。
     /// </remarks>
-    private static int ClampDuration(int milliseconds, string owner)
+    private static int ClampDuration(int milliseconds, string owner, ref List<(bool IsWarning, string Message)> logs)
     {
         var clamped = milliseconds < 1 ? 1 : milliseconds > MaxLeaseMilliseconds ? MaxLeaseMilliseconds : milliseconds;
         if(clamped == milliseconds) return clamped;
@@ -288,7 +333,7 @@ internal static class SuppressionLeases
             if(!ClampNotified.Add($"{owner}|{milliseconds}")) return clamped;
         }
 
-        PluginLog.Information($"[SuppressionLeases]「{owner}」要求 {milliseconds} ms 的壓制租期，實際給 {clamped} ms（硬性上限 {MaxLeaseMilliseconds} ms）。長工作要自己每 {RenewIntervalHintMs} ms 續約一次，不要假設拿到了要求的時長。");
+        (logs ??= []).Add((false, $"[SuppressionLeases]「{owner}」要求 {milliseconds} ms 的壓制租期，實際給 {clamped} ms（硬性上限 {MaxLeaseMilliseconds} ms）。長工作要自己每 {RenewIntervalHintMs} ms 續約一次，不要假設拿到了要求的時長。"));
         return clamped;
     }
 
@@ -314,7 +359,7 @@ internal static class SuppressionLeases
     }
 
     /// <summary>清掉已經逾時的租約。<b>呼叫端必須已經持有 <see cref="Gate"/>。</b></summary>
-    private static void PruneExpired()
+    private static void PruneExpired(ref List<(bool IsWarning, string Message)> logs)
     {
         if(Leases.Count == 0)
         {
@@ -337,9 +382,31 @@ internal static class SuppressionLeases
 
             // 🔴 寫 Information：租約逾時＝「有人壓著 AutoRetainer 卻沒續約」，
             // 這一行是使用者回報「AutoRetainer 突然不動了／突然又動了」時唯一的線索。
-            PluginLog.Information($"[SuppressionLeases] 「{owner}」的壓制租約 {id} 逾時（超過租期沒有續約）自動解除 —— 那個外掛多半已經停用或當掉。AutoRetainer 恢復正常運作。");
+            (logs ??= []).Add((false, $"[SuppressionLeases] 「{owner}」的壓制租約 {id} 逾時（超過租期沒有續約）自動解除 —— 那個外掛多半已經停用或當掉。AutoRetainer 恢復正常運作。"));
         }
 
         Volatile.Write(ref liveCount, Leases.Count);
+    }
+
+    /// <summary>把鎖內收集到的診斷訊息寫出去。<b>一定要在鎖外呼叫。</b></summary>
+    /// <remarks>
+    /// 🔴 <b>鎖內不寫 log</b>：Serilog 的 sink 自己有鎖、還可能做檔案 I/O，在 <see cref="Gate"/>
+    /// 裡面呼叫它等於把死鎖面積擴大到別人的元件上，而 <see cref="Gate"/> 是<b>每幀</b>被讀的
+    /// （排程器、MultiMode、MiniTA、主視窗）。所以逾時／夾值／滿載訊息在鎖內先收進一個 list，
+    /// 出了鎖才送出去。
+    /// <para>
+    /// 🔴 <b>等級跟著訊息走</b>，不是一律 <c>Information</c>：<see cref="Acquire"/> 的「租約已達上限」
+    /// 本來就是 <c>Warning</c>，收訊息時就把等級記下來，改成延後送出不會把它靜默降級。
+    /// </para>
+    /// </remarks>
+    private static void Flush(List<(bool IsWarning, string Message)> logs)
+    {
+        if(logs == null) return;
+
+        foreach(var (isWarning, message) in logs)
+        {
+            if(isWarning) PluginLog.Warning(message);
+            else PluginLog.Information(message);
+        }
     }
 }
