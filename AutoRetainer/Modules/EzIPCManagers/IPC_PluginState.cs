@@ -35,10 +35,33 @@ public class IPC_PluginState
             "the caller is told AutoRetainer is busy so that it keeps off the summoning bell");
     }
 
+    /// <summary>Which retainers of which characters are ticked for automation, as a snapshot.</summary>
+    /// <remarks>
+    /// 🔴 這裡回的是<b>複本</b>，不是 <c>C.SelectedRetainers</c> 本尊。理由是這張表兩層都會被
+    /// AutoRetainer 自己在 framework／繪製執行緒上改：外層在
+    /// <c>AutoRetainer.cs</c> 的每幀 Tick 與 <c>P.GetSelectedRetainers</c> 會<b>新增鍵</b>、
+    /// 角色排序 UI 會 <c>Remove</c>；內層的 <c>HashSet</c> 在僱員分頁的「啟用／停用選取的僱員」
+    /// 會 <c>Add</c>／<c>Remove</c>。而 IPC 端點跑在<b>呼叫端的執行緒</b>上
+    /// ⇒ 交出本尊等於讓對方在我們改動的當下走訪它，失敗形式是 <c>InvalidOperationException</c>
+    /// 擲在<b>對方</b>的碼裡（看起來像對方的 bug），最壞是字典本身壞掉。
+    /// <br/>
+    /// ⚠️ 內層也複製（不是只換外層），否則對方走訪 <c>HashSet</c> 時的競態原封不動 ——
+    /// 而「逐一列出某個角色勾了哪些僱員」正是這個端點唯一的用法。
+    /// <br/>
+    /// 📌 代價：透過回傳值寫回來不再會生效。這個端點的語意本來就是查詢
+    /// （SomethingNeedDoing 對 Lua 公開它時的說明是 "Gets all enabled retainers"），
+    /// 而且全艦隊的 C# 消費端（AutoDuty <c>IPCSubscriber.cs:60</c>、GatherBuddyReborn
+    /// <c>IpcSubscribers.cs:650</c>、SomethingNeedDoing <c>External/AutoRetainer.cs:34</c>）
+    /// <b>三個都只有宣告、沒有任何呼叫點</b>，更沒有人寫回。
+    /// </remarks>
     [EzIPC]
     public Dictionary<ulong, HashSet<string>> GetEnabledRetainers()
     {
-        return C.SelectedRetainers;
+        // 🔴 複製這個動作本身也必須在 framework 執行緒上做，否則「拍快照」與「改動」就是同一個競態。
+        return IpcFrameworkGate.Run(nameof(GetEnabledRetainers),
+            () => C.SelectedRetainers.ToDictionary(x => x.Key, x => new HashSet<string>(x.Value)),
+            new Dictionary<ulong, HashSet<string>>(),
+            "the caller is told no retainer is enabled (an empty map)");
     }
 
     [EzIPC]
