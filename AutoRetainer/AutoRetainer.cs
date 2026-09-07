@@ -778,8 +778,9 @@ public unsafe class AutoRetainer : IDalamudPlugin
     /// 查無此 CID 就是 null，而 <c>IpcFrameworkGate</c> 逾時時也刻意回 null（那裡的註解寫明
     /// 「逾時回 null 不是新語意」）。直接接 <c>.RetainerData</c> 會擲 NullReferenceException。
     /// ⇒ 改成判空後跳過，行為從擲例外變成不做事。
-    /// ⚠️ <c>GetAdditionalRetainerData</c> 不同形：<c>GetARD</c> 尾端有
-    /// <c>?? new AdditionalRetainerData()</c>，契約上永遠不回 null，所以 <c>adata</c> 不需要判空。
+    /// ⚠️ <c>GetAdditionalRetainerData</c> 同樣會回 <c>null</c>（逾時），而且那條路<b>特別危險</b>：
+    /// 舊版回的是一份全預設值物件，照既有契約寫回去會把僱員真正的設定蓋掉，
+    /// 所以提供端已改成回 null，這裡也一併判空後跳過。
     /// </remarks>
     private void AddVenture(string name, uint ventureId)
     {
@@ -793,6 +794,13 @@ public unsafe class AutoRetainer : IDalamudPlugin
         if(ocd.RetainerData.TryGetFirst(x => x.Name == name, out var rdata))
         {
             var adata = API.GetAdditionalRetainerData(Player.CID, rdata.Name);
+            if(adata == null)
+            {
+                // 提供端（Modules/IPC.cs 的 GetARD）逾時時回 null，而且明講「不要寫回」——
+                // 拿一份預設值寫回去會把這名僱員真正的設定蓋掉。
+                LogMissingOfflineCharacterData(nameof(AddVenture));
+                return;
+            }
             if(adata.VenturePlan.List.TryGetFirst(x => x.ID == ventureId, out var v))
             {
                 v.Num += 1;

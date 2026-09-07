@@ -191,19 +191,26 @@ internal static class IPC
     /// 🔴 而且這支名字叫 Get 卻<b>會寫入</b>：<c>Utils.GetAdditionalData</c> 走
     /// <c>GetAdditionalDataKey(create: true)</c>，鍵不存在時會往 <c>C.AdditionalData</c>
     /// 這個裸 <c>Dictionary</c> 插一筆 —— 而 IPC 端點跑在呼叫端的執行緒上。閘門修的就是這個。
-    /// ⚠️ 逾時<b>不能</b>回 null：這支在今天是「永遠不回 null」，
-    /// 消費端（本外掛 <c>AutoRetainer.cs</c> 的 <c>AddVenture</c>、SomethingNeedDoing 的
-    /// <c>AdditionalRetainerDataWrapper</c>）都直接解參用，回 null 會把 NRE 擲進對方的碼裡。
-    /// 改回一份全新的預設值物件 —— 那正是這支對未知鍵本來就會產生的東西。
-    /// 📌 預設值物件<b>只在逾時那條路上</b>才建構：它的 <c>CreationFrame</c> 欄位會讀
-    /// <c>UiBuilder.FrameCount</c>，當成參數傳進去會變成每次呼叫都在呼叫端的執行緒上讀一次。
+    /// 🔴🔴 <b>逾時回 <c>null</c>，不是回一份全新的預設值物件。</b>
+    /// 舊版回預設值物件是為了「這支永遠不回 null」，但那個選擇會造成<b>使用者的設定被靜默重置</b>：
+    /// 既有契約是「Get 出來改欄位、再 <c>WriteAdditionalRetainerData</c> 寫回去」，
+    /// 逾時時呼叫端拿到的是<b>全預設值</b>，照契約寫回去就會把這名僱員真正的設定逐欄位蓋掉。
+    /// ⚠️ 而 <c>AutoRetainerApi.WriteAdditionalRetainerData</c> 的 <c>CreationFrame</c> 守衛
+    /// <b>攔不住</b>它：那個替代物件是在這一刻、於呼叫端的執行緒上建構的，
+    /// <c>CreationFrame</c> 就是當下的 FrameCount，同幀寫回照樣通過檢查。
+    /// ⇒ 失敗形式是「僱員設定莫名其妙變回預設」，而 log 上只有一則逾時的 Information。
+    /// 🔑 回 <c>null</c> 讓呼叫端<b>分得出</b>「沒答案」與「答案是預設值」，這是回預設值物件做不到的。
+    /// 📌 <c>AdditionalRetainerData</c> 是 <c>class</c>（<c>AutoRetainerAPI/Configuration/</c>），
+    /// CallGate 回傳 null 對參考型別是安全的 —— 那條會擲 <c>NullReferenceException</c> 的路
+    /// （<c>CallGateChannel.InvokeFunc</c> 對 null 直接回 null、再 <c>(TRet)result</c>）
+    /// 只發生在<b>不可為 null 的值型別</b>上。
+    /// ⚠️ 本外掛內唯一的消費端 <c>AutoRetainer.cs</c> 的 <c>AddVenture</c> 已一併補判空。
     /// </remarks>
     private static AdditionalRetainerData GetARD(ulong cid, string name)
     {
         return IpcFrameworkGate.Run("GetAdditionalRetainerData",
             () => Utils.GetAdditionalData(cid, name), null,
-            "the caller is given a fresh default settings object instead of this retainer's real ones")
-            ?? new AdditionalRetainerData();
+            "the caller is given null - do NOT write anything back for this retainer, that would overwrite its real settings with defaults");
     }
 
     private static void SetARD(ulong cid, string name, AdditionalRetainerData data)

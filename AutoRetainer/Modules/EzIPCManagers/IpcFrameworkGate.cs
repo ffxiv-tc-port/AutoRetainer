@@ -30,6 +30,16 @@ namespace AutoRetainer.Modules.EzIPCManagers;
 ///
 /// <para>⚠️ 逾時回值一律選 fail-safe 的那一邊，而且每一支端點用的都是它<b>原本就定義過</b>的
 /// 「不可用」值，不是新語意 —— 端點的簽章與回傳語意一個都沒有改變。</para>
+///
+/// <para>🔴🔴 <b>「逾時」只代表「我們不等了」，不代表 <c>body</c> 沒有執行。</b>
+/// 下面用的是 <see cref="Task.WaitAny(Task[], int)"/>：它<b>不會取消</b>那個工作。
+/// <c>RunOnFrameworkThread</c> 已經把 <c>body</c> 排進 framework 執行緒的佇列，
+/// 逾時之後它<b>照樣會在後續某一格跑完</b>，只是沒有人拿它的結果。
+/// ⇒ 有副作用的 <c>body</c>（例如 <c>GetARD</c> 走的 <c>Utils.GetAdditionalData</c>
+/// 會往 <c>C.AdditionalData</c> 插一筆）在逾時之後<b>仍然會發生</b>。
+/// 🔑 這條的實務意義是：<b>逾時回值必須是「沒答案」而不是「一個看起來像答案的值」</b> ——
+/// 呼叫端拿著替代值去寫回，會和稍後才跑完的真實 body 打架。
+/// 📌 這裡只是把既有行為寫明，<b>沒有改變任何行為</b>。</para>
 /// </summary>
 internal static class IpcFrameworkGate
 {
