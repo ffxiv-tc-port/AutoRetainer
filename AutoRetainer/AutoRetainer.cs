@@ -772,9 +772,25 @@ public unsafe class AutoRetainer : IDalamudPlugin
         //PluginLoader.Dispose();
     }
 
+    /// <remarks>
+    /// 🔴 <c>API.GetOfflineCharacterData</c> 會回 <c>null</c>：本外掛自己註冊的 IPC 端點
+    /// <c>GetOCD</c>（<c>Modules/IPC.cs</c>）是 <c>C.OfflineData.FirstOrDefault(x =&gt; x.CID == CID)</c>，
+    /// 查無此 CID 就是 null，而 <c>IpcFrameworkGate</c> 逾時時也刻意回 null（那裡的註解寫明
+    /// 「逾時回 null 不是新語意」）。直接接 <c>.RetainerData</c> 會擲 NullReferenceException。
+    /// ⇒ 改成判空後跳過，行為從擲例外變成不做事。
+    /// ⚠️ <c>GetAdditionalRetainerData</c> 不同形：<c>GetARD</c> 尾端有
+    /// <c>?? new AdditionalRetainerData()</c>，契約上永遠不回 null，所以 <c>adata</c> 不需要判空。
+    /// </remarks>
     private void AddVenture(string name, uint ventureId)
     {
-        if(API.Ready && API.GetOfflineCharacterData(Player.CID).RetainerData.TryGetFirst(x => x.Name == name, out var rdata))
+        if(!API.Ready) return;
+        var ocd = API.GetOfflineCharacterData(Player.CID);
+        if(ocd == null)
+        {
+            LogMissingOfflineCharacterData(nameof(AddVenture));
+            return;
+        }
+        if(ocd.RetainerData.TryGetFirst(x => x.Name == name, out var rdata))
         {
             var adata = API.GetAdditionalRetainerData(Player.CID, rdata.Name);
             if(adata.VenturePlan.List.TryGetFirst(x => x.ID == ventureId, out var v))
@@ -789,15 +805,37 @@ public unsafe class AutoRetainer : IDalamudPlugin
         }
     }
 
+    /// <remarks>同 <see cref="AddVenture"/>：查無離線資料時列舉出空序列，而不是擲 NullReferenceException。</remarks>
     private IEnumerable<string> ListRetainers()
     {
-        if(API.Ready)
+        if(!API.Ready) yield break;
+        var ocd = API.GetOfflineCharacterData(Player.CID);
+        if(ocd == null)
         {
-            foreach(var x in API.GetOfflineCharacterData(Player.CID).RetainerData)
-            {
-                yield return x.Name;
-            }
+            LogMissingOfflineCharacterData(nameof(ListRetainers));
+            yield break;
         }
+        foreach(var x in ocd.RetainerData)
+        {
+            yield return x.Name;
+        }
+    }
+
+    /// <remarks>
+    /// 自帶節流，<b>刻意不用</b> <c>ECommons.Throttlers.EzThrottler</c>：那是整個外掛共用的
+    /// 靜態 <c>Dictionary</c> 而且零同步，從非 framework 執行緒進來會弄壞字典本身。
+    /// 這裡只用一個 <c>long</c> ＋ <c>Interlocked.CompareExchange</c>，多執行緒同時進來也只有一條印得出來。
+    /// 寫 Information 是刻意的：使用者跑得到的等級，出問題時 log 裡看得見。
+    /// </remarks>
+    private static long LastMissingOfflineCharacterDataLogTick;
+
+    private static void LogMissingOfflineCharacterData(string caller)
+    {
+        var now = Environment.TickCount64;
+        var last = System.Threading.Volatile.Read(ref LastMissingOfflineCharacterDataLogTick);
+        if(last != 0 && now - last < 60000) return;
+        if(System.Threading.Interlocked.CompareExchange(ref LastMissingOfflineCharacterDataLogTick, now, last) != last) return;
+        PluginLog.Information($"[AutoRetainer] {caller}：查無目前角色的離線資料（AutoRetainer 還沒替這個角色建立資料，或資料查詢逾時），已跳過這次操作。");
     }
 
     internal HashSet<string> GetSelectedRetainers(ulong cid)
