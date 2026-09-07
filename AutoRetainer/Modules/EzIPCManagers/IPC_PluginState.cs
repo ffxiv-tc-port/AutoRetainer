@@ -184,9 +184,23 @@ public class IPC_PluginState
     public bool IsItemProtected(uint itemId)
     {
         // 逾時回 true＝「當它是受保護的」，也就是別動它 —— fail-safe 的那一邊。
-        return IpcFrameworkGate.Run(nameof(IsItemProtected),
-            () => Data.GetIMSettings().IMProtectList.Contains(itemId), true,
-            "the caller is told the item is protected");
+        return IpcFrameworkGate.Run(nameof(IsItemProtected), () =>
+        {
+            // 🔴 沒登入、或這個角色還沒被記錄過時 Data 是 null，原本會直接把 NRE 擲進呼叫端。
+            //    回 true 與上面的逾時值一致：兩者都是「我答不出來，所以別動這件道具」。
+            //    ⚠️ 不可以回 false —— 那的意思是「這件沒被保護，儘管賣／丟」，對方會照做。
+            var data = Data;
+            if(data == null)
+            {
+                // EzThrottler 在這裡是安全的：這段已經被閘門搬到 framework 執行緒上跑了。
+                if(EzThrottler.Throttle("IPCIsItemProtectedNoCharacterData", 60000))
+                {
+                    PluginLog.Information($"[IsItemProtected] There is no character data to check against (not logged in yet, or this character has never been seen), so item {itemId} cannot be looked up in a protect list. Answering \"protected\" so that callers leave it alone - that is deliberately not the same as the item actually being on the list.");
+                }
+                return true;
+            }
+            return data.GetIMSettings().IMProtectList.Contains(itemId);
+        }, true, "the caller is told the item is protected");
     }
 
     // 取回指令的實作與「哪些格子的指令還在飛」的追蹤都在 RetainerRetrieve 裡。
