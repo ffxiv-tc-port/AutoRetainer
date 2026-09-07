@@ -1,4 +1,5 @@
-﻿using AutoRetainerAPI;
+﻿using AutoRetainer.Modules.EzIPCManagers;
+using AutoRetainerAPI;
 using AutoRetainerAPI.Configuration;
 using ECommons.EzIpcManager;
 using ECommons.Reflection;
@@ -265,10 +266,22 @@ internal static class IPC
         return MultiMode.Enabled;
     }
 
+    /// <remarks>
+    /// 🔴 這支經 <see cref="MultiMode.OnMultiModeEnabled"/> 同步碰到原生層與任務佇列：
+    /// <c>MultiMode.CanHET</c> 走 <c>TaskNeoHET.GetFcOrPrivateEntranceFromMarkers()</c>
+    /// （裡面 <c>AgentHUD.Instance()</c> ＋走 <c>Svc.Objects</c>），成立時再 <c>TaskNeoHET.Enqueue</c>
+    /// 往 <c>P.TaskManager.Tasks</c>（裸 <c>List&lt;T&gt;</c>）塞任務。而 IPC 端點跑在<b>呼叫端的執行緒</b>上。
+    /// ⇒ 經 <see cref="IpcFrameworkGate"/> 搬到 framework 執行緒。
+    /// 📌 這不是新增自動化：觸發者仍然只有「呼叫端明確打了這支端點」，而且已經在 framework 執行緒上
+    /// 呼叫時是就地執行，行為逐字不變。
+    /// </remarks>
     private static void SetMultiModeEnabled(bool s)
     {
-        MultiMode.Enabled = s;
-        MultiMode.OnMultiModeEnabled();
+        IpcFrameworkGate.Run(nameof(SetMultiModeEnabled), () =>
+        {
+            MultiMode.Enabled = s;
+            MultiMode.OnMultiModeEnabled();
+        });
     }
 
     /// <summary>
