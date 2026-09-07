@@ -125,60 +125,105 @@ internal static class IPC
         Log($"Character Postprocess requested from {pluginName}");
     }
 
+    /// <remarks>🔴 回的雖然是複本（<c>ToList</c>），但<b>做出這份複本的過程</b>要走訪活的
+    /// <c>C.OfflineData</c> 與巢狀的 <c>C.Blacklist</c>，而那兩個集合是 framework 執行緒在增刪的。
+    /// 「回複本＝安全」對這支不成立 —— 真正要問的是「複製這個動作在哪個執行緒上做」。</remarks>
     private static List<ulong> GetRegisteredCIDs()
     {
-        return C.OfflineData.Where(x => !C.Blacklist.Any(z => z.CID == x.CID) && !x.Name.EqualsAny("Unknown", "")).Select(x => x.CID).ToList();
+        return IpcFrameworkGate.Run("GetRegisteredCIDs",
+            () => C.OfflineData.Where(x => !C.Blacklist.Any(z => z.CID == x.CID) && !x.Name.EqualsAny("Unknown", "")).Select(x => x.CID).ToList(),
+            new List<ulong>(),
+            "the caller is told no character is registered (an empty list)");
     }
 
+    /// <remarks>
+    /// 🔴 回的是<b>本尊</b>，這是刻意的：<c>AutoRetainerAPI</c> 的既有契約就是
+    /// 「Get 出來改欄位、再 <c>WriteOfflineCharacterData</c> 寫回去」，換成複本會讓那條路靜默失效。
+    /// 閘門在這裡負責的是另一件事：<c>FirstOrDefault</c> 要走訪活的 <c>C.OfflineData</c>。
+    /// 📌 逾時回 <c>null</c> <b>不是新語意</b> —— 查無此 CID 時本來就回 null（<c>FirstOrDefault</c>），
+    /// 消費端本來就得處理。
+    /// </remarks>
     private static OfflineCharacterData GetOCD(ulong CID)
     {
-        return C.OfflineData.FirstOrDefault(x => x.CID == CID);
+        return IpcFrameworkGate.Run("GetOfflineCharacterData",
+            () => C.OfflineData.FirstOrDefault(x => x.CID == CID), null,
+            "the caller is told there is no data for that character (null), the same answer as an unknown CID");
     }
 
     private static void SetOCD(OfflineCharacterData OCD)
     {
-        var index = C.OfflineData.IndexOf(x => x.CID == OCD.CID);
-        if(index != -1)
+        IpcFrameworkGate.Run("WriteOfflineCharacterData", () =>
         {
-            //C.OfflineData[index] = OCD;
-            var data = C.OfflineData[index];
-            foreach(var field in OCD.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
+            var index = C.OfflineData.IndexOf(x => x.CID == OCD.CID);
+            if(index != -1)
             {
-                if(data.GetFoP(field.Name) != null)
+                //C.OfflineData[index] = OCD;
+                var data = C.OfflineData[index];
+                foreach(var field in OCD.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
                 {
-                    data.SetFoP(field.Name, field.GetValue(OCD));
-                    PluginLog.Verbose($"Setting {field.Name} to {field.GetValue(data)}");
+                    if(data.GetFoP(field.Name) != null)
+                    {
+                        data.SetFoP(field.Name, field.GetValue(OCD));
+                        PluginLog.Verbose($"Setting {field.Name} to {field.GetValue(data)}");
+                    }
                 }
             }
-        }
-        else
-        {
-            C.OfflineData.Add(OCD);
-        }
+            else
+            {
+                C.OfflineData.Add(OCD);
+            }
+        });
     }
 
+    /// <remarks>
+    /// 🔴 回的是<b>本尊</b>（同 <see cref="GetOCD"/> 的理由：Get 出來改欄位再
+    /// <c>WriteAdditionalRetainerData</c> 寫回去是既有契約）。
+    /// 🔴 而且這支名字叫 Get 卻<b>會寫入</b>：<c>Utils.GetAdditionalData</c> 走
+    /// <c>GetAdditionalDataKey(create: true)</c>，鍵不存在時會往 <c>C.AdditionalData</c>
+    /// 這個裸 <c>Dictionary</c> 插一筆 —— 而 IPC 端點跑在呼叫端的執行緒上。閘門修的就是這個。
+    /// ⚠️ 逾時<b>不能</b>回 null：這支在今天是「永遠不回 null」，
+    /// 消費端（本外掛 <c>AutoRetainer.cs</c> 的 <c>AddVenture</c>、SomethingNeedDoing 的
+    /// <c>AdditionalRetainerDataWrapper</c>）都直接解參用，回 null 會把 NRE 擲進對方的碼裡。
+    /// 改回一份全新的預設值物件 —— 那正是這支對未知鍵本來就會產生的東西。
+    /// 📌 預設值物件<b>只在逾時那條路上</b>才建構：它的 <c>CreationFrame</c> 欄位會讀
+    /// <c>UiBuilder.FrameCount</c>，當成參數傳進去會變成每次呼叫都在呼叫端的執行緒上讀一次。
+    /// </remarks>
     private static AdditionalRetainerData GetARD(ulong cid, string name)
     {
-        return Utils.GetAdditionalData(cid, name);
+        return IpcFrameworkGate.Run("GetAdditionalRetainerData",
+            () => Utils.GetAdditionalData(cid, name), null,
+            "the caller is given a fresh default settings object instead of this retainer's real ones")
+            ?? new AdditionalRetainerData();
     }
 
     private static void SetARD(ulong cid, string name, AdditionalRetainerData data)
     {
-        var x = C.AdditionalData[Utils.GetAdditionalDataKey(cid, name)];
-        foreach(var field in data.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
+        IpcFrameworkGate.Run("WriteAdditionalRetainerData", () =>
         {
-            if(x.GetFoP(field.Name) != null)
+            var x = C.AdditionalData[Utils.GetAdditionalDataKey(cid, name)];
+            foreach(var field in data.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
             {
-                x.SetFoP(field.Name, field.GetValue(data));
-                PluginLog.Verbose($"Setting {field.Name} to {field.GetValue(data)}");
+                if(x.GetFoP(field.Name) != null)
+                {
+                    x.SetFoP(field.Name, field.GetValue(data));
+                    PluginLog.Verbose($"Setting {field.Name} to {field.GetValue(data)}");
+                }
             }
-        }
+        });
     }
 
     private static void SetVenture(uint VentureID)
     {
-        SchedulerMain.VentureOverride = VentureID;
-        DebugLog($"Received venture override to {VentureID} / {VentureUtils.GetVentureName(VentureID)} via IPC");
+        // 🔴 這裡真正要搬的不是那個 volatile 指派，是 DebugLog 那行的「引數」：
+        //    內插字串一定會先求值（DebugLog 收的是 string，不是內插處理常式），
+        //    所以 VentureUtils.GetVentureName 的 Lumina 查表「每次都會」在呼叫端的執行緒上跑。
+        //    ⚠️ 「改成只在 Debug 開著時才組字串」在這裡沒有用：使用者的 LogLevel 是 1（Debug 收得到），
+        //    那條路照樣會走 —— 所以整支進閘門才是真的修掉，而且 diff 更小。
+        IpcFrameworkGate.Run("SetVenture", () =>
+        {
+            SchedulerMain.VentureOverride = VentureID;
+            DebugLog($"Received venture override to {VentureID} / {VentureUtils.GetVentureName(VentureID)} via IPC");
+        });
     }
 
     private static bool GetSuppressed()
