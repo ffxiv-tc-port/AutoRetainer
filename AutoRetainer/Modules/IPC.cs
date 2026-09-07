@@ -3,6 +3,7 @@ using AutoRetainerAPI;
 using AutoRetainerAPI.Configuration;
 using ECommons.EzIpcManager;
 using ECommons.Reflection;
+using System.Collections.Immutable;
 using System.Reflection;
 
 namespace AutoRetainer.Modules;
@@ -107,21 +108,30 @@ internal static class IPC
 
     private static void RequestRetainerPostprocess(string pluginName)
     {
-        if(SchedulerMain.RetainerPostprocess.Contains(pluginName))
+        // 🔴 原本是「先 Contains 判斷、再把 Add 的結果指派回去」兩步，而 IPC 端點跑在呼叫端的
+        //    執行緒上 ⇒ 兩個外掛同時登記時，後寫的那份是以「它自己讀到的那份清單」為基底算出來的，
+        //    會把先寫的那筆整個蓋掉。失敗形式是「不會擲例外、不會壞資料」，而是有人的登記靜默消失，
+        //    之後永遠等不到自己的後處理輪次 —— 正是最難歸因的那一種。
+        //    改用 CAS 迴圈，把「判斷」與「加入」變成一個原子動作；不需要鎖。
+        //    📌 觀察行為逐字不變：重複登記照樣擲同一個例外，而且擲之前一樣沒有寫入
+        //       （轉換函式對重複的情況回同一個實例 ⇒ Update 回 false ⇒ 完全沒有寫入發生）。
+        //    ⚠️ 轉換函式在 CAS 重試時會被呼叫多次，所以它必須是純函式 —— 這裡是。
+        if(!ImmutableInterlocked.Update(ref SchedulerMain.RetainerPostprocess,
+            (list, plugin) => list.Contains(plugin) ? list : list.Add(plugin), pluginName))
         {
             throw new Exception($"Retainer Postprocess request from {pluginName} already exist");
         }
-        SchedulerMain.RetainerPostprocess = SchedulerMain.RetainerPostprocess.Add(pluginName);
         Log($"Retainer Postprocess requested from {pluginName}");
     }
 
+    /// <remarks>理由與原子性說明同 <see cref="RequestRetainerPostprocess"/>。</remarks>
     private static void RequestCharacterPostprocess(string pluginName)
     {
-        if(SchedulerMain.CharacterPostprocess.Contains(pluginName))
+        if(!ImmutableInterlocked.Update(ref SchedulerMain.CharacterPostprocess,
+            (list, plugin) => list.Contains(plugin) ? list : list.Add(plugin), pluginName))
         {
             throw new Exception($"Character Postprocess request from {pluginName} already exist");
         }
-        SchedulerMain.CharacterPostprocess = SchedulerMain.CharacterPostprocess.Add(pluginName);
         Log($"Character Postprocess requested from {pluginName}");
     }
 
