@@ -1076,7 +1076,10 @@
   "Sampled at": "取樣時間",
   "Daily and weekly allowances": "每日／每週限額",
   "Show allowance columns in character list": "在角色列表顯示限額欄",
-  "Adds three columns to every character row: L = levequest allowances, D = custom delivery allowances left this week, T = limited tomestones acquired this week. A grey question mark means AutoRetainer has not managed to read that value on that character yet - it is filled in automatically shortly after logging in. Hover a column for the time it was sampled.": "在每個角色列右側加上三欄：L＝理符任務剩餘受理限額，D＝籌備委託品本週剩餘次數，T＝本週已取得的限定亞拉戈神典石。灰色的問號代表 AutoRetainer 還沒能在那個角色上讀到該數值——登入後不久會自動補上，不需要手動操作。把游標移到欄位上可以看到取樣時間。",
   "Character list: levequest allowance warning": "角色列表：理符受理限額警告值",
-  "Character list: weekly tomestone warning margin": "角色列表：本週神典石距離上限的警告值"
+  "Character list: weekly tomestone warning margin": "角色列表：本週神典石距離上限的警告值",
+  "Grand Company seals": "大國防聯軍軍票",
+  "This character has not joined a Grand Company.": "這個角色還沒有加入大國防聯軍。",
+  "Character list: Grand Company seal warning margin": "角色列表：軍票距離上限的警告值",
+  "Adds four columns to every character row: S = Grand Company seals, L = levequest allowances, D = custom delivery allowances left this week, T = limited tomestones acquired this week. A grey question mark means AutoRetainer has not managed to read that value on that character yet - it is filled in automatically shortly after logging in. A grey dash on the seal column means the character has not joined a Grand Company. Hover a column for the time it was sampled.": "在每個角色列右側加上四欄：S＝大國防聯軍軍票，L＝理符任務剩餘受理限額，D＝籌備委託品本週剩餘次數，T＝本週已取得的限定亞拉戈神典石。灰色的問號代表 AutoRetainer 還沒能在那個角色上讀到該數值——登入後不久會自動補上，不需要手動操作。軍票欄顯示灰色的減號代表這個角色還沒有加入大國防聯軍。把游標移到欄位上可以看到取樣時間。"
 }

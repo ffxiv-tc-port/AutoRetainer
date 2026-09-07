@@ -1,4 +1,5 @@
 ﻿using AutoRetainer.Internal;
+using AutoRetainer.Modules.GcHandin;
 using AutoRetainer.Services;
 using AutoRetainerAPI.Configuration;
 using Dalamud.Game.ClientState.Conditions;
@@ -226,11 +227,15 @@ internal static unsafe class OfflineDataManager
         data.InventorySpace = (uint)Utils.GetInventoryFreeSlotCount();
         data.Ceruleum = InventoryManager.Instance()->GetInventoryItemCount(AutoBuyFuelManager.FuelItemId);
         data.RepairKits = InventoryManager.Instance()->GetInventoryItemCount(10373);
+        // 僱員的寶箱（32161）。這個欄位同樣是從加進型別以來就沒人寫過，補上：
+        // 來源與上面三個完全同形（同一個容器、同一個閘門），不需要額外的取樣時間戳。
+        data.VentureCoffers = (uint)InventoryManager.Instance()->GetInventoryItemCount(VentureCofferItemId);
     }
 
     private static bool LoggedLeveFailure;
     private static bool LoggedCustomDeliveryFailure;
     private static bool LoggedTomestoneFailure;
+    private static bool LoggedGCSealsFailure;
 
     /// <summary>理符受理限額的遊戲內上限。超過這個數就代表讀到的不是這個欄位。</summary>
     private const int MaxLevequestAllowances = 100;
@@ -238,6 +243,10 @@ internal static unsafe class OfflineDataManager
     /// <c>SatisfactionSupplyManager.GetRemainingAllowances()</c> 內部寫死的 12 同源，
     /// 這裡只拿來當合理範圍檢查，不拿來算剩餘次數。</summary>
     private const int MaxCustomDeliveryAllowances = 12;
+    /// <summary>僱員的寶箱。與 <see cref="AutoRetainer.Scheduler.Tasks.TaskOpenAllCoffers"/> 用的是同一個道具 ID。</summary>
+    private const uint VentureCofferItemId = 32161;
+    /// <summary>大國防聯軍的最大 id（GrandCompany 表：0 平民／1 黑渦團／2 雙蛇黨／3 不滅隊）。</summary>
+    private const byte MaxGrandCompanyId = 3;
 
     /// <remarks>
     /// 每日／每週配額（理符受理限額、籌備委託品、限定神典石）的登入快照。刻意與
@@ -316,6 +325,41 @@ internal static unsafe class OfflineDataManager
         catch(Exception e)
         {
             LogAllowanceFailureOnce(ref LoggedTomestoneFailure, "weekly tomestones", e);
+        }
+
+        // 軍票。🔴 這一組不需要自己去碰原生層：AutoGCHandin 早就有 GetGC／GetSeals／GetMaxSeals／
+        // GetRank 四個現成的取得器（軍票繳交循環一直在用），只是從來沒有人把結果寫進離線快照。
+        // 📌 相關的兩個 FFXIVClientStructs 簽章（GetCompanySeals／GetMaxCompanySeals）2026-09-08 已用
+        //    tools/sigscan/verify_cs_sigs.py 對台服 7.20 執行檔驗過，皆在 .text 唯一命中。
+        try
+        {
+            var grandCompany = AutoGCHandin.GetGC();
+            if(grandCompany == 0)
+            {
+                // 平民（GrandCompany 表 row 0）。「沒有軍票這回事」與「還沒讀到」是兩件事，
+                // 所以這裡照樣蓋時間戳並把上限寫成 0，讓顯示端畫得出第三種狀態。
+                data.GCSeals = 0;
+                data.GCSealsMax = 0;
+                data.GCRank = 0;
+                data.GCSealsUpdatedAt = now;
+            }
+            else if(grandCompany <= MaxGrandCompanyId)
+            {
+                var maxSeals = AutoGCHandin.GetMaxSeals();
+                // 已加入大國防聯軍卻讀到上限 0 ＝ 原生狀態還沒就緒。寧可整組不寫，
+                // 也不要在列上顯示一個分母是 0 的比值（與同檔上面「讀不到就不覆寫」同一個策略）。
+                if(maxSeals > 0)
+                {
+                    data.GCSeals = AutoGCHandin.GetSeals();
+                    data.GCSealsMax = (int)maxSeals;
+                    data.GCRank = AutoGCHandin.GetRank();
+                    data.GCSealsUpdatedAt = now;
+                }
+            }
+        }
+        catch(Exception e)
+        {
+            LogAllowanceFailureOnce(ref LoggedGCSealsFailure, "grand company seals", e);
         }
     }
 

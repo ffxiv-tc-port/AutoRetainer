@@ -175,6 +175,20 @@ internal static class UIUtils
     public static void AddAllowanceTexts(List<(bool Warning, string Text, bool Unknown, string Tooltip)> texts, OfflineCharacterData data)
     {
         if(!C.UIShowAllowances) return;
+        // 軍票放在最前面（最左）：使用者實機一天撞到 76 次「軍票數量已達到上限」，
+        // 這一欄是這組裡最常掃視的。三種狀態都要分得開：
+        //   時間戳 null      -> 灰色 ?  「還沒讀到過」
+        //   上限 0           -> 灰色 -  「這個角色是平民，沒有大國防聯軍」
+        //   其餘             -> n/max，接近上限轉橘
+        var sealsKnown = data.GCSealsUpdatedAt != null && data.GCSealsMax >= 0;
+        var sealsApplicable = sealsKnown && data.GCSealsMax > 0;
+        texts.Add((
+            sealsApplicable && data.GCSeals >= data.GCSealsMax - C.UIWarningGCSealsMargin,
+            sealsApplicable ? $"S: {data.GCSeals}/{data.GCSealsMax}" : sealsKnown ? "S: -" : "S: ?",
+            !sealsApplicable,
+            sealsKnown && !sealsApplicable
+                ? $"{Loc.T("Grand Company seals")}\n{Loc.T("This character has not joined a Grand Company.")}"
+                : BuildAllowanceTooltip(Loc.T("Grand Company seals"), data.GCSealsUpdatedAt, sealsApplicable)));
         texts.Add(BuildAllowance("L", data.LevequestAllowances, data.LevequestAllowancesUpdatedAt,
             data.LevequestAllowances >= C.UIWarningLeveAllowancesNum,
             Loc.T("Levequest allowances remaining (caps at 100)")));

@@ -199,6 +199,9 @@ internal unsafe class Config
     public int UIWarningLeveAllowancesNum = 90;
     /// <summary>本週已取得的限定神典石距離每週上限少於這個數就變色。</summary>
     public int UIWarningTomestoneMargin = 50;
+    /// <summary>軍票距離上限少於這個數就變色。使用者實機一天會撞到 76 次「軍票數量已達到上限」，
+    /// 預設留 1000 張的緩衝。</summary>
+    public int UIWarningGCSealsMargin = 1000;
     public int TargetMSPTIdle = 0;
     public int TargetMSPTRunning = 0;
     public bool NoFPSLockWhenActive = true;
