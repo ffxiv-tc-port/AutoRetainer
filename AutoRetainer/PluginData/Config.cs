@@ -188,6 +188,17 @@ internal unsafe class Config
     public int UIWarningDepTanksNum = 300;
     public int UIWarningDepRepairNum = 100;
     public int UIWarningDepSlotNum = 20;
+
+    /// <summary>
+    /// 角色列上是否顯示每日／每週配額欄（理符受理限額 L／籌備委託品 D／限定神典石 T）。
+    /// 預設開：這整個功能就是「快滿了要記得花掉」的提示，關著等於沒做。
+    /// 從沒讀到過的角色畫成灰色的 <c>?</c>，不會畫成 0。
+    /// </summary>
+    public bool UIShowAllowances = true;
+    /// <summary>理符受理限額剩餘張數達到這個值就變色。上限是 100，滿了之後再生出來的就浪費掉了。</summary>
+    public int UIWarningLeveAllowancesNum = 90;
+    /// <summary>本週已取得的限定神典石距離每週上限少於這個數就變色。</summary>
+    public int UIWarningTomestoneMargin = 50;
     public int TargetMSPTIdle = 0;
     public int TargetMSPTRunning = 0;
     public bool NoFPSLockWhenActive = true;

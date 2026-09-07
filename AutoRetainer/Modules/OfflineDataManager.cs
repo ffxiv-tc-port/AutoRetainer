@@ -201,6 +201,7 @@ internal static unsafe class OfflineDataManager
             }
         }
         data.WriteOfflineInventoryData();
+        data.WriteOfflineAllowanceData();
         C.OfflineData.RemoveAll(x => x.World == "" && x.Name == "Unknown");
         if(saveConfig) EzConfig.Save();
     }
@@ -227,6 +228,129 @@ internal static unsafe class OfflineDataManager
         data.RepairKits = InventoryManager.Instance()->GetInventoryItemCount(10373);
     }
 
+    private static bool LoggedLeveFailure;
+    private static bool LoggedCustomDeliveryFailure;
+    private static bool LoggedTomestoneFailure;
+
+    /// <summary>理符受理限額的遊戲內上限。超過這個數就代表讀到的不是這個欄位。</summary>
+    private const int MaxLevequestAllowances = 100;
+    /// <summary>籌備委託品的每週滿額次數。與 FFXIVClientStructs 的
+    /// <c>SatisfactionSupplyManager.GetRemainingAllowances()</c> 內部寫死的 12 同源，
+    /// 這裡只拿來當合理範圍檢查，不拿來算剩餘次數。</summary>
+    private const int MaxCustomDeliveryAllowances = 12;
+
+    /// <remarks>
+    /// 每日／每週配額（理符受理限額、籌備委託品、限定神典石）的登入快照。刻意與
+    /// <see cref="WriteOfflineInventoryData"/> 在同一個時點呼叫，但保守策略要再走一步：
+    /// 那邊可以用「讀不讀得到背包」當閘門，這邊三個值的 <b>0 都是合法值</b>（額度用完就是 0），
+    /// 所以不能靠值判斷有沒有讀到，只能靠結構就緒與否——讀不到就整組不寫，
+    /// 維持上一次的值與時間戳（過期的真值好過寫死的假 0）。
+    ///
+    /// 🔴 登入後太早讀會拿到零：角色資料是登入後才由伺服器補齊的，而這個函式的呼叫時機
+    /// （登入、ConditionChange、每秒週期）正好蓋在那個窗口上。這裡拿
+    /// <see cref="Utils.IsInventoryStateReadable"/> 當就緒判準——它驗的是四個背包容器已經配置
+    /// 且有內容，那份資料與配額走同一批登入封包，所以「背包可讀」是現成的代理指標。
+    /// ⚠️ 那是<b>代理</b>不是保證，離線證不了兩者一定同時到齊。假設不成立的後果是「某次登入
+    /// 寫進一個偏低的值」而不是崩潰——下一次讀到就蓋回去，而且時間戳會誠實反映它是何時取的。
+    ///
+    /// 🔴 三組來源都是 FFXIVClientStructs 的簽章式函式，簽章解不出來時 CS 擲的是
+    /// InvalidOperationException（受管理例外，這裡攔得到；不是 AccessViolation）。
+    /// 所以每一組各自 try/catch：一組失效不該讓另外兩組也讀不到。
+    /// 📌 2026-09-08 用 tools/sigscan/verify_cs_sigs.py 對台服 7.20 的 ffxiv_dx11.exe 離線驗過，
+    /// 五個相關簽章（QuestManager.Instance、SatisfactionSupplyManager.Instance 與
+    /// GetUsedAllowances、GetLimitedTomestoneCount、GetSpecialItemId）全部在 .text 唯一命中。
+    /// </remarks>
+    internal static void WriteOfflineAllowanceData(this OfflineCharacterData data)
+    {
+        if(!Svc.PlayerState.IsLoaded) return;
+        if(!Utils.IsInventoryStateReadable()) return;
+        var now = DateTime.Now;
+
+        try
+        {
+            var questManager = QuestManager.Instance();
+            if(questManager != null && questManager->NumLeveAllowances <= MaxLevequestAllowances)
+            {
+                data.LevequestAllowances = questManager->NumLeveAllowances;
+                data.LevequestAllowancesUpdatedAt = now;
+            }
+        }
+        catch(Exception e)
+        {
+            LogAllowanceFailureOnce(ref LoggedLeveFailure, "levequest allowances", e);
+        }
+
+        try
+        {
+            var satisfaction = SatisfactionSupplyManager.Instance();
+            if(satisfaction != null)
+            {
+                var remaining = satisfaction->GetRemainingAllowances();
+                if(remaining >= 0 && remaining <= MaxCustomDeliveryAllowances)
+                {
+                    data.CustomDeliveryAllowances = remaining;
+                    data.CustomDeliveryAllowancesUpdatedAt = now;
+                }
+            }
+        }
+        catch(Exception e)
+        {
+            LogAllowanceFailureOnce(ref LoggedCustomDeliveryFailure, "custom delivery allowances", e);
+        }
+
+        try
+        {
+            var cap = GetLimitedTomestoneWeeklyCap();
+            var inventoryManager = InventoryManager.Instance();
+            if(cap > 0 && inventoryManager != null)
+            {
+                var count = inventoryManager->GetWeeklyAcquiredTomestoneCount();
+                if(count >= 0 && count <= cap)
+                {
+                    data.WeeklyTomestoneCount = count;
+                    data.WeeklyTomestoneCap = cap;
+                    data.WeeklyTomestoneUpdatedAt = now;
+                }
+            }
+        }
+        catch(Exception e)
+        {
+            LogAllowanceFailureOnce(ref LoggedTomestoneFailure, "weekly tomestones", e);
+        }
+    }
+
+    private static int LimitedTomestoneWeeklyCap;
+
+    /// <remarks>
+    /// 🔴 上限不寫死：台服 7.20 目前的限定神典石是「亞拉戈數理神典石」、每週 450，
+    /// 但這個數字每個大版本都會換一次，寫死的下場是靜默沿用上一個版本的值。
+    /// <c>Tomestones</c> 資料表裡只有「限定神典石」那一列的 <c>WeeklyLimit</c> 不是 0，
+    /// 資料表自己就說得出答案，不需要外部知識。
+    /// ⚠️ 版本交接期理論上可能同時有兩列不是 0，取 RowId 最大的那一列（＝比較新的那一階）。
+    /// 📌 命中之後才快取：資料表在外掛載入初期可能還沒準備好，把 0 latch 起來會讓這個功能
+    /// 整個 session 都不動——這與同檔上面「讀不到就不覆寫」是同一個保守方向。
+    /// </remarks>
+    private static int GetLimitedTomestoneWeeklyCap()
+    {
+        if(LimitedTomestoneWeeklyCap > 0) return LimitedTomestoneWeeklyCap;
+        var sheet = Svc.Data.GetExcelSheet<Tomestones>();
+        if(sheet == null) return 0;
+        foreach(var x in sheet)
+        {
+            if(x.WeeklyLimit > 0) LimitedTomestoneWeeklyCap = x.WeeklyLimit;
+        }
+        return LimitedTomestoneWeeklyCap;
+    }
+
+    /// <remarks>同一個錯誤一次 session 只記一次：這條路徑每秒都會走到，簽章真的失效時
+    /// 無節流的 log 會把實機記錄洗掉。用 <c>Svc.Log.Information</c> 是因為這是要使用者回報的
+    /// 診斷等級；不用 <c>DuoLog</c>——它每一級都會無條件印進聊天視窗。</remarks>
+    private static void LogAllowanceFailureOnce(ref bool latch, string what, Exception e)
+    {
+        if(latch) return;
+        latch = true;
+        Svc.Log.Information($"[AutoRetainer] Failed to read {what}; this is logged only once per session: {e.Message}");
+    }
     internal static OfflineRetainerData GetData(SeString name, ulong? CID = null)
     {
         return GetData(name.ToString(), CID);

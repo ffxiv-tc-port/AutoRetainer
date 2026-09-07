@@ -33,6 +33,11 @@ public class MultiModeCommon : NeoUIEntry
         .InputInt(100f, Loc.T("Deployables list: remaining fuel warning"), () => ref C.UIWarningDepTanksNum.ValidateRange(20, 1000))
         .InputInt(100f, Loc.T("Deployables list: remaining repair kit warning"), () => ref C.UIWarningDepRepairNum.ValidateRange(5, 1000))
 
+        .Section(Loc.T("Daily and weekly allowances"))
+        .Checkbox(Loc.T("Show allowance columns in character list"), () => ref C.UIShowAllowances, Loc.T("Adds three columns to every character row: L = levequest allowances, D = custom delivery allowances left this week, T = limited tomestones acquired this week. A grey question mark means AutoRetainer has not managed to read that value on that character yet - it is filled in automatically shortly after logging in. Hover a column for the time it was sampled."))
+        .InputInt(100f, Loc.T("Character list: levequest allowance warning"), () => ref C.UIWarningLeveAllowancesNum.ValidateRange(1, 100))
+        .InputInt(100f, Loc.T("Character list: weekly tomestone warning margin"), () => ref C.UIWarningTomestoneMargin.ValidateRange(0, 2000))
+
         .Section(Loc.T("Teleportation"))
         .Widget(() => ImGuiEx.Text(Loc.T("Lifestream plugin is required")))
         .Widget(() => ImGuiEx.PluginAvailabilityIndicator([new("Lifestream", new Version("2.2.1.1"))]))

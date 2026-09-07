@@ -158,10 +158,13 @@ internal static unsafe class MultiModeUI
                 }
             }
             ImGui.SameLine(0, 0);
-            List<(bool, string)> texts = [(data.Ventures < C.UIWarningRetVentureNum, $"V: {data.Ventures}"), (data.InventorySpace < C.UIWarningRetSlotNum, $"I: {data.InventorySpace}")];
+            List<(bool Warning, string Text, bool Unknown, string Tooltip)> texts = [
+                (data.Ventures < C.UIWarningRetVentureNum, $"V: {data.Ventures}", false, null),
+                (data.InventorySpace < C.UIWarningRetSlotNum, $"I: {data.InventorySpace}", false, null)];
+            UIUtils.AddAllowanceTexts(texts, data);
             if(showCharaCnt)
             {
-                texts.Insert(0, (false, $"C: {MultiMode.CharaCnt.GetOrDefault(data.CID)}"));
+                texts.Insert(0, (false, $"C: {MultiMode.CharaCnt.GetOrDefault(data.CID)}", false, null));
             }
             overlayTexts.Add((new Vector2(ImGui.GetContentRegionMax().X - ImGui.GetStyle().FramePadding.X, rCurPos.Y + ImGui.GetStyle().FramePadding.Y), [.. texts]));
             ImGui.NewLine();

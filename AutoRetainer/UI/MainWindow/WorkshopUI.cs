@@ -189,7 +189,10 @@ internal static unsafe class WorkshopUI
             }
 
             ImGui.SameLine(0, 0);
-            List<(bool, string)> texts = [(data.RepairKits < C.UIWarningDepRepairNum, $"R: {data.RepairKits}"), (data.Ceruleum < C.UIWarningDepTanksNum, $"C: {data.Ceruleum}"), (data.InventorySpace < C.UIWarningDepSlotNum, $"I: {data.InventorySpace}")];
+            List<(bool Warning, string Text, bool Unknown, string Tooltip)> texts = [
+                (data.RepairKits < C.UIWarningDepRepairNum, $"R: {data.RepairKits}", false, null),
+                (data.Ceruleum < C.UIWarningDepTanksNum, $"C: {data.Ceruleum}", false, null),
+                (data.InventorySpace < C.UIWarningDepSlotNum, $"I: {data.InventorySpace}", false, null)];
             overlayTexts.Add((new Vector2(ImGui.GetContentRegionMax().X - ImGui.GetStyle().FramePadding.X, rCurPos.Y + ImGui.GetStyle().FramePadding.Y), [.. texts]));
             ImGui.NewLine();
 

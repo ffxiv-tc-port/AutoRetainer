@@ -1,4 +1,4 @@
-﻿global using OverlayTextData = (System.Numerics.Vector2 Curpos, (bool Warning, string Text)[] Texts);
+﻿global using OverlayTextData = (System.Numerics.Vector2 Curpos, (bool Warning, string Text, bool Unknown, string Tooltip)[] Texts);
 using AutoRetainerAPI.Configuration;
 using AutoRetainer.Services.Lifestream;
 using ECommons.GameHelpers;
@@ -153,11 +153,55 @@ internal static class UIUtils
                     var width = maxSizes[i..].Sum() + (maxSizes[i..].Length - 1) * ImGui.CalcTextSize("      ").X;
                     ImGui.SetCursorPos(new(x.Curpos.X - width, x.Curpos.Y));
                     if(statusTextWidth < width) statusTextWidth = width;
-                    ImGuiEx.Text(x.Texts[i].Warning ? ImGuiColors.DalamudOrange : null, x.Texts[i].Text);
+                    // 三種狀態要分得開：灰＝這個角色從來沒讀到過那個值（不是 0），
+                    // 橘＝該處理了，預設色＝正常。灰色優先於橘色，因為「不知道」不該長得像警告。
+                    var col = x.Texts[i].Unknown ? ImGuiColors.DalamudGrey3
+                        : x.Texts[i].Warning ? ImGuiColors.DalamudOrange : (Vector4?)null;
+                    ImGuiEx.Text(col, x.Texts[i].Text);
+                    // 取樣時間這類「起疑才查」的長文字放 tooltip，不佔列上版面。
+                    if(!x.Texts[i].Tooltip.IsNullOrEmpty()) ImGuiEx.Tooltip(x.Texts[i].Tooltip);
                 }
                 ImGui.SetCursorPos(cur);
             }
         }
+    }
+
+    /// <remarks>
+    /// 把每日／每週配額三欄（理符受理限額 L／籌備委託品 D／限定神典石 T）加到角色列右側的狀態欄。
+    /// 🔴 三態顯示：從沒讀到過一律畫灰色的 <c>?</c>，<b>絕不畫成 0</b>——理符受理限額的 0 與籌備委託品的 0
+    /// 意義相反（一個代表沒得用、一個代表都用完了），把「不知道」畫成 0 會讓使用者直接跳過
+    /// 該做的事。取樣時間屬於「起疑才查」，放 tooltip。
+    /// </remarks>
+    public static void AddAllowanceTexts(List<(bool Warning, string Text, bool Unknown, string Tooltip)> texts, OfflineCharacterData data)
+    {
+        if(!C.UIShowAllowances) return;
+        texts.Add(BuildAllowance("L", data.LevequestAllowances, data.LevequestAllowancesUpdatedAt,
+            data.LevequestAllowances >= C.UIWarningLeveAllowancesNum,
+            Loc.T("Levequest allowances remaining (caps at 100)")));
+        texts.Add(BuildAllowance("D", data.CustomDeliveryAllowances, data.CustomDeliveryAllowancesUpdatedAt,
+            data.CustomDeliveryAllowances == 0,
+            Loc.T("Custom delivery allowances left this week")));
+        var tomeKnown = data.WeeklyTomestoneUpdatedAt != null && data.WeeklyTomestoneCount >= 0 && data.WeeklyTomestoneCap > 0;
+        texts.Add((
+            tomeKnown && data.WeeklyTomestoneCount >= data.WeeklyTomestoneCap - C.UIWarningTomestoneMargin,
+            tomeKnown ? $"T: {data.WeeklyTomestoneCount}/{data.WeeklyTomestoneCap}" : "T: ?",
+            !tomeKnown,
+            BuildAllowanceTooltip(Loc.T("Limited tomestones acquired this week"), data.WeeklyTomestoneUpdatedAt, tomeKnown)));
+    }
+
+    private static (bool Warning, string Text, bool Unknown, string Tooltip) BuildAllowance(string prefix, int value, DateTime? sampledAt, bool warningWhenKnown, string label)
+    {
+        // 「讀到過」要值與時間戳兩邊都成立：只看值會把 -1 以外的任何殘留當成真值，
+        // 只看時間戳則在欄位語意日後改變時失準。
+        var known = sampledAt != null && value >= 0;
+        return (known && warningWhenKnown, $"{prefix}: {(known ? value.ToString() : "?")}", !known,
+            BuildAllowanceTooltip(label, sampledAt, known));
+    }
+
+    private static string BuildAllowanceTooltip(string label, DateTime? sampledAt, bool known)
+    {
+        if(!known) return $"{label}\n{Loc.T("Never read on this character yet. AutoRetainer fills this in automatically shortly after logging in.")}";
+        return $"{label}\n{Loc.T("Sampled at")}: {sampledAt.Value:yyyy-MM-dd HH:mm}";
     }
 
     public static float CollapsingHeaderSpacingsWidth => ImGui.GetStyle().FramePadding.X * 2f + ImGui.GetStyle().ItemSpacing.X * 2 + ImGui.CalcTextSize("▲...").X;
