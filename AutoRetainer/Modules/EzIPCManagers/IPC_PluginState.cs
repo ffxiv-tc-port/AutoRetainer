@@ -11,6 +11,15 @@ using ECommons.Throttlers;
 using FFXIVClientStructs.FFXIV.Client.Game;
 
 namespace AutoRetainer.Modules.EzIPCManagers;
+
+/// <summary>
+/// 🔴 這裡的每一支端點都是<b>在呼叫端的執行緒上</b>執行的，不是在 framework 執行緒上。
+/// 凡是會同步碰到原生記憶體、addon、<c>P.TaskManager.Tasks</c>（裸 <c>List&lt;T&gt;</c>）或
+/// <see cref="AutoRetainer.Internal.InventoryManagement.RetainerRetrieve"/> 追蹤狀態的，
+/// 一律經 <see cref="IpcFrameworkGate"/> 搬到 framework 執行緒上執行 ——
+/// <b>已經在 framework 執行緒上呼叫時是就地執行，行為逐字不變</b>。
+/// 純粹讀寫設定（<c>C.*</c>）與常數的端點不必經過閘門，維持原樣。
+/// </summary>
 public class IPC_PluginState
 {
     public IPC_PluginState()
@@ -21,7 +30,9 @@ public class IPC_PluginState
     [EzIPC]
     public bool IsBusy()
     {
-        return Utils.IsBusy;
+        // 逾時回 true＝「就當我在忙」，也就是叫呼叫端別去碰傳喚鈴 —— fail-safe 的那一邊。
+        return IpcFrameworkGate.Run(nameof(IsBusy), () => Utils.IsBusy, true,
+            "the caller is told AutoRetainer is busy so that it keeps off the summoning bell");
     }
 
     [EzIPC]
@@ -33,13 +44,14 @@ public class IPC_PluginState
     [EzIPC]
     public bool AreAnyRetainersAvailableForCurrentChara()
     {
-        return Utils.AnyRetainersAvailableCurrentChara();
+        return IpcFrameworkGate.Run(nameof(AreAnyRetainersAvailableForCurrentChara),
+            Utils.AnyRetainersAvailableCurrentChara, false, "the caller is told no retainer is ready");
     }
 
     [EzIPC]
     public void AbortAllTasks()
     {
-        P.TaskManager.Abort();
+        IpcFrameworkGate.Run(nameof(AbortAllTasks), P.TaskManager.Abort);
     }
 
     [EzIPC]
@@ -58,40 +70,49 @@ public class IPC_PluginState
     [EzIPC]
     public void EnableMultiMode()
     {
-        Svc.Commands.ProcessCommand("/autoretainer multi enable");
+        IpcFrameworkGate.Run(nameof(EnableMultiMode), () => Svc.Commands.ProcessCommand("/autoretainer multi enable"));
     }
 
     [EzIPC]
     public int GetInventoryFreeSlotCount()
     {
-        return Utils.GetInventoryFreeSlotCount();
+        // 0 本來就是「讀不到或真的滿了」共用的回值（見 Utils.GetInventoryFreeSlotCount 的註解：
+        // 讀不到的容器一律跳過，所以只可能少算），逾時沿用它不會引進新語意。
+        return IpcFrameworkGate.Run(nameof(GetInventoryFreeSlotCount), Utils.GetInventoryFreeSlotCount, 0,
+            "the caller is told there is no free inventory space");
     }
 
     [EzIPC]
     public void EnqueueHET(Action onFailure)
     {
-        TaskNeoHET.Enqueue(onFailure);
+        IpcFrameworkGate.Run(nameof(EnqueueHET), () => TaskNeoHET.Enqueue(onFailure));
     }
 
     [EzIPC]
     public bool CanAutoLogin()
     {
-        return Utils.CanAutoLogin();
+        return IpcFrameworkGate.Run(nameof(CanAutoLogin), Utils.CanAutoLogin, false,
+            "the caller is told it cannot log in right now");
     }
 
     [EzIPC]
     public bool Relog(string charaNameWithWorld)
     {
-        if(Utils.CanAutoLogin())
+        // 🔴 這裡只是把既有的判斷與入佇列搬到 framework 執行緒上，沒有新增任何自動觸發：
+        //    觸發者仍然只有「呼叫端明確打了這支端點」這一件事。
+        return IpcFrameworkGate.Run(nameof(Relog), () =>
         {
-            var target = C.OfflineData.Where(x => $"{x.Name}@{x.World}" == charaNameWithWorld).FirstOrDefault();
-            if(target != null)
+            if(Utils.CanAutoLogin())
             {
-                MultiMode.Relog(target, out var err, RelogReason.Command);
-                return err == null;
+                var target = C.OfflineData.Where(x => $"{x.Name}@{x.World}" == charaNameWithWorld).FirstOrDefault();
+                if(target != null)
+                {
+                    MultiMode.Relog(target, out var err, RelogReason.Command);
+                    return err == null;
+                }
             }
-        }
-        return false;
+            return false;
+        }, false, "the caller is told no relog was started");
     }
 
     [EzIPC]
@@ -121,21 +142,28 @@ public class IPC_PluginState
     [EzIPC]
     public long? GetClosestRetainerVentureSecondsRemaining(ulong CID)
     {
-        if(C.SelectedRetainers.TryGetValue(CID, out var enabledRetainers))
+        // P.Time 在 C.UseServerTime 時走 CSFramework.GetServerTime()，那是原生呼叫。
+        return IpcFrameworkGate.Run<long?>(nameof(GetClosestRetainerVentureSecondsRemaining), () =>
         {
-            if(C.OfflineData.TryGetFirst(x => x.CID == CID, out var data))
+            if(C.SelectedRetainers.TryGetValue(CID, out var enabledRetainers))
             {
-                var selectedRetainers = data.GetEnabledRetainers().Where(z => z.HasVenture).OrderBy(z => z.GetVentureSecondsRemaining());
-                if(selectedRetainers.Any()) return selectedRetainers.First().GetVentureSecondsRemaining();
+                if(C.OfflineData.TryGetFirst(x => x.CID == CID, out var data))
+                {
+                    var selectedRetainers = data.GetEnabledRetainers().Where(z => z.HasVenture).OrderBy(z => z.GetVentureSecondsRemaining());
+                    if(selectedRetainers.Any()) return selectedRetainers.First().GetVentureSecondsRemaining();
+                }
             }
-        }
-        return null;
+            return null;
+        }, null, "the caller is told there is no known venture (the same answer as \"no data\")");
     }
 
     [EzIPC]
     public bool IsItemProtected(uint itemId)
     {
-        return Data.GetIMSettings().IMProtectList.Contains(itemId);
+        // 逾時回 true＝「當它是受保護的」，也就是別動它 —— fail-safe 的那一邊。
+        return IpcFrameworkGate.Run(nameof(IsItemProtected),
+            () => Data.GetIMSettings().IMProtectList.Contains(itemId), true,
+            "the caller is told the item is protected");
     }
 
     // 取回指令的實作與「哪些格子的指令還在飛」的追蹤都在 RetainerRetrieve 裡。
@@ -149,7 +177,8 @@ public class IPC_PluginState
     /// of waiting out the staleness timeout. Tracking also resets on its own when the retainer inventory
     /// closes or a different retainer is opened, so this is an optimisation, not a correctness requirement.</summary>
     [EzIPC]
-    public void ResetRetainerRetrieveTracking() => RetainerRetrieve.ResetTracking();
+    public void ResetRetainerRetrieveTracking()
+        => IpcFrameworkGate.Run(nameof(ResetRetainerRetrieveTracking), RetainerRetrieve.ResetTracking);
 
     /// <summary>Fires a single retrieve-from-retainer command for the first occupied slot found in the
     /// currently open retainer's item storage (items and crystals), into the player's own bags - never
@@ -162,7 +191,9 @@ public class IPC_PluginState
     /// remaining occupied slot already has a command in flight - in the last case the caller should let the
     /// retainer inventory settle, then start a fresh round rather than treating it as "done".</summary>
     [EzIPC]
-    public bool RetrieveNextRetainerItemSlot() => RetainerRetrieve.RetrieveNextSlot();
+    public bool RetrieveNextRetainerItemSlot()
+        => IpcFrameworkGate.Run(nameof(RetrieveNextRetainerItemSlot), RetainerRetrieve.RetrieveNextSlot, false,
+            "the caller is told nothing was retrieved");
 
     /// <summary>Version of the specific-item retrieve surface below
     /// (<see cref="RetrieveRetainerItemSlotById"/> / <see cref="GetOpenRetainerItemQuantity"/>). Present from
@@ -181,13 +212,19 @@ public class IPC_PluginState
     /// 🔴 0 and -1 are deliberately different values: 0 means "proved absent", -1 means "could not look".</returns>
     [EzIPC]
     public int RetrieveRetainerItemSlotById(uint itemId, bool hqOnly, bool includeCrystals)
-        => RetainerRetrieve.RetrieveSlotById(itemId, hqOnly, includeCrystals);
+        => IpcFrameworkGate.Run(nameof(RetrieveRetainerItemSlotById),
+            () => RetainerRetrieve.RetrieveSlotById(itemId, hqOnly, includeCrystals),
+            RetainerRetrieve.ResultRetainerUnavailable,
+            "the caller is told the retainer's storage could not be read (-1), which is deliberately not the same answer as \"not present\" (0)");
 
     /// <summary>How many of <paramref name="itemId"/> the currently open retainer is holding, for callers
     /// that need to know when to stop asking. ⚠️ -1 is "unknown", not "none".</summary>
     [EzIPC]
     public int GetOpenRetainerItemQuantity(uint itemId, bool hqOnly, bool includeCrystals)
-        => RetainerRetrieve.GetOpenQuantity(itemId, hqOnly, includeCrystals);
+        => IpcFrameworkGate.Run(nameof(GetOpenRetainerItemQuantity),
+            () => RetainerRetrieve.GetOpenQuantity(itemId, hqOnly, includeCrystals),
+            RetainerRetrieve.ResultRetainerUnavailable,
+            "the caller is told the quantity is unknown (-1), which is deliberately not the same answer as \"none\" (0)");
 
     #region Drive the retainer / GC flows from outside
 
@@ -211,18 +248,22 @@ public class IPC_PluginState
     [EzIPC]
     public List<string> GetRetainersWithEntrustPlan()
     {
-        var result = new List<string>();
-        var data = Utils.GetCurrentCharacterData();
-        if(data == null) return result;
-
-        foreach(var retainer in data.RetainerData)
+        // Utils.GetCurrentCharacterData() 讀 Player.CID，那是原生讀取。
+        return IpcFrameworkGate.Run(nameof(GetRetainersWithEntrustPlan), () =>
         {
-            var name = retainer.Name.ToString();
-            if(name.IsNullOrEmpty()) continue;
-            var adata = Utils.GetAdditionalData(data.CID, name);
-            if(adata.EntrustPlan != Guid.Empty) result.Add(name);
-        }
-        return result;
+            var result = new List<string>();
+            var data = Utils.GetCurrentCharacterData();
+            if(data == null) return result;
+
+            foreach(var retainer in data.RetainerData)
+            {
+                var name = retainer.Name.ToString();
+                if(name.IsNullOrEmpty()) continue;
+                var adata = Utils.GetAdditionalData(data.CID, name);
+                if(adata.EntrustPlan != Guid.Empty) result.Add(name);
+            }
+            return result;
+        }, new List<string>(), "the caller is told there is no character data yet (an empty list)");
     }
 
     /// <summary>Enqueues AutoRetainer's own "walk up to the summoning bell, open it, pick this retainer,
@@ -232,42 +273,45 @@ public class IPC_PluginState
     [EzIPC]
     public bool EnqueueOpenRetainerItemStorage(string retainerName)
     {
-        if(retainerName.IsNullOrEmpty())
+        return IpcFrameworkGate.Run(nameof(EnqueueOpenRetainerItemStorage), () =>
         {
-            PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Refused: no retainer name given.");
-            return false;
-        }
-        if(!Player.Available)
-        {
-            PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Refused: player is not available.");
-            return false;
-        }
-        if(Utils.IsBusy)
-        {
-            PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Refused for {retainerName}: AutoRetainer is already busy.");
-            return false;
-        }
-        // 🔴 清單還沒載入時 TryGetRetainerByName 對每個名字都回 false,與「這個雇員真的不存在」
-        //    完全不可分。兩種情況要講成兩件事 —— 呼叫端看到「不存在」會去改設定,
-        //    看到「還沒載入」才會知道再開一次鈴就好。
-        //    ⚠️ 清單沒載入時**不擋**:這個門本來就會去開鈴,開完自然就載入了。
-        if(!GCExpertDeliveryLoop.RetainerListLoaded)
-        {
-            PluginLog.Information($"[EnqueueOpenRetainerItemStorage] The game's retainer list is not loaded yet, so {retainerName} cannot be verified up front - the chain opens the bell, which loads it.");
-        }
-        else if(!Utils.TryGetRetainerByName(retainerName, out _))
-        {
-            PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Refused: {retainerName} is not a retainer of the current character.");
-            return false;
-        }
-        // 這裡不檢查鈴在不在:任務鏈自己會等,而在工房裡它還會先走過去。檢查了反而會把
-        // 「站得稍遠但走得到」誤判成不可行。
-        TaskInteractWithNearestBell.Enqueue();
-        TaskSelectRetainer.Enqueue(retainerName);
-        P.TaskManager.Enqueue(RetainerHandlers.SelectEntrustItems, $"SelectEntrustItems({retainerName})");
-        P.TaskManager.Enqueue(InventorySpaceManager.IsRetainerInventoryLoaded, $"WaitRetainerInventoryLoaded({retainerName})");
-        PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Enqueued open-item-storage chain for {retainerName}.");
-        return true;
+            if(retainerName.IsNullOrEmpty())
+            {
+                PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Refused: no retainer name given.");
+                return false;
+            }
+            if(!Player.Available)
+            {
+                PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Refused: player is not available.");
+                return false;
+            }
+            if(Utils.IsBusy)
+            {
+                PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Refused for {retainerName}: AutoRetainer is already busy.");
+                return false;
+            }
+            // 🔴 清單還沒載入時 TryGetRetainerByName 對每個名字都回 false,與「這個雇員真的不存在」
+            //    完全不可分。兩種情況要講成兩件事 —— 呼叫端看到「不存在」會去改設定,
+            //    看到「還沒載入」才會知道再開一次鈴就好。
+            //    ⚠️ 清單沒載入時**不擋**:這個門本來就會去開鈴,開完自然就載入了。
+            if(!GCExpertDeliveryLoop.RetainerListLoaded)
+            {
+                PluginLog.Information($"[EnqueueOpenRetainerItemStorage] The game's retainer list is not loaded yet, so {retainerName} cannot be verified up front - the chain opens the bell, which loads it.");
+            }
+            else if(!Utils.TryGetRetainerByName(retainerName, out _))
+            {
+                PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Refused: {retainerName} is not a retainer of the current character.");
+                return false;
+            }
+            // 這裡不檢查鈴在不在:任務鏈自己會等,而在工房裡它還會先走過去。檢查了反而會把
+            // 「站得稍遠但走得到」誤判成不可行。
+            TaskInteractWithNearestBell.Enqueue();
+            TaskSelectRetainer.Enqueue(retainerName);
+            P.TaskManager.Enqueue(RetainerHandlers.SelectEntrustItems, $"SelectEntrustItems({retainerName})");
+            P.TaskManager.Enqueue(InventorySpaceManager.IsRetainerInventoryLoaded, $"WaitRetainerInventoryLoaded({retainerName})");
+            PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Enqueued open-item-storage chain for {retainerName}.");
+            return true;
+        }, false, "the caller is told the chain was refused and nothing was enqueued");
     }
 
     /// <summary>Enqueues closing whatever retainer UI is open, back out to the world. Safe to call when
@@ -275,8 +319,11 @@ public class IPC_PluginState
     [EzIPC]
     public void EnqueueCloseRetainer()
     {
-        P.TaskManager.Enqueue(RetainerHandlers.CloseAgentRetainer, "CloseAgentRetainer");
-        P.TaskManager.Enqueue(() => !IsOccupied(), "WaitUntilNotOccupiedAfterRetainerClose");
+        IpcFrameworkGate.Run(nameof(EnqueueCloseRetainer), () =>
+        {
+            P.TaskManager.Enqueue(RetainerHandlers.CloseAgentRetainer, "CloseAgentRetainer");
+            P.TaskManager.Enqueue(() => !IsOccupied(), "WaitUntilNotOccupiedAfterRetainerClose");
+        });
     }
 
     /// <summary>Enqueues the same "go to the Grand Company and hand in expert delivery items" flow the
@@ -290,24 +337,27 @@ public class IPC_PluginState
     [EzIPC]
     public bool EnqueueGCDeliverItems()
     {
-        if(!Player.Available)
+        return IpcFrameworkGate.Run(nameof(EnqueueGCDeliverItems), () =>
         {
-            PluginLog.Information($"[EnqueueGCDeliverItems] Refused: player is not available.");
-            return false;
-        }
-        if(GCContinuation.GetGCInfo() == null)
-        {
-            PluginLog.Information($"[EnqueueGCDeliverItems] Refused: character is not employed by a Grand Company.");
-            return false;
-        }
-        if(Utils.IsBusy)
-        {
-            PluginLog.Information($"[EnqueueGCDeliverItems] Refused: AutoRetainer or Lifestream is already busy.");
-            return false;
-        }
-        TaskDeliverItems.Enqueue();
-        PluginLog.Information($"[EnqueueGCDeliverItems] Enqueued GC delivery flow.");
-        return true;
+            if(!Player.Available)
+            {
+                PluginLog.Information($"[EnqueueGCDeliverItems] Refused: player is not available.");
+                return false;
+            }
+            if(GCContinuation.GetGCInfo() == null)
+            {
+                PluginLog.Information($"[EnqueueGCDeliverItems] Refused: character is not employed by a Grand Company.");
+                return false;
+            }
+            if(Utils.IsBusy)
+            {
+                PluginLog.Information($"[EnqueueGCDeliverItems] Refused: AutoRetainer or Lifestream is already busy.");
+                return false;
+            }
+            TaskDeliverItems.Enqueue();
+            PluginLog.Information($"[EnqueueGCDeliverItems] Enqueued GC delivery flow.");
+            return true;
+        }, false, "the caller is told the flow was refused and nothing was enqueued");
     }
 
     #endregion

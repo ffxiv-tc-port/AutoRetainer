@@ -14,8 +14,13 @@ namespace AutoRetainer.Internal.InventoryManagement;
 /// retainer - and the whole point of the tracking is that there is exactly one such set. Both paths now go
 /// through here.</para>
 ///
-/// <para>⚠️ Only ever touched from the framework thread (IPC callers arrive through Dalamud IPC, and the
-/// internal loop runs in the framework update), so no locking.</para>
+/// <para>⚠️ Only ever touched from the framework thread, so no locking - but that is only true because
+/// the IPC surface makes it true. Dalamud IPC endpoints run on the <b>caller's</b> thread, not the framework
+/// thread, so <c>IPC_PluginState</c> routes every entry point here through
+/// <see cref="AutoRetainer.Modules.EzIPCManagers.IpcFrameworkGate"/>. 🔴 That is what keeps
+/// <see cref="PendingRetrieves"/> (a bare <c>Dictionary</c>) and the <c>EzThrottler</c> calls below
+/// (a static dictionary shared by the whole plugin, with zero synchronisation) safe. Any new caller reached
+/// from IPC or a background thread must go through that gate as well.</para>
 /// </summary>
 internal static unsafe class RetainerRetrieve
 {
