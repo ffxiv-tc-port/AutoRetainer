@@ -19,6 +19,8 @@ internal static unsafe class MultiModeUI
         // produce rows with different column counts within a single frame,
         // which crashed DrawOverlayTexts with IndexOutOfRangeException.
         var showCharaCnt = C.CharEqualize && MultiMode.Enabled;
+        // 同一個理由（見上）：額度欄的四個開關也是一幀只讀一次，不要逐列去讀設定。
+        var allowanceColumns = UIUtils.SnapshotAllowanceColumns();
         C.OfflineData.RemoveAll(x => C.Blacklist.Any(z => z.CID == x.CID));
         var sortedData = new List<OfflineCharacterData>();
         JustRelogged = false;
@@ -161,7 +163,7 @@ internal static unsafe class MultiModeUI
             List<(bool Warning, string Text, bool Unknown, string Tooltip)> texts = [
                 (data.Ventures < C.UIWarningRetVentureNum, $"V: {data.Ventures}", false, null),
                 (data.InventorySpace < C.UIWarningRetSlotNum, $"I: {data.InventorySpace}", false, null)];
-            UIUtils.AddAllowanceTexts(texts, data);
+            UIUtils.AddAllowanceTexts(texts, data, allowanceColumns);
             if(showCharaCnt)
             {
                 texts.Insert(0, (false, $"C: {MultiMode.CharaCnt.GetOrDefault(data.CID)}", false, null));

@@ -33,11 +33,26 @@ public class MultiModeCommon : NeoUIEntry
         .InputInt(100f, Loc.T("Deployables list: remaining fuel warning"), () => ref C.UIWarningDepTanksNum.ValidateRange(20, 1000))
         .InputInt(100f, Loc.T("Deployables list: remaining repair kit warning"), () => ref C.UIWarningDepRepairNum.ValidateRange(5, 1000))
 
-        .Section(Loc.T("Daily and weekly allowances"))
+        // 🔴 這裡刻意不用 NuiBuilder 的 collapsible:true。本 pin 的 NightmareUI
+        // Section.cs 把折疊狀態寫成 `var isOpen = ...GetBoolRef(...)` —— 那個方法回的是
+        // `ref bool`，`var` 會複製成區域變數，所以 `isOpen = !isOpen` 從來沒有寫回 ImGui 的
+        // state storage。實測（同形小程式，ref 與非 ref 兩向對照）確認寫不回去 ⇒ 區塊等於
+        // 永遠收合，內容只在按下滑鼠那一幀閃一下。折疊改由下面那顆總開關負責：關掉之後
+        // 這個區塊只剩一行，而且它是設定、會存檔。
+        .Section(Loc.T("Character list allowance columns"))
         .Checkbox(Loc.T("Show allowance columns in character list"), () => ref C.UIShowAllowances, Loc.T("Adds four columns to every character row: S = Grand Company seals, L = levequest allowances, D = custom delivery allowances left this week, T = limited tomestones acquired this week. A grey question mark means AutoRetainer has not managed to read that value on that character yet - it is filled in automatically shortly after logging in. A grey dash on the seal column means the character has not joined a Grand Company. Hover a column for the time it was sampled."))
+        .If(() => C.UIShowAllowances)
+        .Indent()
+        .Checkbox(Loc.T("Column S: Grand Company seals"), () => ref C.UIShowAllowanceSeals)
+        .Checkbox(Loc.T("Column L: levequest allowances"), () => ref C.UIShowAllowanceLeves)
+        .Checkbox(Loc.T("Column D: custom delivery allowances"), () => ref C.UIShowAllowanceCustomDeliveries)
+        .Checkbox(Loc.T("Column T: weekly tomestones"), () => ref C.UIShowAllowanceTomestones)
         .InputInt(100f, Loc.T("Character list: Grand Company seal warning margin"), () => ref C.UIWarningGCSealsMargin.ValidateRange(0, 90000))
         .InputInt(100f, Loc.T("Character list: levequest allowance warning"), () => ref C.UIWarningLeveAllowancesNum.ValidateRange(1, 100))
+        .InputInt(100f, Loc.T("Character list: custom delivery allowance warning"), () => ref C.UIWarningCustomDeliveryNum.ValidateRange(0, 12))
         .InputInt(100f, Loc.T("Character list: weekly tomestone warning margin"), () => ref C.UIWarningTomestoneMargin.ValidateRange(0, 2000))
+        .Unindent()
+        .EndIf()
 
         .Section(Loc.T("Teleportation"))
         .Widget(() => ImGuiEx.Text(Loc.T("Lifestream plugin is required")))

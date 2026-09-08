@@ -172,35 +172,61 @@ internal static class UIUtils
     /// 意義相反（一個代表沒得用、一個代表都用完了），把「不知道」畫成 0 會讓使用者直接跳過
     /// 該做的事。取樣時間屬於「起疑才查」，放 tooltip。
     /// </remarks>
-    public static void AddAllowanceTexts(List<(bool Warning, string Text, bool Unknown, string Tooltip)> texts, OfflineCharacterData data)
+    /// <remarks>每一欄各自可關。<c>default</c>（四個都 false）代表「總開關關著」，所以呼叫端
+    /// 只要拿 <see cref="SnapshotAllowanceColumns"/> 的結果就同時涵蓋了兩層開關。</remarks>
+    public readonly record struct AllowanceColumns(bool Seals, bool Leves, bool CustomDeliveries, bool Tomestones);
+
+    /// <remarks>
+    /// 🔴 一幀只讀一次設定，不要在逐列迴圈裡直接讀 <c>C.*</c>。
+    /// 同檔 <see cref="DrawOverlayTexts"/> 的註解記著那個教訓：設定在繪製途中被改掉會讓同一幀裡
+    /// 不同列拿到不同的欄數，接著 <c>maxSizes</c> 的索引就會 IndexOutOfRangeException。
+    /// 每角色設定彈窗正是在那個迴圈裡繪製的，所以「不可能中途改」不成立。
+    /// </remarks>
+    public static AllowanceColumns SnapshotAllowanceColumns()
+        => C.UIShowAllowances
+            ? new(C.UIShowAllowanceSeals, C.UIShowAllowanceLeves, C.UIShowAllowanceCustomDeliveries, C.UIShowAllowanceTomestones)
+            : default;
+
+    public static void AddAllowanceTexts(List<(bool Warning, string Text, bool Unknown, string Tooltip)> texts, OfflineCharacterData data, AllowanceColumns columns)
     {
-        if(!C.UIShowAllowances) return;
-        // 軍票放在最前面（最左）：使用者實機一天撞到 76 次「軍票數量已達到上限」，
-        // 這一欄是這組裡最常掃視的。三種狀態都要分得開：
-        //   時間戳 null      -> 灰色 ?  「還沒讀到過」
-        //   上限 0           -> 灰色 -  「這個角色是平民，沒有大國防聯軍」
-        //   其餘             -> n/max，接近上限轉橘
-        var sealsKnown = data.GCSealsUpdatedAt != null && data.GCSealsMax >= 0;
-        var sealsApplicable = sealsKnown && data.GCSealsMax > 0;
-        texts.Add((
-            sealsApplicable && data.GCSeals >= data.GCSealsMax - C.UIWarningGCSealsMargin,
-            sealsApplicable ? $"S: {data.GCSeals}/{data.GCSealsMax}" : sealsKnown ? "S: -" : "S: ?",
-            !sealsApplicable,
-            sealsKnown && !sealsApplicable
-                ? $"{Loc.T("Grand Company seals")}\n{Loc.T("This character has not joined a Grand Company.")}"
-                : BuildAllowanceTooltip(Loc.T("Grand Company seals"), data.GCSealsUpdatedAt, sealsApplicable)));
-        texts.Add(BuildAllowance("L", data.LevequestAllowances, data.LevequestAllowancesUpdatedAt,
-            data.LevequestAllowances >= C.UIWarningLeveAllowancesNum,
-            Loc.T("Levequest allowances remaining (caps at 100)")));
-        texts.Add(BuildAllowance("D", data.CustomDeliveryAllowances, data.CustomDeliveryAllowancesUpdatedAt,
-            data.CustomDeliveryAllowances == 0,
-            Loc.T("Custom delivery allowances left this week")));
-        var tomeKnown = data.WeeklyTomestoneUpdatedAt != null && data.WeeklyTomestoneCount >= 0 && data.WeeklyTomestoneCap > 0;
-        texts.Add((
-            tomeKnown && data.WeeklyTomestoneCount >= data.WeeklyTomestoneCap - C.UIWarningTomestoneMargin,
-            tomeKnown ? $"T: {data.WeeklyTomestoneCount}/{data.WeeklyTomestoneCap}" : "T: ?",
-            !tomeKnown,
-            BuildAllowanceTooltip(Loc.T("Limited tomestones acquired this week"), data.WeeklyTomestoneUpdatedAt, tomeKnown)));
+        if(columns.Seals)
+        {
+            // 軍票放在最前面（最左）：使用者實機一天撞到 76 次「軍票數量已達到上限」，
+            // 這一欄是這組裡最常掃視的。三種狀態都要分得開：
+            //   時間戳 null      -> 灰色 ?  「還沒讀到過」
+            //   上限 0           -> 灰色 -  「這個角色是平民，沒有大國防聯軍」
+            //   其餘             -> n/max，接近上限轉橘
+            var sealsKnown = data.GCSealsUpdatedAt != null && data.GCSealsMax >= 0;
+            var sealsApplicable = sealsKnown && data.GCSealsMax > 0;
+            texts.Add((
+                sealsApplicable && data.GCSeals >= data.GCSealsMax - C.UIWarningGCSealsMargin,
+                sealsApplicable ? $"S: {data.GCSeals}/{data.GCSealsMax}" : sealsKnown ? "S: -" : "S: ?",
+                !sealsApplicable,
+                sealsKnown && !sealsApplicable
+                    ? $"{Loc.T("Grand Company seals")}\n{Loc.T("This character has not joined a Grand Company.")}"
+                    : BuildAllowanceTooltip(Loc.T("Grand Company seals"), data.GCSealsUpdatedAt, sealsApplicable)));
+        }
+        if(columns.Leves)
+        {
+            texts.Add(BuildAllowance("L", data.LevequestAllowances, data.LevequestAllowancesUpdatedAt,
+                data.LevequestAllowances >= C.UIWarningLeveAllowancesNum,
+                Loc.T("Levequest allowances remaining (caps at 100)")));
+        }
+        if(columns.CustomDeliveries)
+        {
+            texts.Add(BuildAllowance("D", data.CustomDeliveryAllowances, data.CustomDeliveryAllowancesUpdatedAt,
+                data.CustomDeliveryAllowances <= C.UIWarningCustomDeliveryNum,
+                Loc.T("Custom delivery allowances left this week")));
+        }
+        if(columns.Tomestones)
+        {
+            var tomeKnown = data.WeeklyTomestoneUpdatedAt != null && data.WeeklyTomestoneCount >= 0 && data.WeeklyTomestoneCap > 0;
+            texts.Add((
+                tomeKnown && data.WeeklyTomestoneCount >= data.WeeklyTomestoneCap - C.UIWarningTomestoneMargin,
+                tomeKnown ? $"T: {data.WeeklyTomestoneCount}/{data.WeeklyTomestoneCap}" : "T: ?",
+                !tomeKnown,
+                BuildAllowanceTooltip(Loc.T("Limited tomestones acquired this week"), data.WeeklyTomestoneUpdatedAt, tomeKnown)));
+        }
     }
 
     private static (bool Warning, string Text, bool Unknown, string Tooltip) BuildAllowance(string prefix, int value, DateTime? sampledAt, bool warningWhenKnown, string label)

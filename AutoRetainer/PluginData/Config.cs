@@ -195,10 +195,23 @@ internal unsafe class Config
     /// 從沒讀到過的角色畫成灰色的 <c>?</c>，不會畫成 0。
     /// </summary>
     public bool UIShowAllowances = true;
+    /// <remarks>
+    /// 每一欄各自的開關，全部預設開＝維持既有行為。使用者要的是「可以關」不是「預設關」，
+    /// 所以這裡不能拿來改預設值：既有使用者的設定檔本來就沒有這些鍵，反序列化會保留欄位
+    /// 初始式，預設關會讓所有人的欄位無聲消失。
+    /// 🔴 關掉的欄不是畫成空白而是<b>整個不加進清單</b>，所以也不佔寬度。
+    /// </remarks>
+    public bool UIShowAllowanceSeals = true;
+    public bool UIShowAllowanceLeves = true;
+    public bool UIShowAllowanceCustomDeliveries = true;
+    public bool UIShowAllowanceTomestones = true;
     /// <summary>理符受理限額剩餘張數達到這個值就變色。上限是 100，滿了之後再生出來的就浪費掉了。</summary>
     public int UIWarningLeveAllowancesNum = 90;
     /// <summary>本週已取得的限定神典石距離每週上限少於這個數就變色。</summary>
     public int UIWarningTomestoneMargin = 50;
+    /// <summary>籌備委託品本週剩餘次數小於等於這個數就變色。
+    /// 預設 0 ＝ 只有剩 0 才變色，與這個欄位加進來時的行為逐字相同。</summary>
+    public int UIWarningCustomDeliveryNum = 0;
     /// <summary>軍票距離上限少於這個數就變色。使用者實機一天會撞到 76 次「軍票數量已達到上限」，
     /// 預設留 1000 張的緩衝。</summary>
     public int UIWarningGCSealsMargin = 1000;
