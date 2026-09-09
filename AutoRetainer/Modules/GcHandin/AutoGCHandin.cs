@@ -200,6 +200,21 @@ internal static unsafe class AutoGCHandin
     private static int StatResends;
     private static int StatFallback;
 
+    /// <summary>
+    /// 這一趟因為軍票已達上限而中斷過幾次。
+    /// <para/>
+    /// 📌 實機語料（2026-09-09 逐檔 grep 全部 <c>dalamud*.log</c>）：「Too many seals」共 256 次，
+    /// 分佈在 09-01／09-04／09-07 這三天 —— 正好是跑稀有品繳交循環的那三天。
+    /// <para/>
+    /// 🔑 軍票續購（<c>C.AutoGCContinuation</c>）開著時這是**正常節奏**的一部分：繳到上限就去把軍票
+    /// 花掉、買完再回來繼續，同一份記錄檔可以逐次對照（中斷後約 1.7~2 秒就出現「Setting N ventures」）。
+    /// 所以那則訊息不再進聊天視窗；但「發生過幾次」仍然要看得見，否則就是把資訊整個弄不見。
+    /// <para/>
+    /// 歸零點只有一個：<see cref="GCExpertDeliveryLoop.Start"/>。刻意不在每一輪繳交結束時歸零 ——
+    /// 一趟循環本來就會反覆中斷再續跑（實機一趟 76~91 次），每輪歸零只會永遠顯示個位數。
+    /// </summary>
+    internal static int SealCapPauses;
+
     private static long NowMs => Environment.TickCount64;
 
     private static void SetPhase(HandinPhase phase)
@@ -602,11 +617,18 @@ internal static unsafe class AutoGCHandin
                                 else
                                 {
                                     GCContinuation.EnqueueDeliveryClose();
+                                    SealCapPauses++;
                                     if(C.AutoGCContinuation)
                                     {
                                         GCContinuation.EnqueueInitiation(true);
                                     }
-                                    throw new GCHandinInterruptedException("Too many seals, please spend them");
+                                    // 🔑 軍票續購開著時這不是故障：GCContinuation.EnqueueInitiation 無論參數
+                                    //    為何都會先 InteractWithShop + BeginNewPurchase，也就是它會自己去把軍票
+                                    //    花掉再回來繼續繳交 ⇒ 這種情況只寫記錄檔，不洗使用者的聊天視窗。
+                                    // 🔴 但軍票續購**關掉**時上面那個 if 一個任務都沒排：繳交是真的就停在這裡、
+                                    //    不會自己回來，而這則訊息是使用者唯一會收到的通知（托盤通知在下面也同樣
+                                    //    只在關掉時才送）。那種情況一定要留在聊天視窗，不可以一律降噪。
+                                    throw new GCHandinInterruptedException("Too many seals, please spend them", quietInChat: C.AutoGCContinuation);
                                 }
                             }
                         }
@@ -620,7 +642,16 @@ internal static unsafe class AutoGCHandin
                         Operation = false;
                         ResetPhase();
                         LogSessionStats();
-                        DuoLog.Information($"{e.Message}");
+                        if(e.QuietInChat)
+                        {
+                            // Grep 標記：GCHandin。使用者的記錄等級是 1，濾掉的只有 Verbose，Information 收得到。
+                            // 訊息本文照原樣保留，既有的「Too many seals」grep 仍然命中得到。
+                            PluginLog.Information($"[GCHandin] {e.Message} (本趟第 {SealCapPauses} 次；軍票續購開著，會自己去買完再回來繼續)");
+                        }
+                        else
+                        {
+                            DuoLog.Information($"{e.Message}");
+                        }
                         if(C.GCHandinNotify && !C.AutoGCContinuation)
                         {
                             Utils.TryNotify(e.Message);

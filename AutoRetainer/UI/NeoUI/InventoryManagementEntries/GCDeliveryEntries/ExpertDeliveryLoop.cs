@@ -60,6 +60,16 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
             $"{Loc.T("Handin rounds")}: {GCExpertDeliveryLoop.HandinRounds}    " +
             $"{Loc.T("Free slots")}: {freeSlots}");
 
+        // 「這一趟被軍票上限擋了幾次」以前只以聊天訊息的形式存在，逐次刷屏。現在訊息只進記錄檔，
+        // 次數改成在這裡與繳交疊加層兩處都看得見；為什麼會這樣、要不要處理放 tooltip。
+        if(AutoGCHandin.SealCapPauses > 0)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudGrey, string.Format(Loc.T("Seal cap reached {0}x"), AutoGCHandin.SealCapPauses));
+            ImGuiEx.Tooltip(C.AutoGCContinuation
+                ? Loc.T("Handing in stopped this many times because your company seals were at the cap. Expert delivery continuation is on, so AutoRetainer went and spent the seals and came back by itself every time - nothing was lost and there is nothing to do.")
+                : Loc.T("Handing in stopped this many times because your company seals were at the cap. Expert delivery continuation is off, so it does not resume on its own: spend some seals, then tick the box above again."));
+        }
+
         // 循環跑著的時候一般僱員自動處理整個讓路(SchedulerMain.RetainerAutomationDeferred)。
         // ⚠️ 這是「起疑才查」的資訊,理由放 tooltip —— 但**暫停這件事本身**要在列上看得見:
         //    不講的話,使用者只會看到探險委託整趟都沒被收走,而畫面上沒有任何東西解釋為什麼,

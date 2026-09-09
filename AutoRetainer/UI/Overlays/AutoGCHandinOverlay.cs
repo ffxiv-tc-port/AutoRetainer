@@ -53,6 +53,19 @@ internal unsafe class AutoGCHandinOverlay : Window
             ImGui.SameLine();
             ImGuiEx.Text(GradientColor.Get(ImGuiColors.DalamudRed, ImGuiColors.DalamudYellow), Loc.T("Foreign world. No FC points will be granted."));
         }
+        // 軍票達上限而中斷過幾次。這則訊息以前每次都印進聊天視窗（實機三天 256 次），現在只進記錄檔，
+        // 所以「發生過」這件事必須在畫面上看得見 —— 只寫記錄檔等於把資訊整個弄不見。
+        // ⚠️ 刻意放在列上而不是 tooltip：次數是「隨時掃視」的資訊（這一趟順不順），
+        //    「為什麼會這樣、要不要處理」才是起疑之後才查的東西，那個放 tooltip。
+        // ⚠️ 不用 SameLine：上面每一段都有各自的條件，可能一段都沒畫，那時候 SameLine 會把這行貼到
+        //    上一幀留下的游標位置去。
+        if(AutoGCHandin.SealCapPauses > 0)
+        {
+            ImGuiEx.Text(ImGuiColors.DalamudGrey, string.Format(Loc.T("Seal cap reached {0}x"), AutoGCHandin.SealCapPauses));
+            ImGuiEx.Tooltip(C.AutoGCContinuation
+                ? Loc.T("Handing in stopped this many times because your company seals were at the cap. Expert delivery continuation is on, so AutoRetainer went and spent the seals and came back by itself every time - nothing was lost and there is nothing to do.")
+                : Loc.T("Handing in stopped this many times because your company seals were at the cap. Expert delivery continuation is off, so it does not resume on its own: spend some seals, then tick the box above again."));
+        }
         height = ImGui.GetWindowSize().Y;
     }
 

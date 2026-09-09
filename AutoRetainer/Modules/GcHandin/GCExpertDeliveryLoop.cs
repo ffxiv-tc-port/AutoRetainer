@@ -366,6 +366,8 @@ internal static unsafe class GCExpertDeliveryLoop
         RelogSuppressedSince = 0;
         RetrievedTotal = 0;
         HandinRounds = 0;
+        // 軍票上限中斷次數跟著這一趟走：這裡是它唯一的歸零點（見 AutoGCHandin.SealCapPauses）。
+        AutoGCHandin.SealCapPauses = 0;
         StatusText = "";
 
         if(startHere)
@@ -513,6 +515,9 @@ internal static unsafe class GCExpertDeliveryLoop
         var stillBusy = Utils.IsBusy;
         var summary = $"{reason} ({string.Format(Loc.T("retrieved {0}, handin rounds {1}"), RetrievedTotal, HandinRounds)})";
         if(MultiCharacterRun) summary += " " + string.Format(Loc.T("Characters finished: {0}/{1}."), CharactersDone, BatchCIDs.Count);
+        // 軍票上限中斷已經不再逐次印進聊天視窗（實機三天 256 次），改成整趟結束時報一次總數：
+        // 使用者拿得到同一個事實，但只付一行的代價。
+        if(AutoGCHandin.SealCapPauses > 0) summary += " " + string.Format(Loc.T("Seals hit the cap {0} time(s) along the way."), AutoGCHandin.SealCapPauses);
         if(stillBusy) summary += " " + Loc.T("The loop has stopped, but work already queued in AutoRetainer will finish on its own.");
         if(success)
         {
@@ -539,7 +544,7 @@ internal static unsafe class GCExpertDeliveryLoop
             //    「批次死在半路」的重要程度完全不同。失敗有自己的開關,預設開。
             if(MultiCharacterRun && C.ExpertDeliveryLoopNotifyOnFailure) Utils.TryNotify(summary);
         }
-        PluginLog.Information($"[ExpertDeliveryLoop] Stopped: {reason} | retrieved={RetrievedTotal} handinRounds={HandinRounds} success={success} stillBusy={stillBusy} multiCharacter={MultiCharacterRun} charactersDone={CharactersDone}/{BatchCIDs.Count}");
+        PluginLog.Information($"[ExpertDeliveryLoop] Stopped: {reason} | retrieved={RetrievedTotal} handinRounds={HandinRounds} sealCapPauses={AutoGCHandin.SealCapPauses} success={success} stillBusy={stillBusy} multiCharacter={MultiCharacterRun} charactersDone={CharactersDone}/{BatchCIDs.Count}");
     }
 
     private static void Fail(string reason)
