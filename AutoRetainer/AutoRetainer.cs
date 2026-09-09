@@ -173,7 +173,11 @@ public unsafe class AutoRetainer : IDalamudPlugin
         //    真的只在 dalamud.log 才有的是 BeginStack/InsertStack 那幾行（TaskManager.Stack.cs
         //    直接 if(ShowDebug) PluginLog.Debug，沒有 InternalLog 退路）。
         // 🔴 切換要即時生效必須同時改 DefaultConfiguration：見 SyncTaskManagerDebugOutput()。
-        TaskManager = new(new(abortOnTimeout: true, timeLimitMS: 20000, showDebug: C.Verbose));
+        // TaskTimeoutLog.Attach()：逾時時多印一行「是哪一步逾時」的 Warning，
+        // 並蓋掉 ECommons 那行完全匿名的（它擲的 TaskTimeoutException 連 Message 都沒有）。
+        // showDebug 關著時帶名字的那一行只進 InternalLog，dalamud.log 上完全沒有
+        // ⇒ 這一則是唯一查得出「是哪一步」的證據。設定的預設值一個字都沒改。
+        TaskManager = TaskTimeoutLog.Attach(new(new(abortOnTimeout: true, timeLimitMS: 20000, showDebug: C.Verbose)), "AutoRetainer");
         Memory = new();
         Svc.PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         Svc.PluginInterface.UiBuilder.OpenMainUi += () =>
@@ -217,7 +221,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         MultiModeDtr.Init();
         NotificationMasterApi = new(Svc.PluginInterface);
         // 同上：showDebug 跟隨 /autoretainer debug，理由與代價寫在上面 TaskManager 那處。
-        ODMTaskManager = new(new(timeLimitMS: 60 * 1000, abortOnTimeout: true, showDebug: C.Verbose));
+        ODMTaskManager = TaskTimeoutLog.Attach(new(new(timeLimitMS: 60 * 1000, abortOnTimeout: true, showDebug: C.Verbose)), "AutoRetainer/ODM");
 
         Safety.Check();
 
