@@ -724,6 +724,10 @@ public unsafe class AutoRetainer : IDalamudPlugin
                 Callback.Fire(trade, true, -1);
             }
         }
+        // IPC 端點 AutoRetainer.IsBusy 讀的每幀快照(見 Modules/IPC.cs 的 UpdateIsBusySnapshot)。
+        // 放在 Tick 的最後、而且無條件跑:上面每一個模組這一幀的變動都已經發生完。
+        // 這支只讀三個布林,不碰原生記憶體,所以不另外包 try。
+        IPC.UpdateIsBusySnapshot();
     }
 
     private void Toasts_ErrorToast(ref Dalamud.Game.Text.SeStringHandling.SeString message, ref bool isHandled)

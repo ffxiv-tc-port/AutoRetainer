@@ -353,10 +353,46 @@ internal static class IPC
     /// IPC.Suppressed 尊重）、MultiMode.Active＝多角色模式執行期狀態、
     /// TaskManager.IsBusy＝任務引擎正在執行。純暴露狀態，零行為變更。
     /// </summary>
+    /// <remarks>
+    /// 🔴 這支跑在<b>呼叫端的執行緒</b>上,而 <c>P.TaskManager.IsBusy</c> 問的是 ECommons
+    /// <c>TaskManager</c> 的兩個裸 <c>List&lt;T&gt;</c>(ECommons 自己的註解就寫著
+    /// only ever do that from Framework.Update event) —— framework 執行緒每幀在增刪它們。
+    /// 從別的執行緒讀不只是「拿到舊值」,並行改動時看到的可能是集合內部不變式被打破的中間態。
+    /// <br/><br/>
+    /// 🔑 這裡刻意<b>不</b>走 <see cref="IpcFrameworkGate"/>:那條路最多會等 framework 執行緒
+    /// <see cref="IpcFrameworkGate.WaitMilliseconds"/> 毫秒,而 <c>AutoRetainer.IsBusy</c> 是被
+    /// Marketbuddy 這類外掛<b>高頻輪詢</b>的布林端點 —— 把呼叫端的執行緒卡住,比讓它讀到
+    /// 差一幀的值糟得多。改成讀 framework 執行緒每幀寫入的快照
+    /// (<see cref="UpdateIsBusySnapshot"/>),最舊差一幀。
+    /// <br/><br/>
+    /// 📌 已經在 framework 執行緒上時就地算,回傳值與時序逐字不變。
+    /// 📌 卸載期不受影響:這條路徑一次都沒有呼叫 <c>RunOnFrameworkThread</c>,
+    /// 所以沒有「<c>IsFrameworkUnloading</c> 為真時就地在呼叫端執行緒執行」那個旁路可踩。
+    /// </remarks>
     private static bool GetIsBusy()
+        => Svc.Framework.IsInFrameworkUpdateThread ? GetIsBusyCore() : IsBusySnapshot;
+
+    /// <summary>
+    /// <see cref="GetIsBusy"/> 的實際判斷,三個分量與改動前逐字相同。
+    /// <b>只能在 framework 執行緒上呼叫。</b>
+    /// </summary>
+    private static bool GetIsBusyCore()
     {
         return SchedulerMain.PluginEnabled || MultiMode.Active || P.TaskManager.IsBusy;
     }
+
+    /// <summary>
+    /// <see cref="GetIsBusy"/> 給別的執行緒讀的每幀快照。
+    /// <c>volatile</c> 保證讀到的是最近一次寫入的值(<c>bool</c> 的讀寫本身就是原子的),不需要鎖。
+    /// </summary>
+    private static volatile bool IsBusySnapshot;
+
+    /// <summary>
+    /// 由 <c>AutoRetainer.Tick</c>(framework 執行緒)每幀呼叫一次。
+    /// 📌 放在 Tick 的<b>最後</b>:這一幀排程器/MultiMode/任務佇列的變動都已經發生完,
+    /// 快照拿到的是這一格結束時的狀態,而不是開頭的。
+    /// </summary>
+    internal static void UpdateIsBusySnapshot() => IsBusySnapshot = GetIsBusyCore();
 
     internal static void FireSendRetainerToVentureEvent(string retainer)
     {
