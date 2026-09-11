@@ -118,14 +118,16 @@ internal static unsafe class MiniTA
         //    → GetAsAtkTextNode()([MemberFunction],對 null 節點呼叫＝把 this = 0 交給原生碼)
         //    → ->NodeText(對 null 文字節點靜默算出毒指標 0xC0,不會當場崩)
         //    → ToString() 才真的去讀位址 0xC0 —— 崩潰現場完全指不到這一行。
-        //    ⚠️ 這裡刻意不用 Utils.TryGetNodeText:那支走 ReadSeString().GetText() 會剝掉
-        //    SeString payload,與 Lang.SkipCutsceneStr 的比對基準不同,換過去等於順手改行為。
+        // 🔴 舊註解說「剝掉 payload 會與 Lang.SkipCutsceneStr 的比對基準不同」—— 那個前提是反的:
+        //    Lang.SkipCutsceneStr 是一組純文字的 C# 字面值,本來就不含 payload,剝掉才是同基準。
+        //    反而 NodeText.ToString() 是整段位元組 raw UTF-8 解碼:節點文字一旦帶 payload 就解出 U+FFFD,
+        //    而下一關 DialogGuards.TextIsUnstable() 判的就是「有沒有 U+FFFD」⇒ 恆真、這條路徑靜默永不動作。
+        //    改走 Utils.TryGetNodeText(本 repo 其餘比對點都用它):它內含 GetNodeSafe ＋ GetAsAtkTextNode 判空,
+        //    與原本那三行的守衛逐一對應,讀不到一樣回 false。
+        // ⚠️ 純文字節點兩種讀法逐字相同,所以沒有 payload 的情況行為不變。
         //    讀不到就 return(＝這一幀不跳過過場),與「文字不在跳過清單裡」同語意;
         //    這是每幀輪詢的路徑,所以不寫 log。
-        var entryNode = Utils.GetNodeSafe(&selectStrAddon->AtkUnitBase.UldManager, 3);
-        var entryTextNode = entryNode == null ? null : entryNode->GetAsAtkTextNode();
-        if(entryTextNode == null) return;
-        var entryText = entryTextNode->NodeText.ToString();
+        if(!Utils.TryGetNodeText(&selectStrAddon->AtkUnitBase.UldManager, 3, out var entryText)) return;
         // 讀到 U+FFFD ＝ 這扇窗的記憶體正在變動(多半是關閉中),這一幀不碰它。
         if(DialogGuards.TextIsUnstable(entryText)) return;
         if(!Lang.SkipCutsceneStr.Contains(entryText)) return;

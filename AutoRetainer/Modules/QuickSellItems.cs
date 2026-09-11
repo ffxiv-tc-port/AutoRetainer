@@ -1,6 +1,7 @@
 ﻿using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Hooking;
+using Dalamud.Utility;
 using Dalamud.Utility.Signatures;
 using ECommons.Interop;
 using ECommons.MathHelpers;
@@ -167,7 +168,17 @@ public unsafe class QuickSellItems : IDisposable
                             {
                                 var contextItemParam = agent->EventParams[agent->ContexItemStartIndex + i];
                                 if(contextItemParam.Type != ValueType.String) continue;
-                                var contextItemName = contextItemParam.GetValueAsString();
+                                // 🔴 GetValueAsString() 對 ValueType.String 走的是 CStringPointer.ToString():
+                                //    把整段位元組當 UTF-8 直接解碼,完全不剝 SeString payload。右鍵選單項目只要帶了
+                                //    道具連結／圖示之類的 payload,解出來就會混進 U+FFFD 與控制位元組;
+                                //    而比對的另一端 text 來自 Addon 表的 Text.ToString(),那個在本 pin 逐字就是
+                                //    Lumina 的 ExtractText()(ReadOnlySeString.ToString() 直接轉呼叫 ExtractText())
+                                //    ⇒ 兩端基準不同、text.Contains(...) 恆假,這個快捷功能靜默失效(不報錯、不寫 log)。
+                                //    改用 Dalamud 的 CStringPointer.ExtractText(),與另一端走同一支 Lumina 解析器。
+                                // ⚠️ 沒有 payload 的純文字輸入兩種讀法逐字相同(整段就是單一 Text payload),所以行為不變;
+                                //    風險面也沒有變大:兩者都經過同一個 CStringPointer.AsSpan()
+                                //    (CreateReadOnlySpanFromNullTerminated,指標為 null 時回空 span,不會解參)。
+                                var contextItemName = contextItemParam.String.ExtractText();
 
                                 if(text.Contains(contextItemName))
                                 {
