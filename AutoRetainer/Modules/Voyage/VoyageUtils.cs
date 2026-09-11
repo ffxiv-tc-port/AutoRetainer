@@ -214,30 +214,68 @@ internal static unsafe class VoyageUtils
             }
         }
 
-        foreach(var x in Unlocks.PointToUnlockPoint.Where(z => z.Value.Point < 9000 && !plan.ExcludedRoutes.Contains(z.Key)))
-        {
-            if(ret.Count > 0 && Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(ret.First().point).Map.RowId != Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(x.Key).Map.RowId) break;
-            if(!P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Key, true) && P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Value.Point, true) && !ret.Any(z => z.point == x.Value.Point))
-            {
-                ret.Add((x.Value.Point, $"{VoyageUtils.GetSubmarineExplorationName(x.Key)} not unlocked"));
-            }
-        }
+        // 兩個開關都開才是「同圖先收乾淨」；UnlockRouteAlsoExploreUnexplored 關著時
+        // 根本不會排未探索的點，先後順序也就沒有意義。
+        var exploreFirst = C.UnlockRouteExploreBeforeUnlock && C.UnlockRouteAlsoExploreUnexplored;
 
-        // 補跑「已解鎖但未探索」的點(使用者要求:全航線解鎖不只解鎖,還要跑過一次打勾)。
-        // 🔴 預設關(C.UnlockRouteAlsoExploreUnexplored=false)=沿用既有行為;開啟才補跑。
-        // 一律排在解鎖點之後(較低優先),只有沒有新點可解鎖時才會被選到。與上面同樣受單一海圖約束:
-        // 一趟航行只能選同一張海圖上的點,清單累積起點所在海圖後,遇到別張海圖就中止(潛艇會逐圖清完)。
-        if(C.UnlockRouteAlsoExploreUnexplored)
+        // 🔴 未探索段現在會決定整份清單鎖定哪一張地圖(它排在開新點之前),所以這裡必須先排除
+        //    「目前這艘潛水艇等級不夠、跑不到」的點位 —— 否則那種點位會把錨點吃掉,
+        //    下游 GetUnlockPointsFromPlan 再依 RankReq 把它濾掉,結果是「別的地圖的新點也一起被擋住」,
+        //    要等潛水艇升到那一級才會恢復。判準與下游逐字相同(subLevel >= RankReq)。
+        //    讀不到目前這艘(沒開工房面板、只是開著規劃器視窗看清單)就不過濾,清單照樣顯示完整。
+        var currentSub = CurrentSubmarine.Get();
+        var currentSubRank = currentSub == null ? -1 : (int)currentSub->RankId;
+
+        // 挑點順序由 C.UnlockRouteExploreBeforeUnlock 決定（兩段的內容本身不變，只換先後）：
+        //   true（預設）＝ 先把同一張地圖上「已解鎖但未探索」的點收乾淨，再去開新點；
+        //   false       ＝ 舊行為，先開新點，沒有新點可開時才回頭補跑未探索的點。
+        // 🔴 兩段各自的 break 都是以 ret.First() 所在的地圖為準：清單一旦有了第一個點，
+        //    後面就只收同一張地圖上的點（一趟航行只跑一張圖）。所以「哪一段先跑」同時
+        //    決定了「這一趟鎖定哪張圖」——
+        //    先跑未探索段時，錨點落在「還有未探索點的最小 id 地圖」；那張圖全部探索完之後
+        //    這一段對它什麼都不加，錨點自然往後推到下一張圖，不會卡住（ret 還是空的時候
+        //    break 的 ret.Count > 0 前提不成立，迴圈會一路走到底）。
+        //    ⚠️ UnlockSubs 那兩段沒有地圖約束，它們若先加了點，錨點就是那些點所在的圖（既有行為）。
+        void AddPointsToUnlockNew()
         {
             foreach(var x in Unlocks.PointToUnlockPoint.Where(z => z.Value.Point < 9000 && !plan.ExcludedRoutes.Contains(z.Key)))
             {
                 if(ret.Count > 0 && Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(ret.First().point).Map.RowId != Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(x.Key).Map.RowId) break;
-                if(P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Key, true) && !P.SubmarineUnlockPlanUI.IsMapExplored(x.Key, true) && !ret.Any(z => z.point == x.Key))
+                if(!P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Key, true) && P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Value.Point, true) && !ret.Any(z => z.point == x.Value.Point))
                 {
-                    ret.Add((x.Key, $"{VoyageUtils.GetSubmarineExplorationName(x.Key)} unlocked but not explored"));
+                    ret.Add((x.Value.Point, $"{VoyageUtils.GetSubmarineExplorationName(x.Key)} not unlocked{(exploreFirst ? " (new point, picked after same-map cleanup)" : "")}"));
                 }
             }
         }
+
+        // 補跑「已解鎖但未探索」的點（解鎖模式只會跑「探索後能解鎖新點」的點，終端點位被解鎖成
+        // 可選之後不會自己被跑過一次，所以永遠不會打勾）。
+        // 📌 C.UnlockRouteAlsoExploreUnexplored 的實際預設是 true（Config.cs）——
+        //    這裡原本的註解寫「預設關」是錯的，2026-09-11 更正。
+        void AddUnexploredPoints()
+        {
+            if(!C.UnlockRouteAlsoExploreUnexplored) return;
+            foreach(var x in Unlocks.PointToUnlockPoint.Where(z => z.Value.Point < 9000 && !plan.ExcludedRoutes.Contains(z.Key)))
+            {
+                if(ret.Count > 0 && Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(ret.First().point).Map.RowId != Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(x.Key).Map.RowId) break;
+                if(P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Key, true) && !P.SubmarineUnlockPlanUI.IsMapExplored(x.Key, true) && (currentSubRank < 0 || currentSubRank >= GetSubmarineExploration(x.Key)?.RankReq) && !ret.Any(z => z.point == x.Key))
+                {
+                    ret.Add((x.Key, $"{VoyageUtils.GetSubmarineExplorationName(x.Key)} unlocked but not explored{(exploreFirst ? " (same-map cleanup, before new points)" : " (last resort, only when nothing left to unlock)")}"));
+                }
+            }
+        }
+
+        if(exploreFirst)
+        {
+            AddUnexploredPoints();
+            AddPointsToUnlockNew();
+        }
+        else
+        {
+            AddPointsToUnlockNew();
+            AddUnexploredPoints();
+        }
+
         return ret;
     }
 
