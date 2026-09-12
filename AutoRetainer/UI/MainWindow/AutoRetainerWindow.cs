@@ -72,23 +72,9 @@ internal unsafe class AutoRetainerWindow : Window
         // 會依 base 自己的旗標決定要不要 pop,所以補呼叫 base 兩邊仍然成對。
         base.PreDraw();
 
-        // 主視窗整體不透明度。推的是 ImGuiStyleVar.Alpha 而不是 Window.BgAlpha:
-        // BgAlpha 走的是 SetNextWindowBgAlpha(),只換掉 WindowBg 那一格顏色的 alpha,
-        // 僱員列、分頁列、按鈕這些自帶底色的元件完全不受影響 —— 使用者實機回報「其他
-        // 選項沒有跟著變透明」就是這個原因。Alpha 是 ImGui 的全域乘數,GetColorU32()
-        // 會把它乘進每一個取出的顏色,所以標題列、視窗背景、列底色、框線與文字會一起
-        // 淡掉,與 Dalamud 標題列右鍵選單的「不透明度」滑桿是同一個機制。
+        // 主視窗整體不透明度。推的是 ImGuiStyleVar.Alpha 而不是 Window.BgAlpha。
         // 文字跟著淡是這個機制的本質,不是 bug;下限 20% 就是用來保底可讀性的。
-        //
-        // 🔴 push 與 pop 必須成對,否則整個 ImGui 樣式堆疊會壞掉。實際讀過
-        // Dalamud/Interface/Windowing/Window.cs 的 DrawInternal 確認過:
-        //   * PreDraw() 只在 !hasError 時呼叫,同時把區域變數 isErrorStylePushed 留在 false;
-        //   * PostDraw() 在收尾處以 else(!isErrorStylePushed)呼叫 —— 判斷的是那個**區域變數**,
-        //     不是重新讀 this.hasError,所以 Draw() 途中擲例外把 hasError 翻成 true 也不影響;
-        //   * Draw() 的例外被 try/catch 攔住,兩者之間整段沒有任何 return;
-        //   * 兩個提早 return(視窗未開啟、DrawConditions() 為 false)都發生在 PreDraw() **之前**;
-        //   * 視窗收合時 ImGui.Begin() 回 false,但程式碼照樣往下走到 ImGui.End() 與 PostDraw()。
-        // ⇒ PreDraw/PostDraw 在所有路徑成對,這也正是 Dalamud 自己推 internalAlpha 的位置。
+        // 🔴 push 與 pop 必須成對，PreDraw/PostDraw 在所有路徑成對,這也正是 Dalamud 自己推 internalAlpha 的位置。
         if(C.CustomWindowBgAlpha)
         {
             // 乘上現值而不是直接指定,才能疊在 base.PreDraw() 推的值與外層樣式調整之上。

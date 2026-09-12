@@ -37,18 +37,8 @@ public static unsafe class Utils
 {
     /// <summary>
     /// 安全地讀取按鈕的啟用狀態，無法判定時回傳 null。
-    /// <para>
-    /// 🔴 ClientStructs 的 <c>AtkComponentButton.IsEnabled</c> 實作是
-    /// <c>AtkComponentBase.OwnerNode-&gt;AtkResNode.NodeFlags.HasFlag(...)</c>，
-    /// 對 <c>OwnerNode</c> <b>零 null 檢查</b>。按鈕還沒建構完成（或已被遊戲拆掉）時
-    /// <c>OwnerNode</c> 是 null，直接讀 <c>IsEnabled</c> 會丟 AccessViolationException。
-    /// AVE 在 .NET Core 是 corrupted-state exception，<b><c>try/catch</c> 攔不到</b>，
-    /// 結果是整個遊戲當場崩潰。
-    /// </para>
-    /// <para>
-    /// ⚠️ <c>AtkComponentBase</c> 有<b>兩個</b>指標欄位：<c>AtkResNode</c>(0xA0) 與 <c>OwnerNode</c>(0xA8)。
-    /// <c>IsEnabled</c> 解的是 <c>OwnerNode</c>，所以檢查 <c>AtkResNode</c> <b>不算守衛</b>。
-    /// </para>
+    /// 🔴 ClientStructs 的 <c>AtkComponentButton.IsEnabled</c> 實作是對 <c>OwnerNode</c> <b>零 null 檢查</b>。
+    /// ⚠️ 所以檢查 <c>AtkResNode</c> <b>不算守衛</b>。
     /// </summary>
     public static bool? GetButtonEnabled(AtkComponentButton* button)
     {
@@ -67,12 +57,7 @@ public static unsafe class Utils
     /// 從 <paramref name="uld"/> 的 <c>NodeList</c> 取第 <paramref name="index"/> 個節點；取不到回 <c>null</c>。
     /// </summary>
     /// <remarks>
-    /// 🔴 <c>NodeList</c> 要驗的是<b>兩件事</b>，只做一半就是「半套邊界檢查」：
-    /// <list type="bullet">
-    /// <item><b>上界</b>：版面還在建（或已開始拆）的時候 <c>NodeListCount</c> 可能小於索引，
-    /// 越界讀到的是<b>相鄰記憶體而不是 null</b> —— 元素判空完全擋不住，失敗徹底靜默。</item>
-    /// <item><b>元素本身</b>：即使索引在範圍內，<c>NodeList[i]</c> 仍可能是 <c>null</c>。</item>
-    /// </list>
+    /// 🔴 <c>NodeList</c> 要驗的是<b>兩件事</b>，只做一半就是「半套邊界檢查」：元素判空完全擋不住，失敗徹底靜默。
     /// </remarks>
     public static AtkResNode* GetNodeSafe(AtkUldManager* uld, int index)
     {
@@ -86,14 +71,8 @@ public static unsafe class Utils
     /// <see langword="false"/>（＝視為「不可見」）。
     /// </summary>
     /// <remarks>
-    /// 🔴 <c>AtkResNode.IsVisible()</c> 是 <c>[MemberFunction]</c>（<c>this</c> 走 RCX），
-    /// 對 <c>null</c> 節點呼叫等於把 <c>this = 0</c> 交給遊戲原生碼；
-    /// AVE 在 .NET Core 是 corrupted-state exception，<c>try/catch</c> 攔不到。
-    /// <para>
-    /// 🔑 失敗方向刻意選「不可見」而不是「可見」：這個外掛裡所有 <c>IsVisible()</c> 的用途
-    /// 都是「這顆按鈕／這段錯誤訊息出現了沒」，回 <c>false</c> 只會讓自動化<b>繼續等</b>，
-    /// 回 <c>true</c> 則會對著還沒建好的版面按下去。
-    /// </para>
+    /// 🔴 <c>AtkResNode.IsVisible()</c> 是 <c>[MemberFunction]</c>（<c>this</c> 走 RCX），AVE 在 .NET Core 是 corrupted-state exception，<c>try/catch</c> 攔不到。
+    /// 🔑 失敗方向刻意選「不可見」而不是「可見」。
     /// </remarks>
     public static bool IsNodeVisible(AtkUldManager* uld, int index)
     {
@@ -106,19 +85,8 @@ public static unsafe class Utils
     /// 鏈上任何一節取不到就回 <see langword="false"/>，<paramref name="text"/> 為空字串。
     /// </summary>
     /// <remarks>
-    /// 🔴 這裡擋的是<b>兩種不同的爆法</b>，兩種原本都攔不住：
-    /// <list type="number">
-    /// <item><c>GetAsAtkTextNode()</c> 是 <c>[MemberFunction]</c>，對 <c>null</c> 節點呼叫等於把
-    /// <c>this = 0</c> 交給遊戲原生碼，<b>當場</b> AccessViolation；AVE 在 .NET Core 是
-    /// corrupted-state exception，<c>try/catch</c> 攔不到。</item>
-    /// <item>更陰的是 <c>&amp;node-&gt;NodeText</c>：<c>NodeText</c> 位在 <c>AtkTextNode</c> 偏移 0xC0，
-    /// 節點為 <c>null</c> 時<b>不會當場崩</b>，而是靜默算出毒指標 0xC0 ——
-    /// 連 <c>ReadSeString</c> 內部的 <c>!= null</c> 判空都騙得過去，一路到真的去讀位址 0xC0 才炸，
-    /// 崩潰現場完全指不到真因。（<c>node-&gt;NodeText.GetText()</c> 這種值複製寫法是同一件事的另一面：
-    /// <c>GetText</c> 的參數是<b>傳值</b>的，複製動作發生在呼叫端，炸在那一行。）</item>
-    /// </list>
-    /// 🔑 回傳 <c>bool</c> 而不是「取不到就回空字串」，是為了讓呼叫端分得出
-    /// 「讀到空文字」與「根本沒讀到」—— 這兩者對「文字比對成不成立」的意義完全不同。
+    /// 🔴 這裡擋的是<b>兩種不同的爆法</b>，兩種原本都攔不住。
+    /// 🔑 回傳 <c>bool</c> 而不是「取不到就回空字串」，是為了讓呼叫端分得出「讀到空文字」與「根本沒讀到」。
     /// </remarks>
     public static bool TryGetNodeText(AtkResNode* node, out string text)
     {
@@ -139,16 +107,8 @@ public static unsafe class Utils
     /// 鏈上任何一節取不到就回 <see langword="false"/>，<paramref name="button"/> 為 <c>null</c>。
     /// </summary>
     /// <remarks>
-    /// 🔴 <c>addon-&gt;GetNodeById(id)-&gt;GetAsAtkComponentRadioButton()</c> 這條鏈有
-    /// <b>兩個各自獨立的 null 路徑</b>，原本一個都沒判：
-    /// <list type="number">
-    /// <item><c>GetNodeById</c> 是 <c>[MemberFunction]</c>，<b>找不到該 id 就合法回 <c>null</c></b>。
-    /// 版面還在建、或這個版本的版面根本沒有那顆節點（寫死的 id 在台服對不對是未驗證的假設）時就是這樣。</item>
-    /// <item><c>GetAsAtkComponentRadioButton()</c> 同樣是 <c>[MemberFunction]</c>：對 <c>null</c> 節點呼叫
-    /// 等於把 <c>this = 0</c> 交給遊戲原生碼；而且<b>即使節點存在</b>，它不是單選按鈕時也會回 <c>null</c>。</item>
-    /// </list>
-    /// AVE 在 .NET Core 是 corrupted-state exception，<c>try/catch</c> 與
-    /// <c>HookSafety.ExecuteSafe</c> 都攔不到。
+    /// 🔴 <c>addon-&gt;GetNodeById(id)-&gt;GetAsAtkComponentRadioButton()</c> 這條鏈有 <b>兩個各自獨立的 null 路徑</b>。
+    /// <c>GetNodeById</c> 是 <c>[MemberFunction]</c>，<b>找不到該 id 就合法回 <c>null</c></b>。
     /// </remarks>
     public static bool TryGetRadioButtonById(AtkUnitBase* addon, uint nodeId, out AtkComponentRadioButton* button)
     {
@@ -172,16 +132,9 @@ public static unsafe class Utils
     /// 讀部隊點數,並回報「這次到底有沒有讀到」。
     /// </summary>
     /// <remarks>
-    /// 原本是 <c>*(int*)((nint)AgentModule.Instance()-&gt;GetAgentByInternalId(...) + 256)</c>,
     /// 整條鏈零判空。兩層都有真實的 null 路徑:
-    /// <list type="bullet">
-    /// <item>AgentModule.Instance() 是 CS 手寫的,逐字為 <c>uiModule == null ? null : uiModule-&gt;GetAgentModule()</c>
-    /// —— 登入前 / 卸載期間 UIModule 還沒建立就回 null。</item>
-    /// <item>GetAgentByInternalId 對尚未建立的代理人回 null(部隊點數商店在沒開過部隊介面前就是這樣)。</item>
-    /// </list>
-    /// ⚠️ 這次只補判空。<c>+256</c> 這個未文件化的原生偏移本身沒有動(另案處理),
-    /// 它在台服對不對仍然是未驗證的假設 —— 但偏移錯的失敗形式是「數字不對」,不是崩潰;
-    /// 而少了上面兩層判空的失敗形式是攔不到的 AccessViolationException。
+    /// ⚠️ 這次只補判空。<c>+256</c> 這個未文件化的原生偏移本身沒有動。
+    /// 但偏移錯的失敗形式是「數字不對」,不是崩潰; 而少了上面兩層判空的失敗形式是攔不到的 AccessViolationException。
     /// </remarks>
     public static bool TryGetFCPoints(out int points)
     {
@@ -705,14 +658,8 @@ public static unsafe class Utils
     /// <see cref="MatchesCapturedInventoryState"/>, which must walk the containers in the same order.
     /// </summary>
     /// <remarks>
-    /// 🔴 拿不到的容器／格位一律「跳過」，不是中止整個快照。這條路徑每次雇員存入送出指令都會走到
-    /// （<c>TaskEntrustDuplicates</c> 的閘門與 <c>NpcSaleManager</c> 的等待判定），而
-    /// <c>NpcSaleManager</c> 是拿本函式的兩次輸出互相 <c>SequenceEqual</c>：中止會讓新的一次回傳短少
-    /// 的清單，跟舊快照比對不相等 → 把「狀態根本沒變」誤判成「已變動」→ 閘門提前放行。
+    /// 🔴 拿不到的容器／格位一律「跳過」，不是中止整個快照。
     /// 跳過則兩次都跳過同樣的容器，比對結果仍然是相等，行為維持不變。
-    /// 同檔的 <see cref="MatchesCapturedInventoryState"/> 與 <c>NpcSaleManager.SellHardListItemsTask</c>
-    /// 都已經是這個寫法，本函式先前是唯一漏掉的一個。
-    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
     /// </remarks>
     public static List<(uint ID, uint Quantity)> GetCapturedInventoryState(IEnumerable<InventoryType> inventoryTypes)
     {
@@ -890,18 +837,9 @@ public static unsafe class Utils
     /// through <c>?.</c>, which short-circuits argument evaluation, so a null collector means the
     /// interpolated strings are never built in the first place.</param>
     /// <remarks>
-    /// 🔴 本函式讀不到容器時一律 <c>return 0</c>，**不是** <c>continue</c>——跟同檔其他幾個累加型函式相反。
-    /// 理由是這裡「跳過一個容器」會讓結果**偏高**，而不是偏低：
-    /// <list type="number">
-    /// <item>水晶分支跳過的若正好是那個裝著未滿堆疊的容器，迴圈會落到結尾的
-    /// <c>return data.Value.StackSize</c>，直接回報一整堆的容量——這是可能回傳的最大值。</item>
-    /// <item>一般分支跳過的若正好是那個裝著獨占道具的容器，就錯過 <c>if(data.Value.IsUnique) return 0</c>，
-    /// 於是把「一件都放不下」算成一個正數。</item>
-    /// </list>
-    /// 而回傳值會被拿去夾 <c>toEntrust</c>（<c>TaskEntrustDuplicates</c>）與軍票兌換數量（<c>GCContinuation</c>），
-    /// 高估＝送出遊戲一定會拒絕的數量。回 0 是保守失敗（這輪不動作），而且兩個呼叫端都是輪詢重跑的，
-    /// 容器一旦載入下一輪就自動恢復，不會卡死。
-    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// 🔴 本函式讀不到容器時一律 <c>return 0</c>，**不是** <c>continue</c>。
+    /// 理由是這裡「跳過一個容器」會讓結果**偏高**，而不是偏低。
+    /// 回 0 是保守失敗（這輪不動作），而且兩個呼叫端都是輪詢重跑的，容器一旦載入下一輪就自動恢復，不會卡死。
     /// </remarks>
     private static uint GetAmountThatCanFitInternal(IEnumerable<InventoryType> inventoryTypes, uint itemId, bool isHq, List<string> debugData)
     {
@@ -1631,19 +1569,10 @@ public static unsafe class Utils
     }
 
     /// <summary>Whether the player's own inventory can be read right now at all.
-    ///
-    /// 🔴 <see cref="GetInventoryFreeSlotCount"/> skips containers it cannot read, so "not loaded yet"
-    /// and "completely full" both come back as 0 - they are indistinguishable at the call site. That is
-    /// fine for the callers that only ever *withhold* an action, but not for the ones whose false branch
-    /// disables the plugin or writes <c>Enabled = false</c> into a character's saved data: those act
-    /// destructively on the zero and the user has to undo it by hand.
-    ///
-    /// The containers are genuinely unreadable while zoning and for a short window after login, both of
-    /// which the retainer/multi-mode flow hits constantly (it relogs between characters by design), so
-    /// gate any such decision on this first and simply re-check on a later frame when it returns false.
-    /// ⚠️ Deliberately NOT folded into <see cref="IsInventoryFree"/>: that would answer "yes, free" for
-    /// an inventory nobody has read, which is the permissive direction and would let the venture loop
-    /// start blind.</summary>
+    /// 🔴 <see cref="GetInventoryFreeSlotCount"/> skips containers it cannot read, so "not loaded yet" and "completely full" both come back as 0.
+    /// The containers are genuinely unreadable while zoning and for a short window after login, both of which the retainer/multi-mode flow hits constantly (it relogs between characters by design).
+    /// ⚠️ Deliberately NOT folded into <see cref="IsInventoryFree"/>: that would answer "yes, free" for an inventory nobody has read.
+    /// </summary>
     internal static bool IsInventoryStateReadable()
     {
         if(!Player.Available) return false;

@@ -147,36 +147,13 @@ public unsafe class AutoRetainer : IDalamudPlugin
         SubmarinePointPlanUI = new();
 
         // 🔴 訂閱順序＝每幀的呼叫順序:這一行必須排在下面 TaskManager = new(...) 之前。
-        //    ECommons 的 NeoTaskManager 建構式自己就 Svc.Framework.Update += Tick
-        //    (ECommons/Automation/NeoTaskManager/TaskManager.cs),而排程任務(TaskEntrustDuplicates
-        //    的數量輸入框、TaskDiscardItems 的丟棄確認框、買燃料確認框…)全是掛在那條鏈上按窗的。
-        //    守衛的解除點若排在它後面,每幀就變成「先按、後解除」:舊窗在兩幀之間被遊戲移出清單、
-        //    同一輪任務又開出一扇重用同一塊位址的新窗時,解除掃描看到位址還在就把舊記號留著,
-        //    新窗會被白白擋到逃生口(道具逐件迴圈＝每件多等 60 幀 ≈ 1 秒)。排在最前面才是
-        //    「先解除、再按」,與這個守衛集中化之前(各任務在自己 tick 開頭 ReleaseGuardIfGone)一致。
-        //    另一個理由:Dalamud 把一個外掛的整條 Framework.Update 鏈包在同一個 try/catch 裡
-        //    (PluginErrorHandler.InvokeAndCatch),前面任何一個處理器丟例外會讓後面的處理器整幀被跳過;
-        //    解除點掛在最前面就不會被別人的例外連累而漏掉一幀。
+        // 守衛的解除點若排在它後面,每幀就變成「先按、後解除」。
+        // 解除點掛在最前面就不會被別人的例外連累而漏掉一幀。
         Svc.Framework.Update += DialogGuardsTick;
 
         // showDebug 跟隨 /autoretainer debug（C.Verbose），不再寫死 true。
-        // 寫死 true 時 NeoTaskManager 每啟動／完成一個任務就往 dalamud.log 寫一行 Debug。
-        // 2026-09-02 實機量測（單一 91MB 的 dalamud log，共 900,412 行）：光
-        // 「→Starting to execute task […], timeout=20000」這一種就有 85,837 行（全檔 9.5%），
-        // AutoRetainer 一家佔 37.7%、DBG 級佔 77%，而同一份 log 裡真正的 TaskTimeoutException
-        // 只有 4 筆（全是 Lifestream 的）。log 只留約 11 個 .old，等於把有價值的 Information
-        // 級診斷提前沖掉 —— 損害是診斷資料被擠掉，不是效能。
-        // 📌 上游自己在 Modules/FCPointsUpdater.cs 就是用 showDebug: false，所以不是不能關。
-        // ⚠️ 關掉只影響 dalamud.log：ECommons 的 TaskManager.Log() 在 showDebug 為 false 時改走
-        //    InternalLog.Debug()，任務起訖／排入佇列這些行照樣進環形緩衝區，
-        //    外掛自己的「AutoRetainer log」視窗（LogWindow → InternalLog.PrintImgui）看得到。
-        //    真的只在 dalamud.log 才有的是 BeginStack/InsertStack 那幾行（TaskManager.Stack.cs
-        //    直接 if(ShowDebug) PluginLog.Debug，沒有 InternalLog 退路）。
         // 🔴 切換要即時生效必須同時改 DefaultConfiguration：見 SyncTaskManagerDebugOutput()。
-        // TaskTimeoutLog.Attach()：逾時時多印一行「是哪一步逾時」的 Warning，
-        // 並蓋掉 ECommons 那行完全匿名的（它擲的 TaskTimeoutException 連 Message 都沒有）。
-        // showDebug 關著時帶名字的那一行只進 InternalLog，dalamud.log 上完全沒有
-        // ⇒ 這一則是唯一查得出「是哪一步」的證據。設定的預設值一個字都沒改。
+        // TaskTimeoutLog.Attach()：逾時時多印一行「是哪一步逾時」的 Warning，並蓋掉 ECommons 那行完全匿名的。
         TaskManager = TaskTimeoutLog.Attach(new(new(abortOnTimeout: true, timeLimitMS: 20000, showDebug: C.Verbose)), "AutoRetainer");
         Memory = new();
         Svc.PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -296,11 +273,6 @@ public unsafe class AutoRetainer : IDalamudPlugin
     /// </summary>
     /// <remarks>
     /// 🔴 <b>改 <see cref="Config.Verbose"/> 的地方都要呼叫這支</b>，否則切換只會在下次載入才生效。
-    /// 目前唯一的寫入點是 <see cref="CommandHandler"/> 的 debug 分支（2026-09-02 全 repo grep 確認）。
-    /// 📌 之所以即時生效：ECommons 的 NeoTaskManager 每個 Tick／Enqueue 都重新讀一次
-    /// <c>CurrentTask.Configuration?.ShowDebug ?? DefaultConfiguration.ShowDebug</c>
-    /// （NeoTaskManager/TaskManager.cs:139、Enqueue.cs:51/56、Insert.cs:51/56），
-    /// 而 <c>ShowDebug</c> 是可寫的屬性，不是建構時就凍結的值。
     /// 🔴 只能寫 true/false，<b>不可以寫 null</b> —— Tick 開頭的 <c>AssertNotNull()</c> 會擲例外。
     /// </remarks>
     internal void SyncTaskManagerDebugOutput()

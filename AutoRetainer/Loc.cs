@@ -56,20 +56,9 @@ internal static class Loc
         return _strings != null && _strings.TryGetValue(key, out var translated) ? translated : fallback;
     }
 
-    // Builds a display-name dictionary for an underscore-separated enum (e.g. Enable_AutoRetainer),
-    // translating the space-converted fallback text via Loc.T. Feed it to the names: parameter of
-    // NuiBuilder.EnumComboFullWidth or ImGuiEx.EnumCombo so the entries of a combo get translated,
-    // not just its label.
-    //
-    // The key handed to Loc.T is exactly what ECommons renders when no names table is supplied
-    // (ToString() with '_' replaced by a space), so a member that has no translation entry still
-    // displays byte-for-byte what it displayed before.
-    //
-    // The table is built once per enum type and reused for the rest of the session. That matters
-    // because ImGuiEx.EnumCombo is called from immediate-mode Draw code: building the dictionary at
-    // the call site would allocate it, plus one string per member, on every single frame. Caching is
-    // safe here because Loc.Load runs as the first statement of AutoRetainer.Load(), before any
-    // window or NeoUI entry is constructed, and the plugin has no runtime language switch.
+    // Builds a display-name dictionary for an underscore-separated enum (e.g. Enable_AutoRetainer), translating the space-converted fallback text via Loc.T.
+    // The key handed to Loc.T is exactly what ECommons renders when no names table is supplied (ToString() with '_' replaced by a space).
+    // The table is built once per enum type and reused for the rest of the session.
     public static IDictionary<TEnum, string> EnumNames<TEnum>() where TEnum : struct, Enum
         => EnumNameCache<TEnum>.Value;
 

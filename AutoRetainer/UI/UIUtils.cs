@@ -276,16 +276,9 @@ internal static class UIUtils
     }
 
     /// <summary>
-    /// 判斷「按住修飾鍵」型的快捷鍵目前是否成立。這些功能改成可設定之前是硬編 ImGui 的
-    /// KeyShift/KeyCtrl/KeyAlt，有兩個性質必須一併保留，否則就是靜默的行為回退：
-    /// <list type="number">
-    /// <item>ImGui 的修飾鍵狀態<b>不分左右</b>。LimitedKeys 沒有合併的 Shift/Ctrl/Alt(只有 Left*/Right*)，
-    /// 所以選到左側修飾鍵時右側同樣算數——預設值就是左側，慣用右側 Shift 的人升級後不會失去功能。
-    /// 想嚴格只認單邊就選右側的那一個。</item>
-    /// <item>遊戲視窗失焦時 ImGui 收不到按鍵。這裡改用 winapi 的 GetAsyncKeyState(IsKeyPressed)，
-    /// 它<b>連別的程式裡按的鍵都讀得到</b>，所以必須自己補上 WindowInactive 閘門，
-    /// 否則「alt-tab 出去時剛好按著 Shift」會讓上一次 hover 的道具被加進清單。</item>
-    /// </list>
+    /// 判斷「按住修飾鍵」型的快捷鍵目前是否成立。
+    /// ImGui 的修飾鍵狀態<b>不分左右</b>。預設值就是左側，慣用右側 Shift 的人升級後不會失去功能。
+    /// 遊戲視窗失焦時 ImGui 收不到按鍵。它<b>連別的程式裡按的鍵都讀得到</b>，所以必須自己補上 WindowInactive 閘門。
     /// LimitedKeys.None ＝ 停用該動作，不是「不按任何鍵就觸發」。
     /// </summary>
     internal static unsafe bool IsHotkeyHeld(LimitedKeys key)
