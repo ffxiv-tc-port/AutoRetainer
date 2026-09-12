@@ -6,21 +6,8 @@ namespace AutoRetainer;
 
 /// <summary>
 /// 跨外掛 IPC 呼叫失敗的觀測網。
-/// <para>
-/// EzIPC.Init 帶 <see cref="SafeWrapper.AnyException"/> 或 <see cref="SafeWrapper.IPCException"/> 時，
-/// 呼叫對方沒有註冊的 IPC 方法（或參數型別／數量不符）會被 wrapper 吞掉並直接回傳 default，
-/// 而 <see cref="EzIPC.OnSafeInvocationException"/> 預設沒有任何訂閱者
-/// —— 結果就是「功能完全不動、log 一行都沒有」。
-/// </para>
-/// <para>
-/// 實例：ICE 呼叫 AutoHook.SwapBaitById，但台服的 AutoHook 版本較舊、根本沒註冊這個 IPC，
-/// 症狀只是「餌永遠裝不上」，查了三輪才找到。
-/// </para>
-/// <para>
-/// ⚠️ ECommons 是逐 repo vendored 的，每個外掛都編出自己的一份 ECommons.dll，
-/// <see cref="EzIPC.OnSafeInvocationException"/> 是**那一份 DLL 裡的靜態事件**。
-/// 所以每個外掛都必須自己訂閱一次，別的外掛訂閱不算數。
-/// </para>
+/// 呼叫對方沒有註冊的 IPC 方法（或參數型別／數量不符）會被 wrapper 吞掉並直接回傳 default，結果就是「功能完全不動、log 一行都沒有」。
+/// ⚠️ 每個外掛都編出自己的一份 ECommons.dll，所以每個外掛都必須自己訂閱一次，別的外掛訂閱不算數。
 /// </summary>
 internal static class EzIpcFailureLog
 {

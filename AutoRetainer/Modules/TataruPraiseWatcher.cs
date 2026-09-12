@@ -10,23 +10,9 @@ namespace AutoRetainer.Modules;
 /// 監看「回來的時間到了」這條邊，到點就請 TataruPraise 念一句。
 /// </summary>
 /// <remarks>
-/// 🔴 <b>接的是時間，不是流程。</b>上一版接在工房收尾與僱員收尾的流程收斂點上，
-/// 結果是「實際去收的時候才響」——使用者要的是「返航時間到就響」，
-/// 那兩件事之間可以差好幾個小時，而且人不在遊戲前面時根本不會發生。
-/// <para>
-/// 判斷完全建立在 <c>C.OfflineData</c> 已經記下來的絕對時間戳上
-/// （潛水艇／飛空艇＝<see cref="OfflineVesselData.ReturnTime"/>，
-/// 僱員＝<see cref="OfflineRetainerData.VentureEndsAt"/>，兩者都是 Unix 秒），
-/// 所以<b>不限當前角色</b>：那些時間戳離線後依然有效，不需要重新整理就會自己到期。
-/// </para>
-/// <para>
-/// 🔴 <b>每 tick 只比較 long。</b>不掃 ObjectTable、不解任何原生指標、不讀遊戲記憶體，
-/// 而且外面還包一層 1 秒節流。
-/// </para>
-/// <para>
-/// ⚠️ 這是單向通知，<b>不參與 AutoRetainer 的任何流程判斷</b>；
-/// 讀錯的最壞後果是少念一句或多念一句話。
-/// </para>
+/// 🔴 <b>接的是時間，不是流程。</b>
+/// 判斷完全建立在 <c>C.OfflineData</c> 已經記下來的絕對時間戳上，所以<b>不限當前角色</b>：那些時間戳離線後依然有效，不需要重新整理就會自己到期。
+/// 🔴 <b>每 tick 只比較 long。</b> ⚠️ 這是單向通知。
 /// </remarks>
 internal static class TataruPraiseWatcher
 {

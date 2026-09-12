@@ -37,22 +37,9 @@ public class IPC_PluginState
 
     /// <summary>Which retainers of which characters are ticked for automation, as a snapshot.</summary>
     /// <remarks>
-    /// 🔴 這裡回的是<b>複本</b>，不是 <c>C.SelectedRetainers</c> 本尊。理由是這張表兩層都會被
-    /// AutoRetainer 自己在 framework／繪製執行緒上改：外層在
-    /// <c>AutoRetainer.cs</c> 的每幀 Tick 與 <c>P.GetSelectedRetainers</c> 會<b>新增鍵</b>、
-    /// 角色排序 UI 會 <c>Remove</c>；內層的 <c>HashSet</c> 在僱員分頁的「啟用／停用選取的僱員」
-    /// 會 <c>Add</c>／<c>Remove</c>。而 IPC 端點跑在<b>呼叫端的執行緒</b>上
-    /// ⇒ 交出本尊等於讓對方在我們改動的當下走訪它，失敗形式是 <c>InvalidOperationException</c>
-    /// 擲在<b>對方</b>的碼裡（看起來像對方的 bug），最壞是字典本身壞掉。
-    /// <br/>
-    /// ⚠️ 內層也複製（不是只換外層），否則對方走訪 <c>HashSet</c> 時的競態原封不動 ——
-    /// 而「逐一列出某個角色勾了哪些僱員」正是這個端點唯一的用法。
-    /// <br/>
-    /// 📌 代價：透過回傳值寫回來不再會生效。這個端點的語意本來就是查詢
-    /// （SomethingNeedDoing 對 Lua 公開它時的說明是 "Gets all enabled retainers"），
-    /// 而且全艦隊的 C# 消費端（AutoDuty <c>IPCSubscriber.cs:60</c>、GatherBuddyReborn
-    /// <c>IpcSubscribers.cs:650</c>、SomethingNeedDoing <c>External/AutoRetainer.cs:34</c>）
-    /// <b>三個都只有宣告、沒有任何呼叫點</b>，更沒有人寫回。
+    /// 🔴 這裡回的是<b>複本</b>，不是 <c>C.SelectedRetainers</c> 本尊。
+    /// IPC 端點跑在<b>呼叫端的執行緒</b>上，交出本尊等於讓對方在我們改動的當下走訪它。
+    /// 📌 代價：透過回傳值寫回來不再會生效。
     /// </remarks>
     [EzIPC]
     public Dictionary<ulong, HashSet<string>> GetEnabledRetainers()
@@ -217,16 +204,10 @@ public class IPC_PluginState
     public void ResetRetainerRetrieveTracking()
         => IpcFrameworkGate.Run(nameof(ResetRetainerRetrieveTracking), RetainerRetrieve.ResetTracking);
 
-    /// <summary>Fires a single retrieve-from-retainer command for the first occupied slot found in the
-    /// currently open retainer's item storage (items and crystals), into the player's own bags - never
-    /// routes through the armoury chest, same as AutoRetainer's own entrust/vendor tasks. Deliberately
-    /// does not wait for the retrieve to land before returning, unlike AutoRetainer's own throttled tasks -
-    /// callers (e.g. an SND macro looping this) are expected to control their own pacing between calls, in
-    /// exchange for real speed instead of the ~500ms+confirm-per-item pace the built-in tasks use.
-    ///
-    /// Returns false once nothing is left to retrieve, the player's own inventory is nearly full, or every
-    /// remaining occupied slot already has a command in flight - in the last case the caller should let the
-    /// retainer inventory settle, then start a fresh round rather than treating it as "done".</summary>
+    /// <summary>Fires a single retrieve-from-retainer command for the first occupied slot found in the currently open retainer's item storage (items and crystals), into the player's own bags.
+    /// Deliberately does not wait for the retrieve to land before returning; callers control their own pacing.
+    /// Returns false once nothing is left to retrieve, the player's own inventory is nearly full, or every remaining occupied slot already has a command in flight.
+    /// </summary>
     [EzIPC]
     public bool RetrieveNextRetainerItemSlot()
         => IpcFrameworkGate.Run(nameof(RetrieveNextRetainerItemSlot), RetainerRetrieve.RetrieveNextSlot, false,
@@ -266,13 +247,7 @@ public class IPC_PluginState
     #region Drive the retainer / GC flows from outside
 
     // 這一區把 AutoRetainer 本來就有的任務鏈開一個對外的門,讓巨集不必自己去點 addon。
-    //
-    // 🔴 動機是安全而不是方便:從巨集驅動「鈴 → 雇員清單 → 選雇員 → 道具管理」需要一連串寫死的
-    //    callback 參數與選單索引,那些東西離線驗不了、改版會**靜默**失效(addon 對型別不對的參數
-    //    是不動作,不是報錯),而且選單項的文字在各語系不同。AutoRetainer 內部這條鏈本來就是
-    //    正式流程每天在跑的,連選單文字都是查 Addon 表而不是寫死字串。與其在外面重造一份會爛的,
-    //    不如把已經在跑的這條接出來。
-    //
+    // 🔴 動機是安全而不是方便。
     // ⚠️ 這些是 Enqueue,不是同步動作:呼叫後任務進佇列,呼叫端要自己輪詢 IsBusy() 等它做完。
 
     /// <summary>Retainer names of the current character that have an entrust plan assigned, in the order

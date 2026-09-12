@@ -7,22 +7,8 @@ namespace AutoRetainer.Modules;
 /// </summary>
 /// <remarks>
 /// 🔴 <b>零組件相依。</b>只用 Dalamud 原生 CallGate 的字串契約，對方沒安裝時本檔的每一條路徑都是 no-op。
-/// <para>
-/// 🔴 契約名逐字取自 TataruPraise 的 <c>IpcContract.cs</c>。CallGate 是純字串比對，
-/// 名字打錯不會有任何錯誤訊息，只會永遠得到「這個頻道沒有人註冊」——<b>靜默斷線</b>。
-/// 所以三個字串都寫成常數，不散在呼叫點上。
-/// </para>
-/// <para>
-/// 🔴 <b>只能從主執行緒(framework tick / Draw)呼叫。</b>IPC 的實作是在呼叫端的執行緒上跑的，
-/// 從背景 Task 叫過去等於把對方的程式碼拉到背景執行緒。目前的呼叫點都在
-/// <c>Svc.Framework.Update</c> 的鏈上(<see cref="TataruPraiseWatcher.Tick"/>，以及
-/// <see cref="GcHandin.GCExpertDeliveryLoop"/> 成功收尾時的 <c>Stop()</c>——它由
-/// <c>AutoRetainer.Tick</c> 每幀呼叫的 <c>GCExpertDeliveryLoop.Tick()</c> 驅動)。
-/// </para>
-/// <para>
-/// ⚠️ 這是<b>單向通知</b>：回傳值只拿來寫記錄，不影響 AutoRetainer 的任何流程，
-/// 也不因為對方回 false 而重試。
-/// </para>
+/// 🔴 契約名逐字取自 TataruPraise 的 <c>IpcContract.cs</c>。所以三個字串都寫成常數，不散在呼叫點上。
+/// 🔴 <b>只能從主執行緒(framework tick / Draw)呼叫。</b> ⚠️ 這是<b>單向通知</b>。
 /// </remarks>
 internal static class TataruPraiseIPC
 {

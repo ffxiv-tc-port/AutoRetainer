@@ -5,41 +5,8 @@ namespace AutoRetainer.Modules.EzIPCManagers;
 
 /// <summary>
 /// 把 IPC 端點的本體搬到 framework 執行緒上跑的閘門。
-///
-/// <para>🔴 為什麼需要它：<see cref="EzIPC"/> 註冊出去的端點是<b>在呼叫端的執行緒上執行的</b>，
-/// 不是在 framework 執行緒上。這兩個門面底下的實作幾乎每一支都會同步碰到下面三類東西，
-/// 而三類全部只有在 framework 執行緒上才成立：</para>
-/// <list type="number">
-/// <item>原生記憶體讀取（<c>PlayerState</c>／<c>InventoryManager</c>／<c>RetainerManager</c>、
-/// addon 查詢、<c>Svc.Objects.LocalPlayer</c>）。⚠️ <c>Svc.Objects</c> 的包裝物件是<b>每格預配一個、
-/// 存取時就地改寫其 <c>Address</c></b>（<c>ObjectTable.CachedEntry.Update</c>），所以從別的執行緒讀它
-/// 不只是「可能讀到舊值」，而是會在 framework 執行緒正在使用那個包裝時把它指到別的物件上。</item>
-/// <item><c>P.TaskManager.Tasks</c> —— 那是一個裸 <c>List&lt;T&gt;</c>，framework 執行緒每幀在增刪它
-/// （ECommons 自己的註解就寫著 only ever do that from Framework.Update event）。
-/// 也就是說連「只是把任務放進佇列」都不安全。</item>
-/// <item><see cref="AutoRetainer.Internal.InventoryManagement.RetainerRetrieve"/> 的在途追蹤字典，
-/// 以及它用來節流診斷訊息的 <c>EzThrottler</c>（整個外掛共用的靜態 <c>Dictionary</c>，零同步）。</item>
-/// </list>
-///
-/// <para>📌 <b>已經在 framework 執行緒上呼叫時，行為逐字不變。</b>Dalamud 的
-/// <c>RunOnFrameworkThread</c> 在本執行緒就是 framework 執行緒時是<b>就地執行</b>的
-/// （<c>Framework.cs</c>：<c>IsInFrameworkUpdateThread ? Task.FromResult(func()) : RunOnTick(func)</c>），
-/// 例外也照樣同步往外擲，等待則立刻完成。艦隊裡目前的消費端（Artisan 走自己的 TaskManager、
-/// AutoDuty／GatherBuddyReborn 走 framework 迴圈）幾乎都落在這條路上，
-/// 所以這個閘門在實務上是零成本的 —— 它保護的是「有人從背景執行緒打進來」那條路。</para>
-///
-/// <para>⚠️ 逾時回值一律選 fail-safe 的那一邊，而且每一支端點用的都是它<b>原本就定義過</b>的
-/// 「不可用」值，不是新語意 —— 端點的簽章與回傳語意一個都沒有改變。</para>
-///
-/// <para>🔴🔴 <b>「逾時」只代表「我們不等了」，不代表 <c>body</c> 沒有執行。</b>
-/// 下面用的是 <see cref="Task.WaitAny(Task[], int)"/>：它<b>不會取消</b>那個工作。
-/// <c>RunOnFrameworkThread</c> 已經把 <c>body</c> 排進 framework 執行緒的佇列，
-/// 逾時之後它<b>照樣會在後續某一格跑完</b>，只是沒有人拿它的結果。
-/// ⇒ 有副作用的 <c>body</c>（例如 <c>GetARD</c> 走的 <c>Utils.GetAdditionalData</c>
-/// 會往 <c>C.AdditionalData</c> 插一筆）在逾時之後<b>仍然會發生</b>。
-/// 🔑 這條的實務意義是：<b>逾時回值必須是「沒答案」而不是「一個看起來像答案的值」</b> ——
-/// 呼叫端拿著替代值去寫回，會和稍後才跑完的真實 body 打架。
-/// 📌 這裡只是把既有行為寫明，<b>沒有改變任何行為</b>。</para>
+/// 🔴 <see cref="EzIPC"/> 註冊出去的端點是<b>在呼叫端的執行緒上執行的</b>，不是在 framework 執行緒上。這兩個門面底下的實作幾乎每一支都會同步碰到下面三類東西，而三類全部只有在 framework 執行緒上才成立。
+/// 🔴 「逾時」只代表「我們不等了」，不代表 <c>body</c> 沒有執行。 <b>逾時回值必須是「沒答案」而不是「一個看起來像答案的值」</b>。
 /// </summary>
 internal static class IpcFrameworkGate
 {
@@ -90,14 +57,9 @@ internal static class IpcFrameworkGate
     }
 
     /// <summary>
-    /// 🔴 Dalamud 卸載期的閘門旁路：<c>Framework.RunOnFrameworkThread</c> 在
-    /// <c>IsFrameworkUnloading</c> 為真時會<b>就地在呼叫端執行緒</b>執行 body
-    /// （<c>Dalamud/Game/Framework.cs</c> 的 <c>IsInFrameworkUpdateThread || IsFrameworkUnloading</c>），
-    /// 等於這一層完全失效、原生記憶體存取退回未保護狀態。
-    /// 🔑 所以卸載期一律直接回該端點原本的「不可用」值：那一瞬間功能失效可以接受
-    /// （遊戲要關了），卸載期的 AccessViolationException 不行 —— 使用者看到的是崩潰。
-    /// 📌 已經在 framework 執行緒上時不受影響（那本來就是安全的執行緒），
-    /// 所以外掛自己在 <c>Dispose</c> 裡的同步呼叫行為逐字不變。
+    /// 🔴 Dalamud 卸載期的閘門旁路：<c>Framework.RunOnFrameworkThread</c> 在 <c>IsFrameworkUnloading</c> 為真時會<b>就地在呼叫端執行緒</b>執行 body，等於這一層完全失效、原生記憶體存取退回未保護狀態。
+    /// 🔑 所以卸載期一律直接回該端點原本的「不可用」值。
+    /// 📌 已經在 framework 執行緒上時不受影響（那本來就是安全的執行緒）。
     /// </summary>
     private static bool IsUnloading(string endpoint)
     {

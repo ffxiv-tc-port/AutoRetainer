@@ -7,50 +7,12 @@ namespace AutoRetainer.Modules;
 /// 每一把租約有自己的 <see cref="Guid"/> 憑證，只要還有任何一把沒到期，AutoRetainer 就不動作。
 /// </summary>
 /// <remarks>
-/// 🔴 <b>為什麼需要這個</b>：舊的 <c>AutoRetainer.SetSuppressed(bool)</c> 是一個<b>無主的單一布林</b>。
-/// 兩個以上的外掛同時想壓制 AutoRetainer 時，<b>誰先結束誰就把別人的壓制一起解除</b>
-/// （Artisan 在做僱員補貨、ICE 在跑宇宙任務、GatherBuddyReborn 在自動採集 —— 這三者會同時發生）。
-/// 這裡改成「一把租約一個憑證，全部還完才真的解除」。<br/>
-/// <br/>
-/// 🔴 <b>舊端點的語意完全沒有改變</b>：<c>SetSuppressed</c> 寫的是
-/// <see cref="IPC.ManualSuppressed"/> 這個獨立的旗標，租約與它是 <b>OR</b> 關係。
-/// 既有消費端（Artisan 帶著 <c>ReEnable</c> 所有權旗標的那套、Marketbuddy 的 AutoRetainerBridge）行為逐字不變。<br/>
-/// <br/>
-/// 🔴 <b>逾時是必要的</b>：租用者當掉／被強制卸載／忘了還，AutoRetainer 不能因此永久停擺。
-/// 每一把租約有 <see cref="MaxLeaseMilliseconds"/> 的硬性壽命上限，長工作必須自己
-/// <see cref="Renew"/> 續約（<see cref="RenewIntervalHintMs"/> 是建議的續約間隔，留了 10 倍餘裕）。
-/// 逾時解除會寫 <c>Information</c>，這是「某個外掛沒還租約」唯一看得見的證據。<br/>
-/// <br/>
-/// 📌 <b>這不是自動接手鏈</b>：租約只會讓 AutoRetainer <b>不做事</b>，不觸發任何新的自動化。<br/>
-/// ⚠️ IPC 呼叫在呼叫端的執行緒上同步跑（沒有任何「一定在 Framework 執行緒」的保證），所以整張表用 lock 保護。
-/// 🔴 <b>鎖內絕不寫 log、絕不做檔案 I/O、絕不呼叫 ImGui</b>：逾時／夾值／滿載訊息在鎖內先收進
-/// 一個 list，出了鎖才由 <see cref="Flush"/> 送出（<b>等級原樣保留</b>）。
-/// UI 走「鎖內拍快照、鎖外畫」—— <see cref="Snapshot"/> 只在鎖裡蒐集資料，投影與配置都在鎖外。
+/// 🔴 <b>舊端點的語意完全沒有改變</b>：<c>SetSuppressed</c> 寫的是 <see cref="IPC.ManualSuppressed"/> 這個獨立的旗標，租約與它是 <b>OR</b> 關係。
+/// 每一把租約有 <see cref="MaxLeaseMilliseconds"/> 的硬性壽命上限，長工作必須自己 <see cref="Renew"/> 續約（<see cref="RenewIntervalHintMs"/> 是建議的續約間隔，留了 10 倍餘裕）。
+/// ⚠️ IPC 呼叫在呼叫端的執行緒上同步跑（沒有任何「一定在 Framework 執行緒」的保證），所以整張表用 lock 保護。 🔴 <b>鎖內絕不寫 log、絕不做檔案 I/O、絕不呼叫 ImGui</b>。 📌 <b>這不是自動接手鏈</b>。
 /// </remarks>
 /// <remarks>
-/// 🔑🔑 <b>形狀為什麼是 <see cref="Guid"/> 憑證，而不是「用租用者名字當鍵」</b>
-/// （2026-09-03 與 YesAlready 的 <c>SuppressionLeases</c> 統一；那邊本來就是這個形狀）：
-/// <list type="number">
-/// <item><b>同一個外掛可以有兩段並行的序列。</b>名字當鍵的話兩段共用一筆租約，先結束的那段
-/// 一還就把另一段的壓制也解掉 —— 那正是這整組改動要消滅的 bug，只是從「跨外掛」搬到「同外掛內」。
-/// Marketbuddy 就是活例子：BatchDelist／BatchReprice／MultiRetainerTour／QuickLister 四條流程
-/// 各自獨立，它現在得自己在外掛內手刻一層 refcount 才敢碰那個無主布林。</item>
-/// <item><b><see cref="Release"/> 的回傳值才有資訊。</b>名字當鍵的版本對任何非空字串都回
-/// <c>true</c>（「本來就沒有也算成功」）—— 呼叫端<b>永遠分不出</b>「我剛還掉一把」與
-/// 「我那把早就逾時被掃掉了」。憑證版回 <c>false</c> 就是明確的「這把不存在」。</item>
-/// <item><b>續約與取得分得開。</b><see cref="Renew"/> 回 <c>false</c> 是呼叫端唯一能知道
-/// 「我的租約中途斷過、AutoRetainer 那段時間是醒著的」的管道。名字當鍵的版本把
-/// acquire 與 renew 合成一個冪等呼叫，這個轉換完全看不見。</item>
-/// <item><b>AutoDuty 已經在用憑證形狀</b>（對 YesAlready），所以統一到憑證這邊，
-/// 跨外掛的呼叫端只要記一種形狀。</item>
-/// </list>
-/// <para>
-/// ⚠️ <b>與 YesAlready 的差別只有「時間政策」，形狀完全一致。</b>
-/// YesAlready 的預設租期 10 分鐘、上限 60 分鐘；這裡沿用 AutoRetainer 原本的 5 分鐘
-/// （<b>刻意不放寬</b>：那個數字同時是「租用者當掉之後 AutoRetainer 最久停擺多久」，
-/// 放寬等於回退既有行為）。要求更長的租期會被<b>夾到</b> <see cref="MaxLeaseMilliseconds"/>，
-/// 所以呼叫端一律要照 <see cref="RenewIntervalHintMs"/> 續約，不要假設自己拿到了要求的時長。
-/// </para>
+/// ⚠️ <b>與 YesAlready 的差別只有「時間政策」，形狀完全一致。</b>這裡沿用 AutoRetainer 原本的 5 分鐘（<b>刻意不放寬</b>）。
 /// </remarks>
 internal static class SuppressionLeases
 {
@@ -311,14 +273,8 @@ internal static class SuppressionLeases
 
     /// <summary>把要求的租期夾進合法範圍；<b>真的被夾到時寫一次 <c>Information</c></b>。</summary>
     /// <remarks>
-    /// 🔴 <b>靜默夾限是壞的失敗形式</b>：呼叫端要 30 分鐘、拿到 5 分鐘、而且完全沒有訊息，
-    /// 於是它以為自己壓制著 AutoRetainer，實際上第 5 分鐘就放開了。回傳值是夾過的沒錯，
-    /// 但呼叫端不會去比對「我要的」和「我拿到的」—— 型別簽章擋不住這種錯。
-    /// ⇒ 夾到就講一次，讓「我的租約怎麼提早失效」在實機 log 上有跡可循。
-    /// 📌 用 <c>Information</c> 而不是 <c>Debug</c>：這是要使用者回報得出來的診斷，
-    /// 而 <c>Debug</c> 單檔有數十萬行，寫進去等於淹沒。
-    /// 📌 只在<b>真的夾到</b>時寫，而且同一個（租用者，要求值）只寫一次 ——
-    /// <see cref="Renew"/> 會被反覆呼叫，每次都寫就是洗版。
+    /// 🔴 <b>靜默夾限是壞的失敗形式</b>：夾到就講一次，讓「我的租約怎麼提早失效」在實機 log 上有跡可循。
+    /// 📌 只在<b>真的夾到</b>時寫，而且同一個（租用者，要求值）只寫一次。
     /// </remarks>
     private static int ClampDuration(int milliseconds, string owner, ref List<(bool IsWarning, string Message)> logs)
     {
@@ -390,14 +346,8 @@ internal static class SuppressionLeases
 
     /// <summary>把鎖內收集到的診斷訊息寫出去。<b>一定要在鎖外呼叫。</b></summary>
     /// <remarks>
-    /// 🔴 <b>鎖內不寫 log</b>：Serilog 的 sink 自己有鎖、還可能做檔案 I/O，在 <see cref="Gate"/>
-    /// 裡面呼叫它等於把死鎖面積擴大到別人的元件上，而 <see cref="Gate"/> 是<b>每幀</b>被讀的
-    /// （排程器、MultiMode、MiniTA、主視窗）。所以逾時／夾值／滿載訊息在鎖內先收進一個 list，
-    /// 出了鎖才送出去。
-    /// <para>
-    /// 🔴 <b>等級跟著訊息走</b>，不是一律 <c>Information</c>：<see cref="Acquire"/> 的「租約已達上限」
-    /// 本來就是 <c>Warning</c>，收訊息時就把等級記下來，改成延後送出不會把它靜默降級。
-    /// </para>
+    /// 🔴 <b>鎖內不寫 log</b>：所以逾時／夾值／滿載訊息在鎖內先收進一個 list，出了鎖才送出去。
+    /// 🔴 <b>等級跟著訊息走</b>，不是一律 <c>Information</c>。
     /// </remarks>
     private static void Flush(List<(bool IsWarning, string Message)> logs)
     {

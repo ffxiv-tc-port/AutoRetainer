@@ -186,25 +186,9 @@ internal static class IPC
     }
 
     /// <remarks>
-    /// 🔴 回的是<b>本尊</b>（同 <see cref="GetOCD"/> 的理由：Get 出來改欄位再
-    /// <c>WriteAdditionalRetainerData</c> 寫回去是既有契約）。
-    /// 🔴 而且這支名字叫 Get 卻<b>會寫入</b>：<c>Utils.GetAdditionalData</c> 走
-    /// <c>GetAdditionalDataKey(create: true)</c>，鍵不存在時會往 <c>C.AdditionalData</c>
-    /// 這個裸 <c>Dictionary</c> 插一筆 —— 而 IPC 端點跑在呼叫端的執行緒上。閘門修的就是這個。
-    /// 🔴🔴 <b>逾時回 <c>null</c>，不是回一份全新的預設值物件。</b>
-    /// 舊版回預設值物件是為了「這支永遠不回 null」，但那個選擇會造成<b>使用者的設定被靜默重置</b>：
-    /// 既有契約是「Get 出來改欄位、再 <c>WriteAdditionalRetainerData</c> 寫回去」，
-    /// 逾時時呼叫端拿到的是<b>全預設值</b>，照契約寫回去就會把這名僱員真正的設定逐欄位蓋掉。
-    /// ⚠️ 而 <c>AutoRetainerApi.WriteAdditionalRetainerData</c> 的 <c>CreationFrame</c> 守衛
-    /// <b>攔不住</b>它：那個替代物件是在這一刻、於呼叫端的執行緒上建構的，
-    /// <c>CreationFrame</c> 就是當下的 FrameCount，同幀寫回照樣通過檢查。
-    /// ⇒ 失敗形式是「僱員設定莫名其妙變回預設」，而 log 上只有一則逾時的 Information。
-    /// 🔑 回 <c>null</c> 讓呼叫端<b>分得出</b>「沒答案」與「答案是預設值」，這是回預設值物件做不到的。
-    /// 📌 <c>AdditionalRetainerData</c> 是 <c>class</c>（<c>AutoRetainerAPI/Configuration/</c>），
-    /// CallGate 回傳 null 對參考型別是安全的 —— 那條會擲 <c>NullReferenceException</c> 的路
-    /// （<c>CallGateChannel.InvokeFunc</c> 對 null 直接回 null、再 <c>(TRet)result</c>）
-    /// 只發生在<b>不可為 null 的值型別</b>上。
-    /// ⚠️ 本外掛內唯一的消費端 <c>AutoRetainer.cs</c> 的 <c>AddVenture</c> 已一併補判空。
+    /// 🔴 回的是<b>本尊</b>（同 <see cref="GetOCD"/> 的理由：Get 出來改欄位再 <c>WriteAdditionalRetainerData</c> 寫回去是既有契約）。
+    /// 🔴 而且這支名字叫 Get 卻<b>會寫入</b>。
+    /// 🔴 逾時回 <c>null</c>，不是回一份全新的預設值物件。回 <c>null</c> 讓呼叫端<b>分得出</b>「沒答案」與「答案是預設值」，這是回預設值物件做不到的。
     /// </remarks>
     private static AdditionalRetainerData GetARD(ulong cid, string name)
     {
@@ -256,52 +240,16 @@ internal static class IPC
     #region 具名壓制租約（憑證形狀，與 YesAlready 統一）
 
     /*
-     * 🔑🔑 形狀為什麼是「Guid 憑證」——2026-09-03 與 YesAlready 統一
-     * ───────────────────────────────────────────────────────────────────────────
-     * 這四支的名稱與簽章與 YesAlready 的同名端點<b>逐字相同</b>：
-     *
-     *     AcquireSuppressionFor(string owner, int ms) -> Guid
-     *     ReleaseSuppression   (Guid lease)           -> bool
-     *     RenewSuppression     (Guid lease)           -> bool
-     *     RenewSuppressionFor  (Guid lease, int ms)   -> bool
-     *
-     * 兩邊形狀一致的理由不是美觀，是「形狀不一致會靜默出錯」：
-     * Dalamud 的 CallGateChannel 在型別對不上時<b>不會直接報錯</b>，而是把值 JSON 序列化再
-     * 反序列化成呼叫端宣告的型別（Dalamud/Plugin/Ipc/Internal/CallGateChannel.cs 的
-     * ConvertObject）。舊形狀 ReleaseSuppression(string) 遇上照 YesAlready 寫法傳進來的
-     * Guid 時，Guid -> string 這個方向<b>轉得過去</b>，於是變成「歸還一個名字是 GUID 的租約」
-     * ——舊實作對任何非空字串都回 true，呼叫端拿到的是一個看似成功的 true，
-     * 而真正的租約繼續壓著 AutoRetainer 直到逾時。全程零訊息。
-     *
-     * 🔴 舊的 AcquireSuppression(string) -> bool 與 ReleaseSuppression(string) -> bool
-     *    已經移除，理由見下方「過渡」。
-     *
      * 🔴 過渡：AcquireSuppression 這個名字<b>刻意不重新註冊成 Guid 版</b>。
-     *    舊版 ICE／GatherBuddyReborn 宣告的是 Func<string, bool>；如果同名端點改成回 Guid，
-     *    CallGate 會嘗試 Guid -> bool 的轉換並丟 IpcTypeMismatchError，而 ECommons 的
-     *    SafeWrapper.IPCException <b>只攔 IpcNotReadyError</b>（ECommons/EzIpcManager/
-     *    SafeWrapperIPC.cs），例外會逸出到 GatherBuddyReborn 的 DoAutoGather，
-     *    使用者只更新 AutoRetainer 而沒更新 GBR 時自動採集會整個停擺。
      *    端點<b>不存在</b>反而是乾淨的：IpcNotReadyError 兩邊的 SafeWrapper 都攔得住，
      *    落回它們既有的 fail-safe 路徑（「沒拿到租約，照現況跑」，且已經寫 Information）。
-     *    ⇒ 等消費端全部更新過一輪之後，可以再補一支 AcquireSuppression(string) -> Guid
-     *      的便利版本（YesAlready 有）。現在補會踩上面那條。
-     *
-     * 🔴 ReleaseSuppression 這個名字沿用（改成收 Guid）是安全的，因為舊消費端只有在
-     *    Acquire 成功之後才會走到 Release（ICE 與 GBR 都是 `if(!holding) return;`），
-     *    而 Acquire 現在一定失敗 ⇒ 舊版永遠走不到型別不合的那條路。
      */
 
     /// <summary>取得一把具名的壓制租約。<b>這是消費端該用的端點。</b></summary>
     /// <remarks>
-    /// 🔴 與 <c>SetSuppressed</c> 的差別就是「誰先結束誰就把別人的壓制解除」這個 bug 的解法：
-    /// 每一把租約一個憑證，<b>全部還完</b>壓制才真的解除。<br/>
-    /// 🔴 租約會逾時，租用者必須拿著憑證週期性 <see cref="RenewSuppression"/>
-    /// （建議間隔 <see cref="SuppressionLeases.RenewIntervalHintMs"/>）。<br/>
-    /// ⚠️ 要求的租期會被夾到 <see cref="SuppressionLeases.MaxLeaseMilliseconds"/>（5 分鐘）——
-    /// 這是 AutoRetainer 自己的時間政策，比 YesAlready 的 60 分鐘短，<b>不要假設你拿到了要求的時長</b>。<br/>
-    /// 📌 回傳 <see cref="Guid.Empty"/>＝沒拿到。呼叫端拿不到 AutoRetainer（IPC 不存在）時應該<b>照現況跑</b>，
-    /// 不要卡住自己的流程。
+    /// 🔴 與 <c>SetSuppressed</c> 的差別就是「誰先結束誰就把別人的壓制解除」這個 bug 的解法：<b>全部還完</b>壓制才真的解除。
+    /// 🔴 租約會逾時，租用者必須拿著憑證週期性 <see cref="RenewSuppression"/>（建議間隔 <see cref="SuppressionLeases.RenewIntervalHintMs"/>）。要求的租期會被夾到 <see cref="SuppressionLeases.MaxLeaseMilliseconds"/>（5 分鐘）。
+    /// 📌 回傳 <see cref="Guid.Empty"/>＝沒拿到。
     /// </remarks>
     /// <param name="owner">租用者識別字串，慣例是對方外掛的 InternalName。</param>
     /// <param name="milliseconds">要求的租期。</param>
@@ -329,13 +277,8 @@ internal static class IPC
     }
 
     /// <remarks>
-    /// 🔴 這支經 <see cref="MultiMode.OnMultiModeEnabled"/> 同步碰到原生層與任務佇列：
-    /// <c>MultiMode.CanHET</c> 走 <c>TaskNeoHET.GetFcOrPrivateEntranceFromMarkers()</c>
-    /// （裡面 <c>AgentHUD.Instance()</c> ＋走 <c>Svc.Objects</c>），成立時再 <c>TaskNeoHET.Enqueue</c>
-    /// 往 <c>P.TaskManager.Tasks</c>（裸 <c>List&lt;T&gt;</c>）塞任務。而 IPC 端點跑在<b>呼叫端的執行緒</b>上。
-    /// ⇒ 經 <see cref="IpcFrameworkGate"/> 搬到 framework 執行緒。
-    /// 📌 這不是新增自動化：觸發者仍然只有「呼叫端明確打了這支端點」，而且已經在 framework 執行緒上
-    /// 呼叫時是就地執行，行為逐字不變。
+    /// 🔴 這支經 <see cref="MultiMode.OnMultiModeEnabled"/> 同步碰到原生層與任務佇列。
+    /// 經 <see cref="IpcFrameworkGate"/> 搬到 framework 執行緒。 📌 這不是新增自動化。
     /// </remarks>
     private static void SetMultiModeEnabled(bool s)
     {
@@ -354,20 +297,8 @@ internal static class IPC
     /// TaskManager.IsBusy＝任務引擎正在執行。純暴露狀態，零行為變更。
     /// </summary>
     /// <remarks>
-    /// 🔴 這支跑在<b>呼叫端的執行緒</b>上,而 <c>P.TaskManager.IsBusy</c> 問的是 ECommons
-    /// <c>TaskManager</c> 的兩個裸 <c>List&lt;T&gt;</c>(ECommons 自己的註解就寫著
-    /// only ever do that from Framework.Update event) —— framework 執行緒每幀在增刪它們。
-    /// 從別的執行緒讀不只是「拿到舊值」,並行改動時看到的可能是集合內部不變式被打破的中間態。
-    /// <br/><br/>
-    /// 🔑 這裡刻意<b>不</b>走 <see cref="IpcFrameworkGate"/>:那條路最多會等 framework 執行緒
-    /// <see cref="IpcFrameworkGate.WaitMilliseconds"/> 毫秒,而 <c>AutoRetainer.IsBusy</c> 是被
-    /// Marketbuddy 這類外掛<b>高頻輪詢</b>的布林端點 —— 把呼叫端的執行緒卡住,比讓它讀到
-    /// 差一幀的值糟得多。改成讀 framework 執行緒每幀寫入的快照
-    /// (<see cref="UpdateIsBusySnapshot"/>),最舊差一幀。
-    /// <br/><br/>
-    /// 📌 已經在 framework 執行緒上時就地算,回傳值與時序逐字不變。
-    /// 📌 卸載期不受影響:這條路徑一次都沒有呼叫 <c>RunOnFrameworkThread</c>,
-    /// 所以沒有「<c>IsFrameworkUnloading</c> 為真時就地在呼叫端執行緒執行」那個旁路可踩。
+    /// 🔑 這裡刻意<b>不</b>走 <see cref="IpcFrameworkGate"/>:把呼叫端的執行緒卡住,比讓它讀到差一幀的值糟得多。
+    /// 改成讀 framework 執行緒每幀寫入的快照(<see cref="UpdateIsBusySnapshot"/>),最舊差一幀。
     /// </remarks>
     private static bool GetIsBusy()
         => Svc.Framework.IsInFrameworkUpdateThread ? GetIsBusyCore() : IsBusySnapshot;
