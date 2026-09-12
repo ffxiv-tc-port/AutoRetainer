@@ -290,7 +290,7 @@ internal static class IPC
     }
 
     /// <summary>
-    /// 「AutoRetainer 正在驅動雇員自動化」的唯讀狀態，給市場板類外掛
+    /// 「AutoRetainer 正在驅動僱員自動化」的唯讀狀態，給市場板類外掛
     /// （如 Marketbuddy）做傳喚鈴互斥用：
     /// PluginEnabled＝鈴自動化已武裝（開著就會在鈴開啟時接手，含
     /// IPC.Suppressed 尊重）、MultiMode.Active＝多角色模式執行期狀態、

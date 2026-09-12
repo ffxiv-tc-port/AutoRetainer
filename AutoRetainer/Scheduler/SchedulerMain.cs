@@ -346,11 +346,11 @@ internal static unsafe class SchedulerMain
                                 }
                             }
                         }
-                        // 🔴 空間不足時**不能**跳過這個雇員去收下一個：收取探險成果是「送進玩家背包」，
+                        // 🔴 空間不足時**不能**跳過這個僱員去收下一個：收取探險成果是「送進玩家背包」，
                         // 而遊戲對每一次收取都套用同一條規則（LogMessage 4338「無法完成委託，背包裡需要至少
-                        // 2格空位。」），所以下一個雇員一定會撞到同一面牆。能做的只有先把「會把道具搬出背包」
+                        // 2格空位。」），所以下一個僱員一定會撞到同一面牆。能做的只有先把「會把道具搬出背包」
                         // 的批次跑掉，真的沒東西可搬了才停，並且停的時候要講清楚還剩誰沒收。
-                        // ✅ 沒收到的探險成果不會消失：遊戲把「已歸來」當成雇員的持續狀態（Addon 2316/2319
+                        // ✅ 沒收到的探險成果不會消失：遊戲把「已歸來」當成僱員的持續狀態（Addon 2316/2319
                         // 的 [探險歸來] 標記、LogMessage 2361「無法進行委託，有進行中或已歸來的探險。」），
                         // 未收取前連新委託都下不了，所以成果只會留著等下一輪，不會遺失。
                         else if(!Utils.IsInventoryStateReadable())
@@ -359,9 +359,9 @@ internal static unsafe class SchedulerMain
                             // DisablePlugin()，屬於破壞性動作，所以讀數不可信時一律什麼都不做、等下一幀。
                             Utils.RethrottleGeneric();
                         }
-                        // 先跑存入雇員／自動賣出：這是整個週期裡唯一會把道具「移出玩家背包」的步驟，
+                        // 先跑存入僱員／自動賣出：這是整個週期裡唯一會把道具「移出玩家背包」的步驟，
                         // 也就是唯一有機會把空間騰回來的路徑。它被關在同一個空間閘門後面時，
-                        // 撞滿一次就再也救不回來（12786ae 把它從每個雇員的行程裡挪到批次之後所引入的迴歸）。
+                        // 撞滿一次就再也救不回來（12786ae 把它從每個僱員的行程裡挪到批次之後所引入的迴歸）。
                         else if(TryDrainEntrustVendorPass())
                         {
                             if(EzThrottler.Throttle("InventoryFullEntrustFirst", 10000))
@@ -487,7 +487,7 @@ internal static unsafe class SchedulerMain
             var adata = Utils.GetAdditionalData(Svc.PlayerState.ContentId, next);
             var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
 
-            // Data null 或背包讀不到 ⇒ 不重驗，維持舊行為把雇員開起來。
+            // Data null 或背包讀不到 ⇒ 不重驗，維持舊行為把僱員開起來。
             var canRevalidate = Data != null && Utils.IsInventoryStateReadable();
             if(canRevalidate
                 && !PlayerHoldsAnyOf(selectedPlan, duplicatesCandidates)
@@ -585,7 +585,7 @@ internal static unsafe class SchedulerMain
                 if(item->ItemId == 0 || item->Quantity == 0) continue;
                 if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
                 // 存入那一側會拒絕搬燃料，這裡就不能因為背包裡有燃料而回報「有工作」——
-                // 否則雇員會被開起來、發現沒東西可搬、再關掉，正是本檔要修掉的那個空開。
+                // 否則僱員會被開起來、發現沒東西可搬、再關掉，正是本檔要修掉的那個空開。
                 if(AutoBuyFuelManager.IsFuelReservedForAutoBuy(item->ItemId)) continue;
 
                 int? toKeep = null;
@@ -618,7 +618,7 @@ internal static unsafe class SchedulerMain
     /// The set therefore only ever needs the retainer-side conditions applied.
     /// </summary>
     /// <remarks>
-    /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少收候選、不可能多收**。少收＝可能少開一次雇員，
+    /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少收候選、不可能多收**。少收＝可能少開一次僱員，
     /// 所以這裡刻意收得寬：品質(HQ)不納入比對、multi-stack 不預判數量，一律把判斷留給 drain 時的實際掃描。
     /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
     /// </remarks>
@@ -643,7 +643,7 @@ internal static unsafe class SchedulerMain
                 if(item == null) continue;
                 if(item->ItemId == 0) continue;
                 if(plan.ExcludeProtected && vs.IMProtectList.Contains(item->ItemId)) continue;
-                // 同上：燃料不會被存入，所以雇員身上的燃料不構成「有工作」。
+                // 同上：燃料不會被存入，所以僱員身上的燃料不構成「有工作」。
                 if(AutoBuyFuelManager.IsFuelReservedForAutoBuy(item->ItemId)) continue;
 
                 if(plan.DuplicatesMultiStack)
@@ -652,7 +652,7 @@ internal static unsafe class SchedulerMain
                     continue;
                 }
 
-                // 只有這個變體多一個雇員側的前提：這裡的堆疊要還有空間可以補。
+                // 只有這個變體多一個僱員側的前提：這裡的堆疊要還有空間可以補。
                 var data = ExcelItemHelper.Get(item->ItemId);
                 if(data == null || data.Value.IsUnique) continue;
                 if(data.Value.StackSize - item->Quantity <= 0) continue;
@@ -669,7 +669,7 @@ internal static unsafe class SchedulerMain
     /// <remarks>
     /// 刻意比 duplicates 的真正條件寬：不比對品質(HQ)、不看數量夠不夠、不管堆疊放不放得下。
     /// 這是「有沒有可能有工作」的必要條件而非充分條件，回 <c>true</c> 只代表「還得開起來看」。
-    /// 寬 ⇒ 失敗方向是多開一次雇員，不是漏搬。
+    /// 寬 ⇒ 失敗方向是多開一次僱員，不是漏搬。
     /// </remarks>
     private static unsafe bool PlayerHoldsAnyOf(EntrustPlan? plan, HashSet<uint> itemIds)
     {

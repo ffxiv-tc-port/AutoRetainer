@@ -171,8 +171,7 @@ internal static class UIUtils
     /// 🔴 三態顯示：從沒讀到過一律畫灰色的 <c>?</c>，<b>絕不畫成 0</b>——理符受理限額的 0 與籌備委託品的 0
     /// 意義相反（一個代表沒得用、一個代表都用完了），把「不知道」畫成 0 會讓使用者直接跳過
     /// 該做的事。取樣時間屬於「起疑才查」，放 tooltip。
-    /// </remarks>
-    /// <remarks>每一欄各自可關。<c>default</c>（四個都 false）代表「總開關關著」，所以呼叫端
+    /// 每一欄各自可關。<c>default</c>（四個都 false）代表「總開關關著」，所以呼叫端
     /// 只要拿 <see cref="SnapshotAllowanceColumns"/> 的結果就同時涵蓋了兩層開關。</remarks>
     public readonly record struct AllowanceColumns(bool Seals, bool Leves, bool CustomDeliveries, bool Tomestones);
 

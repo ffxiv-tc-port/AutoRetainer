@@ -260,13 +260,13 @@ internal unsafe class Config
     // 被解鎖成可選之後不會自己被跑過一次,因此不會打勾(explored)。開啟此項後,解鎖清單在
     // 會把「已解鎖但未探索」的點也排進清單跑,直到全部打勾(排在「開新點」之前還是之後,
     // 由下面的 UnlockRouteExploreBeforeUnlock 決定)。
-    // 📌 預設 true = 使用者 2026-08-25 明確要求「解鎖時還要跑過一次打勾」的行為成為常態。
+    // 📌 預設 true = 使用者明確要求「解鎖時還要跑過一次打勾」的行為成為常態。
     // AR 走 ECommons EzConfig（AutoRetainer.cs 的 EzConfig.Init<Config>()），反序列化是
     // ObjectCreationHandling.Replace ——「JSON 裡有那個鍵」才會覆寫成員，既有設定檔沒有此鍵時
     // 吃這裡的 C# 初值，故既有使用者也拿得到 true（可在解鎖計畫視窗關閉）。
     public bool UnlockRouteAlsoExploreUnexplored = true;
     // 同一張地圖上，「已解鎖但未探索」的點要不要排在「開新點」之前。
-    // true（預設）＝ 使用者 2026-09-11 要求的行為：一張圖收乾淨才換下一張，不會一直開新點卻不回頭收。
+    // true（預設）＝ 使用者要求的行為：一張圖收乾淨才換下一張，不會一直開新點卻不回頭收。
     // false ＝ 舊行為：先開新點，沒有新點可開時才補跑未探索的點。
     // 要 UnlockRouteAlsoExploreUnexplored 一起開才有意義（關掉的話根本不會排未探索的點）。
     // 📌 新欄位：既有設定檔沒有這個鍵 ⇒ 吃 C# 初值 ⇒ 既有使用者直接拿到新行為。

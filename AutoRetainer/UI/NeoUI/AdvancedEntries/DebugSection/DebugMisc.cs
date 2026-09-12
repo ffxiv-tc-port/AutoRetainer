@@ -48,7 +48,7 @@ internal unsafe class DebugMisc : DebugSectionBase
         if(ImGui.CollapsingHeader("Retainer item stats"))
         {
             var im = InventoryManager.Instance();
-            // 除錯顯示。RetainerEquippedItems 只有在雇員視窗開著時才載入，沒開就是 null——常態不是異常。
+            // 除錯顯示。RetainerEquippedItems 只有在僱員視窗開著時才載入，沒開就是 null——常態不是異常。
             var c = im->GetInventoryContainer(InventoryType.RetainerEquippedItems);
             if(c == null)
             {

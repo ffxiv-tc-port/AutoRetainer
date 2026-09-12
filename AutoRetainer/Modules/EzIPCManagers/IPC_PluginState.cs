@@ -192,7 +192,7 @@ public class IPC_PluginState
 
     // 取回指令的實作與「哪些格子的指令還在飛」的追蹤都在 RetainerRetrieve 裡。
     // 🔴 這裡刻意只留轉呼叫:追蹤狀態必須全外掛只有一份。稀有品繳交循環也會取回,
-    //    如果 IPC 這邊各自留一份追蹤,同一個雇員就會有兩套「已經送過指令」的記憶,
+    //    如果 IPC 這邊各自留一份追蹤,同一個僱員就會有兩套「已經送過指令」的記憶,
     //    兩邊都會對彼此送過的格子重送 —— 而這正是那套追蹤當初要消滅的東西。
 
     /// <summary>Forgets which retainer slots already had a retrieve command fired at them, so the very next
@@ -302,7 +302,7 @@ public class IPC_PluginState
                 PluginLog.Information($"[EnqueueOpenRetainerItemStorage] Refused for {retainerName}: AutoRetainer is already busy.");
                 return false;
             }
-            // 🔴 清單還沒載入時 TryGetRetainerByName 對每個名字都回 false,與「這個雇員真的不存在」
+            // 🔴 清單還沒載入時 TryGetRetainerByName 對每個名字都回 false,與「這個僱員真的不存在」
             //    完全不可分。兩種情況要講成兩件事 —— 呼叫端看到「不存在」會去改設定,
             //    看到「還沒載入」才會知道再開一次鈴就好。
             //    ⚠️ 清單沒載入時**不擋**:這個門本來就會去開鈴,開完自然就載入了。

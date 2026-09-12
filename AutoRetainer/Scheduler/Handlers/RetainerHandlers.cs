@@ -306,7 +306,7 @@ internal static unsafe class RetainerHandlers
         // 🔴 原本是四層裸鏈：Framework.Instance()（isPointer:true，可能 null）
         //    → UIModule（+0x2B68 裸欄位）→ GetAgentModule()（可能 null）→ 代理人（可能 null）。
         //    任一層 null 就是攔不到的 AVE（corrupted-state exception，try/catch 無效）。
-        //    這支是「把雇員代理人關掉」的任務步驟，回 false ＝ 尚未完成、下一輪再試，
+        //    這支是「把僱員代理人關掉」的任務步驟，回 false ＝ 尚未完成、下一輪再試，
         //    與既有的「代理人不活躍時回 false」同一條路徑（不謊報已關閉）。
         var framework = Framework.Instance();
         if(framework == null || framework->UIModule == null) return false;
@@ -688,7 +688,7 @@ internal static unsafe class RetainerHandlers
                         var elNode = el == null ? null : el->GetAsAtkComponentNode();
                         if(elNode == null || elNode->Component == null) continue;
                         // 讀不到這一列的文字就跳過這一列(fail-closed:寧可漏配,也不要拿空字串去比對名稱,
-                        // 比中的後果是對錯的雇員任務按下去)。
+                        // 比中的後果是對錯的僱員任務按下去)。
                         if(!Utils.TryGetNodeText(Utils.GetNodeSafe(&elNode->Component->UldManager, 9), out var text)) continue;
                         PluginLog.Debug($"Text: {text}, name: {name}");
                         if(text == name)

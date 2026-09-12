@@ -82,8 +82,8 @@ internal static unsafe class OfflineDataManager
             };
             C.OfflineData.Add(data);
         }
-        // 📌 2026-09-13：本 pin 的 IPlayerCharacter 包裝是「每格×每種 kind 預配一個、
-        // 存取時就地改寫 Address」（Dalamud ObjectTable.cs:198-231），所以每寫一次
+        // 📌 本 pin 的 IPlayerCharacter 包裝是「每格×每種 kind 預配一個、
+        // 存取時就地改寫 Address」（Dalamud ObjectTable.cs），所以每寫一次
         // Svc.Objects.LocalPlayer 就重新解一次原生指標。同一格內取一次就好：
         // 既少兩次原生讀取，也讓「中途變 null」這件事不可能發生。
         var localPlayer = Svc.Objects.LocalPlayer;
@@ -365,8 +365,6 @@ internal static unsafe class OfflineDataManager
 
         // 軍票。🔴 這一組不需要自己去碰原生層：AutoGCHandin 早就有 GetGC／GetSeals／GetMaxSeals／
         // GetRank 四個現成的取得器（軍票繳交循環一直在用），只是從來沒有人把結果寫進離線快照。
-        // 📌 相關的兩個 FFXIVClientStructs 簽章（GetCompanySeals／GetMaxCompanySeals）2026-09-08 已用
-        //    tools/sigscan/verify_cs_sigs.py 對台服 7.20 執行檔驗過，皆在 .text 唯一命中。
         try
         {
             var grandCompany = AutoGCHandin.GetGC();

@@ -17,7 +17,7 @@ public static unsafe class InventorySpaceManager
     //    GetAgentByInternalId() 也可能回 null。裸解參考 null 原生指標是 AVE，
     //    在 .NET Core 屬 corrupted-state exception，try/catch 攔不到，只能事前擋。
     //    ⚠️ 這個值會被原封不動當成 this 指標傳給原生的 RetainerItemCommand
-    //       —— 不擋的話傳出去的是 0+40 = 0x28，等於叫遊戲對位址 0x28 動雇員背包。
+    //       —— 不擋的話傳出去的是 0+40 = 0x28，等於叫遊戲對位址 0x28 動僱員背包。
     //    取不到一律回 0，並由 Memory.RetainerItemCommandDetour 的入口守衛擋掉。
     public static nint AgentRetainerItemCommandModule
     {
@@ -31,7 +31,7 @@ public static unsafe class InventorySpaceManager
         }
     }
 
-    // 取不到就當「雇員代理人沒開著」（呼叫端會走既有的 warning + 中止路徑）。
+    // 取不到就當「僱員代理人沒開著」（呼叫端會走既有的 warning + 中止路徑）。
     private static bool IsAgentRetainerActive
     {
         get

@@ -109,7 +109,7 @@ public static unsafe class RetainerConfig
             ImGuiEx.SetNextItemWidthScaled(200f);
             ImGui.InputInt(Loc.T("Amount, %"), ref adata.WithdrawGilPercent.ValidateRange(1, 100), 1, 10);
         }
-        // 📌 批量套用存取 Gil（2026-08-24 使用者需求「批量管理雇員 讓他可以開全部得存取gil」）：
+        // 📌 批量套用存取 Gil（使用者需求「批量管理僱員 讓他可以開全部得存取gil」）：
         //    照上面「複製委託計畫到...」的先例，把**目前這位**的三個欄位（開關／提取或存入／百分比）
         //    複製到本角色或所有角色的全部僱員。要「全開」＝先把這一位設成想要的樣子再按套用。
         if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Copy, Loc.T("Copy Gil settings to...")))

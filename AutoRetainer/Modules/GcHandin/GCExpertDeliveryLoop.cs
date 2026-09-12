@@ -16,12 +16,12 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 namespace AutoRetainer.Modules.GcHandin;
 
 /// <summary>
-/// 稀有品繳交循環:把指定存放計畫底下的雇員身上的裝備取出來,拿去大國防聯軍繳交,取完為止。
+/// 稀有品繳交循環:把指定存放計畫底下的僱員身上的裝備取出來,拿去大國防聯軍繳交,取完為止。
 ///
 /// <para>🔴 零自動觸發。只有 <see cref="Start"/> 會讓它動起來,而 <see cref="Start"/> 只有 UI 上那顆按鈕
 /// 會呼叫。沒有任何事件、排程或多角色流程會啟動它。</para>
 ///
-/// <para>整條流程沒有一步是自己操作 addon 的:走到鈴前、選雇員、開道具管理、去大國防聯軍繳交,
+/// <para>整條流程沒有一步是自己操作 addon 的:走到鈴前、選僱員、開道具管理、去大國防聯軍繳交,
 /// 全部委給外掛本來就在跑的任務鏈。這裡只負責決定「下一步做什麼」以及「什麼時候該停下來」。</para>
 /// </summary>
 internal static unsafe class GCExpertDeliveryLoop
@@ -47,9 +47,9 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>送出一個任務鏈之後,至少要等這麼久才准把「不忙」解讀成「做完了」。</summary>
     private const long EnqueueGraceMs = 500;
 
-    /// <summary>開鈴之後等雇員清單真的載入的上限。
+    /// <summary>開鈴之後等僱員清單真的載入的上限。
     /// 🔴 這段等待**不能**用「我們的任務佇列排空」當結論:排空只代表我們送出的動作做完了,
-    /// 遊戲還要自己把視窗開起來、把雇員資料填進去。.52 就是拿排空當結論,在互動後 526 毫秒
+    /// 遊戲還要自己把視窗開起來、把僱員資料填進去。.52 就是拿排空當結論,在互動後 526 毫秒
     /// 就判定「清單沒載入」而停止。</summary>
     private const long RetainerListLoadTimeoutMs = 30000;
 
@@ -62,7 +62,7 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>取回指令之間的最小間隔。伺服器實測每格約 0.13 秒。</summary>
     private const int RetrieveIntervalMs = 150;
 
-    /// <summary>一輪取回送完之後,等雇員格數安定的輪詢間隔與安靜門檻。
+    /// <summary>一輪取回送完之後,等僱員格數安定的輪詢間隔與安靜門檻。
     /// 抄 SND 巨集實測出來的節奏:送指令比伺服器消化快,固定秒數會嚴重低估進度。</summary>
     private const int SettlePollMs = 250;
     private const long SettleQuietMs = 750;
@@ -114,7 +114,7 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>這一輪取回停下來的理由,決定繳交完之後要不要再跑一輪。</summary>
     private enum RoundEnd
     {
-        /// <summary>清單上的雇員都看過了,沒有裝備可拿 —— 繳完就收工。</summary>
+        /// <summary>清單上的僱員都看過了,沒有裝備可拿 —— 繳完就收工。</summary>
         NoGearLeft,
         /// <summary>背包到保留下限,先去繳交 —— 繳完還要回來繼續取。</summary>
         ReserveReached,
@@ -554,10 +554,10 @@ internal static unsafe class GCExpertDeliveryLoop
         PluginLog.Information($"[ExpertDeliveryLoop] Refused to start: {reason}");
     }
 
-    /// <summary>雇員清單是不是真的可以用了。
+    /// <summary>僱員清單是不是真的可以用了。
     /// 🔴 <c>GameRetainerManager.Ready</c> 只讀 <c>RetainerManager.IsReady</c> 這個旗標,**不保證
-    /// 雇員陣列已經填好** —— Ready 為 true 而 Count 為 0 是真實會出現的狀態(剛換區、剛開鈴的
-    /// 那一小段)。而 <c>TryGetRetainerByName</c> 在那個狀態下對每個名字都回 false,與「這個雇員
+    /// 僱員陣列已經填好** —— Ready 為 true 而 Count 為 0 是真實會出現的狀態(剛換區、剛開鈴的
+    /// 那一小段)。而 <c>TryGetRetainerByName</c> 在那個狀態下對每個名字都回 false,與「這個僱員
     /// 真的不存在」完全不可分。所以「存在性」這種結論只准在這個閘門為 true 時做。</summary>
     internal static bool RetainerListLoaded => GameRetainerManager.Ready && GameRetainerManager.Count > 0;
 
@@ -1070,7 +1070,7 @@ internal static unsafe class GCExpertDeliveryLoop
     {
         if(Utils.IsBusy) return;
 
-        // 已經在雇員清單裡就不用再點鈴一次。
+        // 已經在僱員清單裡就不用再點鈴一次。
         if(RetainerListLoaded && TryGetAddonByName<AtkUnitBase>("RetainerList", out var list) && IsAddonReady(list))
         {
             SetPhase(Phase.SelectRetainer);
@@ -1112,7 +1112,7 @@ internal static unsafe class GCExpertDeliveryLoop
 
         if(TimeInPhase > RetainerListLoadTimeoutMs)
         {
-            // ⚠️ 走到這裡只說明清單沒載入,**不代表任何一個雇員不存在**。
+            // ⚠️ 走到這裡只說明清單沒載入,**不代表任何一個僱員不存在**。
             //    這條路徑刻意不產生任何「已經不存在」的訊息 —— 那會把載入問題講成資料問題。
             PluginLog.Information($"[ExpertDeliveryLoop] Giving up: the retainer list did not load after {BellInteractAttempts} bell interaction(s) over {TimeInPhase}ms.");
             Stop(Loc.T("Stopped: the retainer list did not load after using the summoning bell."));
@@ -1147,7 +1147,7 @@ internal static unsafe class GCExpertDeliveryLoop
         return true;
     }
 
-    /// <summary>目前開著的雇員身上,這一趟還沒送過指令、也還沒被判定拿不到的第一件可繳交裝備。</summary>
+    /// <summary>目前開著的僱員身上,這一趟還沒送過指令、也還沒被判定拿不到的第一件可繳交裝備。</summary>
     private static uint FindGearOnOpenRetainer()
     {
         foreach(var type in Utils.RetainerInventories)
@@ -1168,7 +1168,7 @@ internal static unsafe class GCExpertDeliveryLoop
         return 0;
     }
 
-    /// <summary>雇員身上還剩幾格有東西,用來判斷「這一批指令落地了沒」。</summary>
+    /// <summary>僱員身上還剩幾格有東西,用來判斷「這一批指令落地了沒」。</summary>
     private static int CountOccupiedRetainerSlots()
     {
         var used = 0;
@@ -1209,7 +1209,7 @@ internal static unsafe class GCExpertDeliveryLoop
 
         // 🔴 存在性判斷的前置條件要在**每一次**判斷之前重驗,不能只靠「進這個階段之前驗過一次」。
         //    清單會在換區、關鈴、繳交來回之後失效,而失效狀態下 TryGetRetainerByName 對每個名字
-        //    都回 false —— .52 就是在第二輪回鈴時把三個雇員全判成「已經不存在」。
+        //    都回 false —— .52 就是在第二輪回鈴時把三個僱員全判成「已經不存在」。
         if(!RetainerListLoaded)
         {
             if(TimeInPhase > RetainerListLoadTimeoutMs)
@@ -1220,7 +1220,7 @@ internal static unsafe class GCExpertDeliveryLoop
         }
 
         var name = Retainers[RetainerIndex];
-        // 只有在上面那道閘門為 true 時,這個 false 才真的代表「這個雇員不存在」。
+        // 只有在上面那道閘門為 true 時,這個 false 才真的代表「這個僱員不存在」。
         if(!Utils.TryGetRetainerByName(name, out _))
         {
             DuoLog.Warning(string.Format(Loc.T("Retainer \"{0}\" no longer exists, skipping."), name));
@@ -1276,8 +1276,8 @@ internal static unsafe class GCExpertDeliveryLoop
         if(itemId == 0)
         {
             // 這一趟沒有還能送指令的東西了。有送出過就等它們落地再看一次;
-            // 一次都沒送過就代表這個雇員真的沒有可取的裝備。
-            // 🔴 這條分支是 .50 卡住的地方之一:雇員背包有東西但全都不是稀有品時,
+            // 一次都沒送過就代表這個僱員真的沒有可取的裝備。
+            // 🔴 這條分支是 .50 卡住的地方之一:僱員背包有東西但全都不是稀有品時,
             //    當時會走到一個永遠等不到的取回。
             if(PassFired > 0)
             {
@@ -1332,7 +1332,7 @@ internal static unsafe class GCExpertDeliveryLoop
         }
     }
 
-    /// <summary>等這一趟送出去的指令落地。判準是「雇員格數不再變動」而不是固定秒數 ——
+    /// <summary>等這一趟送出去的指令落地。判準是「僱員格數不再變動」而不是固定秒數 ——
     /// 送指令比伺服器消化快,固定秒數會嚴重低估進度。</summary>
     private static void TickRetrieveSettle()
     {
@@ -1361,10 +1361,10 @@ internal static unsafe class GCExpertDeliveryLoop
         SetPhase(Phase.Retrieve);
     }
 
-    /// <summary>關掉道具管理視窗、離開這個雇員,回到雇員清單。
-    /// 🔴 .50 只送了「關閉雇員代理」一步就去等「不再被佔用」,而站在鈴前本來就一直是被佔用狀態,
+    /// <summary>關掉道具管理視窗、離開這個僱員,回到僱員清單。
+    /// 🔴 .50 只送了「關閉僱員代理」一步就去等「不再被佔用」,而站在鈴前本來就一直是被佔用狀態,
     /// 於是永遠等不到,得靠使用者手動關視窗才會繼續。正式流程的收尾是
-    /// 「關道具管理 → 在雇員選單選告辭 → 回到雇員清單」,這裡照抄。</summary>
+    /// 「關道具管理 → 在僱員選單選告辭 → 回到僱員清單」,這裡照抄。</summary>
     private static void TickLeaveRetainer()
     {
         PluginLog.Information($"[ExpertDeliveryLoop] Leaving retainer {Retainers[RetainerIndex]}.");
@@ -1388,7 +1388,7 @@ internal static unsafe class GCExpertDeliveryLoop
         SetPhase(RoundEndReason == RoundEnd.ReserveReached ? Phase.CloseBell : Phase.SelectRetainer);
     }
 
-    /// <summary>關掉雇員清單,離開傳喚鈴。</summary>
+    /// <summary>關掉僱員清單,離開傳喚鈴。</summary>
     private static void TickCloseBell()
     {
         P.TaskManager.Enqueue(RetainerListHandlers.CloseRetainerList, "CloseRetainerList");

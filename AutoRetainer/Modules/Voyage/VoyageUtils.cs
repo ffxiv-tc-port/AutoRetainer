@@ -250,8 +250,7 @@ internal static unsafe class VoyageUtils
 
         // 補跑「已解鎖但未探索」的點（解鎖模式只會跑「探索後能解鎖新點」的點，終端點位被解鎖成
         // 可選之後不會自己被跑過一次，所以永遠不會打勾）。
-        // 📌 C.UnlockRouteAlsoExploreUnexplored 的實際預設是 true（Config.cs）——
-        //    這裡原本的註解寫「預設關」是錯的，2026-09-11 更正。
+        // 📌 C.UnlockRouteAlsoExploreUnexplored 的實際預設是 true（Config.cs）
         void AddUnexploredPoints()
         {
             if(!C.UnlockRouteAlsoExploreUnexplored) return;

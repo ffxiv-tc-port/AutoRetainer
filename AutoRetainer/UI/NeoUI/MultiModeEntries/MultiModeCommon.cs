@@ -37,7 +37,7 @@ public class MultiModeCommon : NeoUIEntry
         // Section.cs 把折疊狀態寫成 `var isOpen = ...GetBoolRef(...)`，而那個方法回的是
         // `ref bool`，`var` 會複製成區域變數，所以 `isOpen = !isOpen` 從來沒有寫回 ImGui 的
         // state storage ⇒ 區塊等於永遠收合，內容只在按下滑鼠那一幀閃一下。
-        // 📌 2026-09-08：那個缺陷已經在 NightmareUI 子模組修掉（接收端改成 `ref var ... = ref`），
+        // 📌 那個缺陷已經在 NightmareUI 子模組修掉（接收端改成 `ref var ... = ref`），
         // collapsible 現在是可用的。這裡維持不折疊是刻意的：折疊已經由下面那顆總開關負責，
         // 關掉之後這個區塊只剩一行，而且總開關是設定、會存檔（ImGui 的折疊狀態不會存檔）。
         .Section(Loc.T("Character list allowance columns"))

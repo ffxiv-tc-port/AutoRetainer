@@ -10,8 +10,6 @@ namespace AutoRetainer.Modules;
 /// 🔴 <b>舊端點的語意完全沒有改變</b>：<c>SetSuppressed</c> 寫的是 <see cref="IPC.ManualSuppressed"/> 這個獨立的旗標，租約與它是 <b>OR</b> 關係。
 /// 每一把租約有 <see cref="MaxLeaseMilliseconds"/> 的硬性壽命上限，長工作必須自己 <see cref="Renew"/> 續約（<see cref="RenewIntervalHintMs"/> 是建議的續約間隔，留了 10 倍餘裕）。
 /// ⚠️ IPC 呼叫在呼叫端的執行緒上同步跑（沒有任何「一定在 Framework 執行緒」的保證），所以整張表用 lock 保護。 🔴 <b>鎖內絕不寫 log、絕不做檔案 I/O、絕不呼叫 ImGui</b>。 📌 <b>這不是自動接手鏈</b>。
-/// </remarks>
-/// <remarks>
 /// ⚠️ <b>與 YesAlready 的差別只有「時間政策」，形狀完全一致。</b>這裡沿用 AutoRetainer 原本的 5 分鐘（<b>刻意不放寬</b>）。
 /// </remarks>
 internal static class SuppressionLeases

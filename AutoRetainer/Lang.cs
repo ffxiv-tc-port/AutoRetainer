@@ -122,7 +122,7 @@ internal static class Lang
     //202	TASK_CATEGORY_FISHER_2	Waterside Exploration.
     // 🔴 這四格的**順序有語意**:VentureUtils.GetFieldExVentureName 拿 [0]~[3] 當位置索引用
     //    (平地/山岳/森林/水岸),不可調換,也不可在中間插入別的字串。
-    // 📌 台服 7.20 sqpack 實查:196/198/200/202 全部存在且對應正確;字面值只是讀表失敗時的備援。
+    // 📌 字面值只是讀表失敗時的備援。
     internal static string[] FieldExplorationNames => field ??=
     [
         BellText(196, "平地探索委託（需要2枚探險幣）"),
@@ -136,7 +136,6 @@ internal static class Lang
     //199	TASK_CATEGORY_BOTANIST_1	Botany.
     //201	TASK_CATEGORY_FISHER_1	Fishing.
     // 🔴 同上:[0]~[3] 被 VentureUtils.GetHuntingVentureName 當位置索引用(狩獵/採礦/採伐/捕魚)。
-    // 📌 台服 7.20 sqpack 實查:195/197/199/201 全部存在且對應正確。
     internal static string[] HuntingVentureNames => field ??=
     [
         BellText(195, "狩獵籌集委託（需要1枚探險幣）"),

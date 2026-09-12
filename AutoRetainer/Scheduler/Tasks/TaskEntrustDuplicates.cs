@@ -108,7 +108,7 @@ internal static unsafe class TaskEntrustDuplicates
             var pieces = 0;
             foreach(var id in FlowSkippedGear)
             {
-                // 只算真的還留在身上的。multistack duplicates 那條路是拿雇員身上的東西加進清單的,
+                // 只算真的還留在身上的。multistack duplicates 那條路是拿僱員身上的東西加進清單的,
                 // 玩家手上不一定有同一件,那種情況不該算進「留在身上」。
                 var n = itemCounts.GetValueOrDefault(id);
                 if(n <= 0) continue;

@@ -22,7 +22,7 @@ public unsafe class DebugInventoryManagement : DebugSectionBase
                 ImGuiEx.TreeNodeCollapsingHeader(x.ToString(), () =>
                 {
                     // 這是除錯顯示，讀不到就顯示讀不到。Enum.GetValues 會列出所有容器型別，
-                    // 其中大部分在任一時刻都是沒載入的（雇員頁面、部隊置物櫃等），所以 null 是常態不是異常。
+                    // 其中大部分在任一時刻都是沒載入的（僱員頁面、部隊置物櫃等），所以 null 是常態不是異常。
                     var inv = InventoryManager.Instance()->GetInventoryContainer(x);
                     if(inv == null)
                     {

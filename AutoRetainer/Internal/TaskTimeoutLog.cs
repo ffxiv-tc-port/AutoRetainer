@@ -6,7 +6,7 @@ namespace AutoRetainer.Internal;
 /// 讓 NeoTaskManager 的「任務逾時」在 dalamud.log 上說得出是<b>哪一步</b>逾時。
 /// </summary>
 /// <remarks>
-/// 雇員存取金幣、軍票交付、潛水艇排程這些鏈上任何一步卡住而 <c>AbortOnTimeout</c> 清掉整條佇列時，日誌上查不出是哪一步。
+/// 僱員存取金幣、軍票交付、潛水艇排程這些鏈上任何一步卡住而 <c>AbortOnTimeout</c> 清掉整條佇列時，日誌上查不出是哪一步。
 /// 🔴 等級刻意維持 <c>Warning</c>。 🔴 刻意<b>不</b>用 <c>DuoLog</c>。
 /// ⚠️ <c>remainingTimeMS</c> 是 <c>ref</c>：寫它等於偷偷延長逾時，這裡<b>只讀不寫</b>。
 /// </remarks>

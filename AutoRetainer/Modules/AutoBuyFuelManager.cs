@@ -14,10 +14,10 @@ internal static class AutoBuyFuelManager
     /// <summary>桶裝青磷水（Ceruleum Tanks）。<see cref="Items.Tanks"/> 的別名。</summary>
     internal const uint FuelItemId = (uint)Items.Tanks;
 
-    /// <summary>燃料是否由自動購買獨佔管理，因而**不可以**被存進雇員。
+    /// <summary>燃料是否由自動購買獨佔管理，因而**不可以**被存進僱員。
     /// 🔴 這是碼級的硬排除，不是可設定的預設值。
-    /// 斷這個迴圈最小、最不會誤傷的地方是「不要把燃料存進雇員」。
-    /// ⚠️ 只擋存入雇員。自動賣出（IMAutoVendorHard）與任何手動操作都不受影響。
+    /// 斷這個迴圈最小、最不會誤傷的地方是「不要把燃料存進僱員」。
+    /// ⚠️ 只擋存入僱員。自動賣出（IMAutoVendorHard）與任何手動操作都不受影響。
     /// 📌 **刻意不提供逃生口**（使用者裁決）。
     /// </summary>
     internal static bool IsFuelReservedForAutoBuy(uint itemId)
@@ -38,11 +38,11 @@ internal static class AutoBuyFuelManager
         if(!VoyageUtils.Workshops.Contains(Svc.ClientState.TerritoryType)) return;
         if(Data == null) return;
         // 🔴 恰為 0 ＝「刻意沒帶」，不是「快用完了」。使用者會在 NPC 旁整理背包時把桶裝青磷水
-        // 暫時放到別處（雇員、部隊寶物庫、市場委託），那一瞬間身上就是 0，而舊的「低於門檻值就補」
+        // 暫時放到別處（僱員、部隊寶物庫、市場委託），那一瞬間身上就是 0，而舊的「低於門檻值就補」
         // 連 0 都涵蓋，於是整理到一半就被拉去買一整批。補充只在 1 ~ 門檻值-1 之間觸發。
         //
         // ⚠️ 這與 IsFuelReservedForAutoBuy 是**互補**的兩件事，不能互相取代：
-        // 那邊擋的是**自動**把燃料搬進雇員的路徑，這裡擋的是**手動**暫存造成的誤判。
+        // 那邊擋的是**自動**把燃料搬進僱員的路徑，這裡擋的是**手動**暫存造成的誤判。
         //
         // 📌 想從 0 開始補的人有出口：設定頁的「立即購買」按鈕，以及工坊懸浮列的遞迴購買，
         // 兩者都是手動觸發、不看這個門檻。
