@@ -98,31 +98,16 @@ internal static unsafe class OfflineDataManager
         {
             data.WorldOverride = null;
         }
-        // 🔴 2026-08-01 崩潰防護：這個函式整條都在讀原生單例，但原本一個 null 檢查都沒有。
-        // 實機在**登入瞬間**吃到 AccessViolationException 而整個遊戲關閉
-        // （crash-20260801022458，堆疊：WriteOfflineData ← EnqueueWriteWhenPlayerAvailable
-        //  ← NeoTaskManager.Tick）。⚠️ 無法從 dump 指認是哪一處解參考出事——
-        // Dalamud 的崩潰處理器會自己丟一個 0x12345679 的標記例外，dump 是在那個 handler 裡
-        // 抓的而不是 AV 現場，`.ecxr` 拿到的是 RaiseException 不是原始錯誤位址。
+        // 🔴 這個函式整條都在讀原生單例，但原本一個 null 檢查都沒有。
         // 既然指認不了，就把每一處都補上：假設錯了也不會崩。
-        //
-        // ⚠️ AccessViolationException 在 .NET Core 是 corrupted-state exception，
-        // try/catch 攔不到，所以只能靠事前檢查，不能靠例外處理。
+        // ⚠️ AccessViolationException 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，所以只能靠事前檢查，不能靠例外處理。
         var inventoryManager = InventoryManager.Instance();
         var uiState = UIState.Instance();
         if(inventoryManager == null || uiState == null) return;
 
-        // 🔴 2026-09-13：這兩個欄位原本是**無條件覆寫**，而它們的來源在登入初期都回零。
-        // 這跟同檔下面 WriteOfflineInventoryData 的 <remarks> 講的是同一件事，
-        // 只是那四個欄位已經上了閘門、這兩個沒有 —— 而本函式最常被呼叫的時機
-        // 正是換角登入的第一秒（TerritoryChanged 排入的 EnqueueWriteWhenPlayerAvailable，
-        // 它唯一的閘門是 Player.Available ＝物件表 0 號槽有東西，
-        // 那比「角色資料到齊」早得多）。
-        //
-        // ⚠️ 寫進去的零不是只影響顯示：ClassJobLevelArray 由 Utils.GetJobLevel() 讀，
-        // 而 MultiMode.cs:478/491 用它判「這個僱員還能不能練級」（canLevel）。整條歸零
-        // ⇒ 該角色的練級探險靜默不再派出，而且零值會存進設定檔、在角色離線時
-        // 被當成真值。所以讀不到就不寫，保留上一次的值（過期的真值好過寫死的假零）。
+        // 🔴 這兩個欄位原本是**無條件覆寫**，而它們的來源在登入初期都回零。
+        // ⚠️ 寫進去的零不是只影響顯示：該角色的練級探險靜默不再派出，而且零值會存進設定檔、在角色離線時被當成真值。
+        // 所以讀不到就不寫，保留上一次的值（過期的真值好過寫死的假零）。
         var currency = inventoryManager->GetInventoryContainer(InventoryType.Currency);
         if(currency != null && currency->Items != null && currency->IsLoaded)
         {
@@ -219,23 +204,9 @@ internal static unsafe class OfflineDataManager
             var fc = infoModule == null ? null : infoModule->GetInfoProxyFreeCompany();
             if(fc == null) return;
 
-            // 🔴🔴 2026-09-13：原本這幾行走的是 FFXIVClientStructs 產生的 `*String` 屬性
-            // （FreeCompanyTagString / NameString），而那些屬性的實作是
-            // MemoryMarshal.CreateReadOnlySpanFromNullTerminated(...) —— **完全沒有長度上界**，
-            // 從固定陣列的第一個位元組開始一路掃到遇見 0 為止。
-            // 而那兩塊都很小：Character.FreeCompanyTag 只有 7 bytes（+0x22F0，而 Character
-            // 宣告大小 9056）、InfoProxyFreeCompany.Name 只有 22 bytes（+124）。
-            // 剛登入時這兩塊都可能還是未初始化的位元組，掉進去就是一條沒有上界的掃描。
-            // 📌 這不是推論：**同一份實機 boot log 裡別的外掛就是這樣崩的**
-            //    （ICE，堆疊：IndexOfNullByte ← CreateReadOnlySpanFromNullTerminated
-            //     ← AddonMaster.WKSMissionInfomation.get_CriticalScore）。
-            // 🔑 FFXIVClientStructs 對每一個 `*String` 都同時產生一個**有界的 Span<byte>**
-            //    版本（FreeCompanyTag / Name），改讀那個就沒有無界掃描這回事。
-            //    語意逐字相同：`XString != ""` ⟺ `X[0] != 0`。
-            //
-            // ⚠️ 第二件事：名字沒有終止符就代表那 22 bytes 還不是一個合法字串。
-            // 原本會把它整段當成名字寫進設定檔（含欄位外的位元組）—— 那是靜默資料損毀。
-            // 與同檔「讀不到就不覆寫」同一個策略：沒終止符就不寫，保留上一次的名字。
+            // 🔴 原本這幾行走的是 FFXIVClientStructs 產生的 `*String` 屬性，**完全沒有長度上界**。
+            // 🔑 FFXIVClientStructs 對每一個 `*String` 都同時產生一個**有界的 Span<byte>**版本（FreeCompanyTag / Name），改讀那個就沒有無界掃描這回事。
+            // ⚠️ 名字沒有終止符就代表那 22 bytes 還不是一個合法字串。沒終止符就不寫，保留上一次的名字。
             var fcName = fc->Name;
             var playerHasFCTag = localPlayer.Struct()->FreeCompanyTag[0] != 0;
             if(playerHasFCTag && (fc->Id == 0 || fcName[0] == 0)) return;
@@ -293,17 +264,9 @@ internal static unsafe class OfflineDataManager
     }
 
     /// <remarks>
-    /// 🔴 這四個值全部無條件覆寫，而它們的來源在容器讀不到的時候一律**靜默回 0**：
-    /// <c>GetInventoryItemCount</c> 與 <see cref="Utils.GetInventoryFreeSlotCount"/> 都是「讀不到就跳過、
-    /// 繼續累加」，所以「還沒載入」與「真的是 0」在呼叫端完全同形。而換區、登入初期、多角模式換角當下
-    /// 都會踩到這個窗口，偏偏這個函式正是在那些時機被呼叫的（登入、ConditionChange）。
-    ///
-    /// 寫進去的 0 不是只影響顯示：它會存進設定檔，並在角色離線時被當成真值使用——
-    /// 自動購買燃料的觸發條件讀的就是 <c>Data.Ceruleum</c>，多角模式的排程讀 <c>Ventures</c> 與
-    /// <c>InventorySpace</c>。一個假的 0 會讓「該買」「該跑」的判斷全部歪掉，而且沒有任何徵兆。
-    ///
-    /// 所以讀不到就整組不覆寫，維持上一次讀到的舊值——與同檔上面部隊金幣（<c>gil &gt;= 0</c> 才採用）
-    /// 是同一個保守策略。舊值只是過期，假的 0 是錯的；下一次讀得到時自然會補上。
+    /// 🔴 這四個值全部無條件覆寫，而它們的來源在容器讀不到的時候一律**靜默回 0**。
+    /// 寫進去的 0 不是只影響顯示：它會存進設定檔，並在角色離線時被當成真值使用。
+    /// 所以讀不到就整組不覆寫，維持上一次讀到的舊值。
     /// </remarks>
     internal static void WriteOfflineInventoryData(this OfflineCharacterData data)
     {
@@ -337,25 +300,10 @@ internal static unsafe class OfflineDataManager
     private const byte MaxGrandCompanyId = 3;
 
     /// <remarks>
-    /// 每日／每週配額（理符受理限額、籌備委託品、限定神典石）的登入快照。刻意與
-    /// <see cref="WriteOfflineInventoryData"/> 在同一個時點呼叫，但保守策略要再走一步：
-    /// 那邊可以用「讀不讀得到背包」當閘門，這邊三個值的 <b>0 都是合法值</b>（額度用完就是 0），
-    /// 所以不能靠值判斷有沒有讀到，只能靠結構就緒與否——讀不到就整組不寫，
-    /// 維持上一次的值與時間戳（過期的真值好過寫死的假 0）。
-    ///
-    /// 🔴 登入後太早讀會拿到零：角色資料是登入後才由伺服器補齊的，而這個函式的呼叫時機
-    /// （登入、ConditionChange、每秒週期）正好蓋在那個窗口上。這裡拿
-    /// <see cref="Utils.IsInventoryStateReadable"/> 當就緒判準——它驗的是四個背包容器已經配置
-    /// 且有內容，那份資料與配額走同一批登入封包，所以「背包可讀」是現成的代理指標。
-    /// ⚠️ 那是<b>代理</b>不是保證，離線證不了兩者一定同時到齊。假設不成立的後果是「某次登入
-    /// 寫進一個偏低的值」而不是崩潰——下一次讀到就蓋回去，而且時間戳會誠實反映它是何時取的。
-    ///
-    /// 🔴 三組來源都是 FFXIVClientStructs 的簽章式函式，簽章解不出來時 CS 擲的是
-    /// InvalidOperationException（受管理例外，這裡攔得到；不是 AccessViolation）。
-    /// 所以每一組各自 try/catch：一組失效不該讓另外兩組也讀不到。
-    /// 📌 2026-09-08 用 tools/sigscan/verify_cs_sigs.py 對台服 7.20 的 ffxiv_dx11.exe 離線驗過，
-    /// 五個相關簽章（QuestManager.Instance、SatisfactionSupplyManager.Instance 與
-    /// GetUsedAllowances、GetLimitedTomestoneCount、GetSpecialItemId）全部在 .text 唯一命中。
+    /// 每日／每週配額（理符受理限額、籌備委託品、限定神典石）的登入快照。
+    /// 這邊三個值的 <b>0 都是合法值</b>（額度用完就是 0），只能靠結構就緒與否——讀不到就整組不寫，維持上一次的值與時間戳（過期的真值好過寫死的假 0）。
+    /// ⚠️ 那是<b>代理</b>不是保證，離線證不了兩者一定同時到齊。
+    /// 🔴 三組來源都是 FFXIVClientStructs 的簽章式函式，一組失效不該讓另外兩組也讀不到。
     /// </remarks>
     internal static void WriteOfflineAllowanceData(this OfflineCharacterData data)
     {

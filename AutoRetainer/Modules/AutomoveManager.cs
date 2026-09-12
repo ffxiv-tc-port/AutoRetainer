@@ -7,25 +7,9 @@ namespace AutoRetainer.Modules;
 
 /// <summary>
 /// Single owner for every "/automove" this plugin issues.
-///
-/// Why this exists: <see cref="AutoRetainer.TaskManager"/> is created with abortOnTimeout:true and
-/// <c>TaskManager.Abort()</c> clears the ENTIRE queue, not just the step that failed. Every approach
-/// flow in the plugin is built as two separate queued steps - one that turns autorun ON, and several
-/// steps later one that turns it OFF once the target is in range. The "off" step is therefore only
-/// reached if the queue survives, and it happens to be the single step most likely to kill the queue:
-/// it returns false until the player is within roughly 4 yalms, so a player wedged just outside that
-/// radius (stuck on workshop furniture, another character, a mount) times out after 20 seconds,
-/// Abort() runs, and the "/automove off" is discarded along with everything else that was queued.
-/// The character then keeps running in a straight line until the user notices and stops it by hand.
-///
-/// The fix is to stop making the "off" depend on the queue at all. <see cref="On"/> records that WE
-/// engaged autorun; <see cref="Tick"/> runs from the framework update - outside the task system
-/// entirely - and issues the "off" as soon as autorun is still engaged while no task queue is left
-/// to turn it off. That covers every way a chain can die (timeout, thrown exception, a task
-/// returning null, or an external Abort()), not just the timeout case.
-///
-/// Note this is deliberately NOT a longer timeout on the "off" step: a longer timeout only lowers
-/// the probability of the runaway, it does not remove the dependency on the queue surviving.
+/// Why this exists: <see cref="AutoRetainer.TaskManager"/> is created with abortOnTimeout:true and <c>TaskManager.Abort()</c> clears the ENTIRE queue, not just the step that failed.
+/// <see cref="Tick"/> runs from the framework update - outside the task system entirely - and issues the "off" as soon as autorun is still engaged while no task queue is left to turn it off.
+/// Note this is deliberately NOT a longer timeout on the "off" step: a longer timeout only lowers the probability of the runaway.
 /// </summary>
 internal static class AutomoveManager
 {

@@ -7,26 +7,9 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 namespace AutoRetainer.Modules;
 
 /// <summary>
-/// Failure containment for the "do this for every retainer" buttons on the retainer list overlay
-/// (Quick Entrust, Quick Withdraw Gil, and the custom-task button other plugins add through IPC).
-///
-/// Those buttons queue the FULL chain for EVERY available retainer up front -
-/// <c>SelectRetainerByName -> work -> SelectQuit</c>, nine times over for a typical character. Since
-/// P.TaskManager is created with abortOnTimeout:true and <c>Abort()</c> clears the ENTIRE queue, one
-/// retainer wedging for 20 seconds discards not only the rest of that retainer's chain but every
-/// remaining retainer as well - including the trailing SelectQuit / ConfirmCantBuyback steps whose
-/// only job is to put the UI back. The batch stops dead with a retainer window still open, and the
-/// only trace is a PluginLog.Warning that a user's log level will usually filter out.
-///
-/// This class does not change how the batch runs. It appends a sentinel step that can only execute
-/// if the whole batch survived, so "sentinel never ran and the queue is empty" is a reliable signal
-/// that the batch was aborted - by a timeout, a thrown exception, a task returning null, or an
-/// external Abort(). On that signal it says so in chat and, if the bailout module is enabled, queues
-/// a short best-effort chain to put the UI back where the batch would have left it.
-///
-/// Deliberately NOT done here: relaxing abortOnTimeout on the batch steps themselves. Skipping a
-/// failed <c>SelectRetainerByName</c> would let the NEXT retainer's work run against whichever
-/// retainer happens to still be open, which is a far worse outcome than stopping.
+/// Failure containment for the "do this for every retainer" buttons on the retainer list overlay (Quick Entrust, Quick Withdraw Gil, and the custom-task button other plugins add through IPC).
+/// This class does not change how the batch runs. It appends a sentinel step that can only execute if the whole batch survived.
+/// Deliberately NOT done here: relaxing abortOnTimeout on the batch steps themselves.
 /// </summary>
 internal static unsafe class RetainerBulkOperation
 {

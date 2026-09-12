@@ -33,20 +33,9 @@ internal static unsafe class GCContinuation
     public static bool DebugConf = false;
 
     /// <summary>
-    /// Per-step configuration for the continuation chains, deliberately mirroring the one
-    /// <see cref="ContinuePurchase"/> already uses.
-    ///
-    /// P.TaskManager defaults to abortOnTimeout:true and Abort() clears the ENTIRE queue, so under
-    /// the default configuration ANY step of this chain timing out also discarded
-    /// <see cref="EnableDeliveringIfPossible"/> - the one and only place that sets
-    /// <see cref="AutoGCHandin.Operation"/> back to true. The user-visible result was "it stopped
-    /// handing in after spending my seals", reported nowhere except a PluginLog.Warning.
-    ///
-    /// Skipping a step instead of killing the queue is safe here because every step is idempotent
-    /// and self-checking: they each look for their own addon and return false until it is present,
-    /// so a step that is skipped simply leaves its window unopened and the following steps also fall
-    /// through without acting. Nothing in this chain commits an irreversible action - the purchases
-    /// themselves are gated behind ContinuePurchase, which already used exactly this configuration.
+    /// Per-step configuration for the continuation chains, deliberately mirroring the one <see cref="ContinuePurchase"/> already uses.
+    /// P.TaskManager defaults to abortOnTimeout:true and Abort() clears the ENTIRE queue, so under the default configuration ANY step of this chain timing out also discarded <see cref="EnableDeliveringIfPossible"/>.
+    /// Skipping a step instead of killing the queue is safe here because every step is idempotent and self-checking.
     /// </summary>
     private static readonly TaskManagerConfiguration ContinuationConf = new(abortOnTimeout: false, timeLimitMS: 20000);
 
@@ -604,15 +593,8 @@ internal static unsafe class GCContinuation
     /// 同一套機制,差別只在按的是「是」而不是取消。
     /// </summary>
     /// <remarks>
-    /// 🔴 危險形狀與取消那邊完全相同,寫在 <see cref="DialogGuards"/>。這裡只補兩件與本檔有關的:
-    /// <list type="bullet">
-    /// <item>呼叫端拿 addon 的路徑是 <see cref="Utils.GetSpecificYesno(Predicate{string})"/>,它靠
-    /// <c>IsAddonReady</c> 判定 —— 而關閉中的窗這三關全過,所以它<b>不是</b>防護。</item>
-    /// <item>這裡的節流(<c>FrameThrottler.Throttle("ConfirmCannotEquip", 4)</c> 與
-    /// <c>EzThrottler.Throttle("GC ConfirmExchange")</c>)同樣<b>不是</b>防護:4 幀遠遠短於一扇窗關閉所需的時間。</item>
-    /// </list>
-    /// 不在這裡再檢查一次 <c>IsReady</c>:上面那條路徑已經做過,行為與加守衛之前一致 ——
-    /// 第一次看到某扇窗一律當場按下去。
+    /// 🔴 危險形狀與取消那邊完全相同,寫在 <see cref="DialogGuards"/>。
+    /// 不在這裡再檢查一次 <c>IsReady</c>：上面那條路徑已經做過,行為與加守衛之前一致。
     /// </remarks>
     private static void PressYesOnce(nint addon, string label)
     {

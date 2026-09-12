@@ -135,22 +135,8 @@ internal static unsafe class VoyageMain
 
     /// <summary>
     /// Recovers from an aborted task queue that left the repair / component-change window open.
-    ///
-    /// P.TaskManager is created with abortOnTimeout:true and TaskManager.Abort() clears the WHOLE
-    /// queue, so a single step that times out, throws, or returns null anywhere inside
-    /// TaskRepairAll / TaskChangeComponents also discards the trailing CloseRepair /
-    /// CloseChangeComponents step (and everything that was queued after it).
-    /// CompanyCraftSupply / AirShipPartsMenu then stay up, GetCurrentWorkshopPanelType reports
-    /// PanelType.None because it only ever looks for SelectString, DoWorkshopPanelTick has no
-    /// branch for None, and BailoutManager only rescues SelectString / _CharaSelectReturn /
-    /// Dialogue - so the scheduler ticks every frame doing nothing, silently, until the user
-    /// notices the window sitting there.
-    ///
-    /// This is deliberately narrow: it only ever fires the exact same close callback the normal
-    /// flow uses, only while the deployables scheduler is enabled (i.e. AutoRetainer is the one
-    /// driving the panel), only while the task queue is empty, and only while the voyage menu is
-    /// actually covered. If the assumption is wrong the worst case is a close callback that the
-    /// game ignores, which is what already happens whenever CloseRepair is throttled.
+    /// P.TaskManager is created with abortOnTimeout:true and TaskManager.Abort() clears the WHOLE queue, so a single step that times out, throws, or returns null anywhere inside TaskRepairAll / TaskChangeComponents also discards the trailing close step.
+    /// This is deliberately narrow: it only ever fires the exact same close callback the normal flow uses, only while the deployables scheduler is enabled.
     /// </summary>
     private static void TickVesselPartsWindowWatchdog()
     {

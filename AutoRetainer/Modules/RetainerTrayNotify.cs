@@ -6,30 +6,8 @@ namespace AutoRetainer.Modules;
 /// 僱員探險完成時的 Windows 側通知（系統匣氣球 ＋ 工作列閃爍）。
 /// </summary>
 /// <remarks>
-/// <para>
-/// 🔴 <b>這裡補的是一個既有的空洞，不是新功能。</b>
-/// <c>C.NotifyDeskopToast</c> 與 <c>C.NotifyFlashTaskbar</c> 早就存在，
-/// 而且在「實驗 - Notifications」分頁上畫成兩個核取方塊、標題還寫著
-/// 「If game is inactive: (requires NotificationMaster to be installed and enabled)」——
-/// 但這兩個欄位在整個 repo 裡<b>只有宣告與那兩個核取方塊</b>，沒有任何地方讀它們。
-/// 也就是說使用者勾了之後<b>什麼都不會發生，而且不會有任何錯誤訊息</b>。
-/// </para>
-/// <para>
 /// 📌 全部是顯示用的，而且維持 opt-in：兩個開關的預設值都是 <c>false</c>，這裡沒有改。
-/// 不碰遊戲、不送封包、不觸發任何遊戲內動作——只是請 Windows 對一個已經在跑的視窗引起注意。
-/// </para>
-/// <para>
-/// 🔴 <b>刻意不走 NotificationMaster 的通知樞紐（<c>NotificationMaster.Notify</c>）。</b>
-/// 樞紐的路由表把「語音」也當成一個管道，而僱員探險完成的語音
-/// <b>已經由 <see cref="TataruPraiseWatcher"/> 發出去了</b>——兩邊都送就會念兩次。
-/// 這裡走 <c>NotificationMasterApi</c>（AutoRetainer 早就有的那個實例）只碰系統匣與工作列，
-/// 剛好對應上面那兩個核取方塊的字面語意，而且不會跟語音那條路重疊。
-/// </para>
-/// <para>
-/// 📌 模式逐項照抄艦隊裡已經在跑的兩份先例：
-/// <c>SubmarineTracker/TrayNotify.cs</c> 與 <c>DailyDuty/Classes/TrayNotificationController.cs</c>
-/// —— opt-in 預設關 ＋ 前景抑制 ＋ NMAPI 失敗仍然 <c>Util.FlashWindow()</c> ＋ 每個 session 只寫一行記錄。
-/// </para>
+/// 🔴 <b>刻意不走 NotificationMaster 的通知樞紐（<c>NotificationMaster.Notify</c>）。</b>兩邊都送就會念兩次。
 /// </remarks>
 internal static class RetainerTrayNotify
 {

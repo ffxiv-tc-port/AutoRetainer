@@ -168,16 +168,9 @@ public unsafe class QuickSellItems : IDisposable
                             {
                                 var contextItemParam = agent->EventParams[agent->ContexItemStartIndex + i];
                                 if(contextItemParam.Type != ValueType.String) continue;
-                                // 🔴 GetValueAsString() 對 ValueType.String 走的是 CStringPointer.ToString():
-                                //    把整段位元組當 UTF-8 直接解碼,完全不剝 SeString payload。右鍵選單項目只要帶了
-                                //    道具連結／圖示之類的 payload,解出來就會混進 U+FFFD 與控制位元組;
-                                //    而比對的另一端 text 來自 Addon 表的 Text.ToString(),那個在本 pin 逐字就是
-                                //    Lumina 的 ExtractText()(ReadOnlySeString.ToString() 直接轉呼叫 ExtractText())
-                                //    ⇒ 兩端基準不同、text.Contains(...) 恆假,這個快捷功能靜默失效(不報錯、不寫 log)。
-                                //    改用 Dalamud 的 CStringPointer.ExtractText(),與另一端走同一支 Lumina 解析器。
-                                // ⚠️ 沒有 payload 的純文字輸入兩種讀法逐字相同(整段就是單一 Text payload),所以行為不變;
-                                //    風險面也沒有變大:兩者都經過同一個 CStringPointer.AsSpan()
-                                //    (CreateReadOnlySpanFromNullTerminated,指標為 null 時回空 span,不會解參)。
+                                // 🔴 GetValueAsString() 對 ValueType.String 走的是 CStringPointer.ToString()：完全不剝 SeString payload。
+                                // 兩端基準不同、text.Contains(...) 恆假,這個快捷功能靜默失效(不報錯、不寫 log)。
+                                // 改用 Dalamud 的 CStringPointer.ExtractText(),與另一端走同一支 Lumina 解析器。
                                 var contextItemName = contextItemParam.String.ExtractText();
 
                                 if(text.Contains(contextItemName))
@@ -187,22 +180,9 @@ public unsafe class QuickSellItems : IDisposable
                                         DebugLog($"QRA found {i}:{contextItemName} but it's disabled");
                                         continue;
                                     }
-                                    // 🔴 送出前的就地就緒檢查。改動前這裡只判 addon == null,完全沒有就緒檢查 ——
-                                    //    也就是說「這扇窗正在拆除」這件事**只靠幀數守衛擋**,安全性整個押在
-                                    //    DialogGuards 的幀數值上,而那些數字沒有一個是離線證得了的。
-                                    //
-                                    // 🔑 補上這一關之後,安全性不再取決於任何幀數:
-                                    //    ・DialogGuards 新的常駐窗解除路徑,解除條件是「連續 20 幀**不可見**」;
-                                    //    ・這一關的放行條件是「**可見**」(IsAddonReady 三關之一);
-                                    //    兩者是邏輯上的反面 ⇒ 記號被解除之後還要能送出,中間必須有一次遊戲自己把這扇窗
-                                    //    重新 Show 起來 —— 而正在拆除的窗不會被重新 Show。所以就算 HiddenReleaseFrames
-                                    //    設得太短、記號在拆除途中被解除,這一發也會停在這裡,
-                                    //    後果從「AccessViolation(攔不到,直接崩)」降級成「這一次沒送出,再右鍵一次即可」。
-                                    //
-                                    // ⚠️ 這一關本身帶一個新假設:detour 是在原函式跑完之後執行的,此時遊戲已經把
-                                    //    ContextMenu Show 起來(IsVisible 為真)。假設不成立的後果**不是崩潰**,是這個
-                                    //    快捷功能整個停止動作 —— 所以下面那行 Information 存在的意義就是讓它自證:
-                                    //    實機 log 一出現那行,就代表這個假設破了,把這一關拿掉即可(只有這一段)。
+                                    // 🔴 送出前的就地就緒檢查。
+                                    // 🔑 補上這一關之後,安全性不再取決於任何幀數：這一關的放行條件是「**可見**」(IsAddonReady 三關之一);
+                                    // ⚠️ 這一關本身帶一個新假設：假設不成立的後果**不是崩潰**,是這個快捷功能整個停止動作。
                                     if(!IsAddonReady(addon))
                                     {
                                         notReadySinceLog++;
@@ -236,37 +216,10 @@ public unsafe class QuickSellItems : IDisposable
                                         }
                                         return retVal;
                                     }
-                                    // 🔴 原本這裡是 Callback.Fire(addon, true, …) 之後緊接 agent->Hide() 與
-                                    //    addon->Close(true) —— 在同一個呼叫堆疊裡連續碰同一扇窗三次。
-                                    //    ECommons 的 Callback.Fire 第二個參數 updateState 就是原生
-                                    //    AtkUnitBase::FireCallback 的 close(Callback.cs:143 的
-                                    //    FireRaw(…, (byte)(updateState ? 1 : 0)) → :87 FireCallback(Base, valueCount, values, updateState)),
-                                    //    而 close 為真、且處理常式回非零時,原生端會在回到這裡之前就對這扇窗跑完
-                                    //    vf6 Hide 或 vf4 Close(台服 7.20 的 0x1406422B0,自 0x1406423B4 起;Hide 與 Close 二選一)。
-                                    //    處理常式是執行期綁上去的 agent(這裡是 AgentInventoryContext),不是 addon 自己的 vtable,
-                                    //    所以看 addon 判斷不出來。⇒ 那兩發是打在已經關掉的窗與已經收掉的 agent 上;
-                                    //    遊戲自己從不這樣做(ContextMenu 的三處關窗全部只送 close=true 的 callback、
-                                    //    從不自己呼叫 Close),agent 對第二發關窗事件的健壯性因此沒有任何保證。
-                                    //
-                                    // 🔑 修法刻意不需要先證明「台服這個選單項到底會不會讓原生端關窗」—— 直接問原生端:
-                                    //    FireCallback 的回傳值語意是「我有沒有替你把窗關掉」(台服 0x140642410 的 mov sil,1
-                                    //    只出現在關窗區塊內,close:false 走 0x140642415 的 xor sil,sil),於是
-                                    //      ・回 true ⇒ 窗已經被原生端關掉 ⇒ 這一輪什麼都不再碰(要擋的曝險正是這一支);
-                                    //      ・回 false ⇒ 原生端沒關 ⇒ 這扇窗沒被任何原生關窗程式碼碰過,補上原本那兩發,
-                                    //        既有行為逐字保留(選單照樣會被收掉)。
-                                    //    ⚠️ 就算這個回傳值語意判斷有誤也不會比現在差:誤判成 true 只是選單多留在畫面上
-                                    //    (使用者按 Esc 即可,不會崩);誤判成 false 就退回今天既有的行為。
-                                    //
-                                    // 🔴 這裡刻意不用「下一輪重新解位址再關」那種形狀(Bank 那條路徑用的是它):
-                                    //    ①這裡在 hook detour 內,結構上沒有下一輪;②Bank 那邊的 FireCallback 用的是
-                                    //    close 的預設值 false,原生端保證不關窗,所以那個 Close(true) 是必要的;
-                                    //    這裡 close 是 true,關窗本來就是原生端的責任。③跨幀之後 addon 可能已經被
-                                    //    AtkUnitManager::Update 的 AddonFinalize 釋放(台服全 exe 唯一的釋放點 0x140650190,
-                                    //    常態路徑是每幀 vf5 Update),要跨幀就得重新解位址,反而比同一堆疊內判回傳值更弱。
-                                    //
-                                    // 值的型別、數量與順序與原本的 Callback.Fire(addon, true, 0, i, 0U, 0, 0) 逐格相同
-                                    // (Int 0 / Int i / UInt 0 / Int 0 / Int 0);換成 CS 的 FireCallback 純粹是為了拿到回傳值,
-                                    // 這個外掛別處(RetainerHandlers、RetainerListHandlers、除錯面板)本來就是這樣呼叫的。
+                                    // 🔑 直接問原生端: FireCallback 的回傳值語意是「我有沒有替你把窗關掉」。
+                                    // 回 true ⇒ 窗已經被原生端關掉 ⇒ 這一輪什麼都不再碰(要擋的曝險正是這一支); 回 false ⇒ 原生端沒關 ⇒ 這扇窗沒被任何原生關窗程式碼碰過,補上原本那兩發,既有行為逐字保留(選單照樣會被收掉)。
+                                    // 🔴 這裡刻意不用「下一輪重新解位址再關」那種形狀(Bank 那條路徑用的是它)。
+                                    // 值的型別、數量與順序與原本的 Callback.Fire(addon, true, 0, i, 0U, 0, 0) 逐格相同 換成 CS 的 FireCallback 純粹是為了拿到回傳值。
                                     var values = stackalloc AtkValue[]
                                     {
                                         new() { Type = ValueType.Int, Int = 0 },

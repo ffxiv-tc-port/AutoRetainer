@@ -6,29 +6,8 @@ namespace AutoRetainer.Modules.GcHandin;
 
 /// <summary>
 /// 大國防聯軍軍需品清單的「主動刷新」。
-///
-/// 繳交一件之後，遊戲要等自己的重建流程跑完，清單才會重新可用（實測每件約 0.56 秒），
-/// 這段空等就是繳交速度的瓶頸 —— 加大／縮小我們自己的幀節流完全影響不到它。
-///
-/// 作法（抄自 DailyRoutines）：不等遊戲自己重建，改成直接對 AgentGrandCompanySupply
-/// 送出「重新選取籌備稀有品分頁」事件，讓代理人當場重建清單。
-///
-/// ── 這條路徑到底做了什麼（TC 7.20 ffxiv_dx11.exe 離線反組譯，2026-08-03）──
-/// 定位方式：AgentModule::ctor 對 agents[96]（AgentId.GrandCompanySupply）的
-/// 配置大小是 0x98，與 FFXIVClientStructs 宣告的結構大小一致，由此取得建構式
-/// 與 vtable，vf0 即 ReceiveEvent。eventKind=0 且 values[0]=0 時它只做三件事：
-///   1. agent->SelectedTab（word @0x90）＝ values[1]；
-///   2. 呼叫建表函式重建 AtkValue 陣列 —— 該函式**只讀代理人自己的欄位**
-///      （SelectedTab、NumItems @0x78、ItemArray @0x68），完全沒有碰 addon，
-///      而它寫出來的 AtkValues[6] 正是 ReaderGrandCompanySupplyList.NumItems；
-///   3. agent->UIModuleInterface->GetRaptureAtkModule2()
-///        ->RefreshAddon(agent->AddonId, ...)（AtkModuleInterface 的 vfunc 23）。
-///
-/// 🔑 結論：整條路徑**沒有讀取 addon 的可視旗標、ULD 載入狀態或節點清單**，
-/// addon 是「交一個 ID 給遊戲自己去找」的。所以原先照抄 DR 而來的
-/// 「GrandCompanySupplyList 必須 IsAddonReady」不是這條路徑的前提，
-/// 真正的前提是 <see cref="AgentInterface.AddonId"/> 不為 0 —— ID 是 0 的話
-/// RefreshAddon 找不到對象，事件送出去也只是空轉。
+/// 不等遊戲自己重建，改成直接對 AgentGrandCompanySupply 送出「重新選取籌備稀有品分頁」事件，讓代理人當場重建清單。
+/// 🔑 整條路徑**沒有讀取 addon 的可視旗標、ULD 載入狀態或節點清單**，真正的前提是 <see cref="AgentInterface.AddonId"/> 不為 0。
 /// </summary>
 internal static unsafe class GCSupplyRefresh
 {
