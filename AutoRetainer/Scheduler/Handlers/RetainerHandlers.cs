@@ -478,28 +478,10 @@ internal static unsafe class RetainerHandlers
             var current = (nint)addon;
             if(bankPendingClose == current && DialogGuards.WasPressed("Bank", current))
             {
-                // 🔴 上一輪送出的提領／取消 callback 沒有把這扇窗關掉（同一個位址還在 addon 清單裡），
-                //    現在才補送 Close(true)。
-                //
-                //    ⚠️ 原本這兩件事寫在同一個呼叫堆疊裡：addon->FireCallback(2, v) 的下一行就是
-                //    addon->Close(true)。先講清楚一件容易讀反的事：FireCallback 的第三個參數 close
-                //    這裡用的是 CS 宣告的預設值 **false**（FireCallback(uint, AtkValue*, bool close = false)），
-                //    所以原生端**不會**替我們關窗 —— Close(true) 並不多餘，刪掉會讓 Bank 視窗留在畫面上。
-                //    危險的是「順序」而不是「多餘」：FireCallback 會在同一個呼叫堆疊裡同步跑完處理常式
-                //    （agent），處理常式若自己把這扇窗收掉，下一行的 Close(true) 就落在「正在關閉中」的
-                //    窗上；而 AtkUnitBase::Close 沒有「已經關過就跳過」的 early-out，會照樣再跑一次
-                //    FireCloseCallback→agent、把窗從管理器清單移除、再 Hide 一次。那是 try/catch 與
-                //    HookSafety 都攔不到的原生 AccessViolation（corrupted-state exception）。
-                //
-                //    改法＝把 Close 挪到「下一輪、重新用窗名解出來的位址」上，兩種可能都安全：
-                //      ・那一發真的關掉了窗 ⇒ 下一輪找不到 Bank，走下面的 else if 分支回報這一步完成；
-                //      ・沒關掉 ⇒ 窗撐過了整個關閉危險窗口、還活著，這時候關它是安全的。
-                //
-                //    等待長度直接借用守衛既有的「常態逃生口」15 幀（關閉中的危險窗口實測 <10 幀，
-                //    15 幀不落在裡面），走這條是常態所以只寫 Debug 不洗版。
-                //    🔴 這裡刻意**不**掛 Utils.GenericThrottle：它是 FrameThrottler ＝ 數繪製幀
-                //    （UiBuilder.FrameCount），過場動畫與隱藏 UI 期間會凍結；DialogGuards 自己的時鐘
-                //    掛在 Framework.Update 上，不受那些影響。
+                // 🔴 上一輪送出的提領／取消 callback 沒有把這扇窗關掉，現在才補送 Close(true)。
+                // 危險的是「順序」而不是「多餘」：那是 try/catch 與 HookSafety 都攔不到的原生 AccessViolation（corrupted-state exception）。
+                // 把 Close 挪到「下一輪、重新用窗名解出來的位址」上，兩種可能都安全。
+                // 🔴 這裡刻意**不**掛 Utils.GenericThrottle：DialogGuards 自己的時鐘掛在 Framework.Update 上，不受那些影響。
                 if(!DialogGuards.TryPressOnce("Bank", current, "ProcessBank.Close", escapeIsRoutine: true)) return false;
                 bankPendingClose = 0;
                 addon->Close(true);

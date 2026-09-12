@@ -5,22 +5,9 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 namespace AutoRetainer.Internal.InventoryManagement;
 
 /// <summary>
-/// Firing retrieve-from-retainer commands at the currently open retainer, with the in-flight tracking that
-/// keeps a fast caller from firing at the same slot several times over.
-///
-/// <para>🔴 This used to live inside <c>IPC_PluginState</c>, which meant the tracking state belonged to the
-/// IPC surface. Once anything inside the plugin wanted to retrieve as well (the expert delivery loop), that
-/// would have been two independent sets of "which slots already have a command in flight" over one shared
-/// retainer - and the whole point of the tracking is that there is exactly one such set. Both paths now go
-/// through here.</para>
-///
-/// <para>⚠️ Only ever touched from the framework thread, so no locking - but that is only true because
-/// the IPC surface makes it true. Dalamud IPC endpoints run on the <b>caller's</b> thread, not the framework
-/// thread, so <c>IPC_PluginState</c> routes every entry point here through
-/// <see cref="AutoRetainer.Modules.EzIPCManagers.IpcFrameworkGate"/>. 🔴 That is what keeps
-/// <see cref="PendingRetrieves"/> (a bare <c>Dictionary</c>) and the <c>EzThrottler</c> calls below
-/// (a static dictionary shared by the whole plugin, with zero synchronisation) safe. Any new caller reached
-/// from IPC or a background thread must go through that gate as well.</para>
+/// Firing retrieve-from-retainer commands at the currently open retainer, with the in-flight tracking that keeps a fast caller from firing at the same slot several times over.
+/// ⚠️ Only ever touched from the framework thread, so no locking - but that is only true because the IPC surface makes it true.
+/// Any new caller reached from IPC or a background thread must go through that gate as well.
 /// </summary>
 internal static unsafe class RetainerRetrieve
 {
@@ -100,16 +87,10 @@ internal static unsafe class RetainerRetrieve
         PendingRetrievesRetried = 0;
     }
 
-    /// <summary>Fires a single retrieve-from-retainer command for the first occupied slot found in the
-    /// currently open retainer's item storage (items and crystals), into the player's own bags - never
-    /// routes through the armoury chest, same as AutoRetainer's own entrust/vendor tasks. Deliberately
-    /// does not wait for the retrieve to land before returning, unlike AutoRetainer's own throttled tasks -
-    /// callers are expected to control their own pacing between calls, in exchange for real speed instead
-    /// of the ~500ms+confirm-per-item pace the built-in tasks use.
-    ///
-    /// Returns false once nothing is left to retrieve, the player's own inventory is nearly full, or every
-    /// remaining occupied slot already has a command in flight - in the last case the caller should let the
-    /// retainer inventory settle, then start a fresh round rather than treating it as "done".</summary>
+    /// <summary>Fires a single retrieve-from-retainer command for the first occupied slot found in the currently open retainer's item storage (items and crystals), into the player's own bags.
+    /// Deliberately does not wait for the retrieve to land before returning; callers control their own pacing.
+    /// Returns false once nothing is left to retrieve, the player's own inventory is nearly full, or every remaining occupied slot already has a command in flight.
+    /// </summary>
     internal static bool RetrieveNextSlot()
     {
         if(!InventorySpaceManager.IsRetainerInventoryLoaded())

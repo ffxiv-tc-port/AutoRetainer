@@ -36,21 +36,10 @@ internal static unsafe class SchedulerMain
     internal static ImmutableList<string> RetainerPostprocess = Array.Empty<string>().ToImmutableList();
     internal static ImmutableList<string> CharacterPostprocess = Array.Empty<string>().ToImmutableList();
 
-    /// <summary>Retainers (this character, this automation cycle) still waiting for their deferred
-    /// entrust-duplicates/auto-vendor batch pass, run once every retainer's venture business is settled.
-    ///
-    /// <para><c>DuplicatesCandidates</c> is the retainer half of the answer, kept in a form that survives
-    /// until drain time. The retainer's own inventory is only readable while that retainer is open, so it
-    /// is captured once - as the set of item ids in its bags that pass the <b>retainer-side</b> filters of
-    /// the duplicates rule (see <see cref="CollectDuplicatesCandidates"/>). The player-side half of that
-    /// rule is then asked live at drain time by <see cref="PlayerHoldsAnyOf"/>.</para>
-    ///
-    /// <para>🔑 Deliberately NOT "the ids that were duplicate work at scan time": the player <b>gains</b>
-    /// items during this phase (every venture collected between now and the drain lands in their bags), so
-    /// a set frozen against the player's inventory would miss work that only came into existence
-    /// afterwards. The retainer side is the half that cannot change while unvisited, so that is the half
-    /// worth freezing - and "player holds none of these ids" is then a genuine necessary condition for
-    /// "this retainer has no duplicates work", in both the multi-stack and the partial-stack variants.</para></summary>
+    /// <summary>Retainers (this character, this automation cycle) still waiting for their deferred entrust-duplicates/auto-vendor batch pass.
+    /// The retainer's own inventory is only readable while that retainer is open, so it is captured once.
+    /// 🔑 Deliberately NOT "the ids that were duplicate work at scan time".
+    /// </summary>
     internal static List<(string Retainer, HashSet<uint> DuplicatesCandidates)> PendingEntrustVendorPostprocess = [];
 
     /// <summary>Drops the deferred entrust/vendor queue. It holds retainer <b>names</b> belonging to one
@@ -67,31 +56,11 @@ internal static unsafe class SchedulerMain
 
     internal static PluginEnableReason Reason { get; set; }
 
-    /// <summary>true ＝ 稀有品繳交循環正在跑,所以 AutoRetainer 自己的一般僱員自動處理
-    /// (收取／重派探險、存入僱員、自動賣出、僱員感知自動開鈴)這一幀要整個讓路。
-    ///
-    /// <para>🔴 為什麼一定要互斥:兩邊**驅動的是同一個僱員清單,而且共用同一條 <see cref="P.TaskManager"/>**。
-    /// 循環開鈴用的是 <see cref="Tasks.TaskInteractWithNearestBell"/>,它會把 <c>P.IsInteractionAutomatic</c>
-    /// 設成 true,於是 <c>OccupiedSummoningBell</c> 翻正時 <c>ConditionChange</c> 就替我們
-    /// <see cref="EnablePlugin"/>(<see cref="PluginEnableReason.Auto"/>) —— 也就是說**循環自己把一般處理打開**。
-    /// 接著 <see cref="AutoRetainer.Tick"/> 裡 <see cref="Tick"/> 排在 <c>GCExpertDeliveryLoop.Tick()</c> 前面,
-    /// 每一幀都先搶到 <c>!P.TaskManager.IsBusy</c> 這道閘門,把整條收派探險的任務鏈塞進共用佇列。</para>
-    ///
-    /// <para>🔴 最致命的一步在收尾:一般處理把僱員跑完之後照 <c>C.TaskCompletedBehaviorAuto</c> 收尾,
-    /// 設成 <c>Close_retainer_list_and_disable_plugin</c> 時會排入 <c>CloseRetainerList</c>。
-    /// 2026-08-16 19:38:47.498 實測:那一幀關掉僱員清單,而循環的 <c>TickSelectRetainer</c> 在**同一幀**
-    /// 看到佇列空了就送出 <c>SelectRetainerByName</c> —— 送進一個剛被關掉的清單,20 秒後逾時,
-    /// 循環以「無法開啟道具管理」停在第 1/7 個角色。使用者看到的症狀就是「收僱員任務打斷連跑」。</para>
-    ///
-    /// <para>⚠️ 但**不要**把這個 bug 讀成「只有那個收尾設定會中」:那個設定不是預設值
-    /// (預設是 <c>Stay_in_retainer_list_and_keep_plugin_enabled</c>),它只決定打斷的**烈度**。
-    /// 上面第一、二段與收尾設定完全無關 —— 一般處理照樣會在循環中途搶走僱員、跑完整條收派探險,
-    /// 差別只在少了那一下關清單,於是表現成「循環卡住/動作夾雜」而不是「硬停」。
-    /// 互斥要擋的是**搶僱員**那一步,不是收尾那一步。</para>
-    ///
-    /// <para>⚠️ 這是**延後不是取消**:排程器的啟用狀態與 <see cref="Reason"/> 都原封不動留著,
-    /// 只是這段期間不 Tick,循環一停下來下一幀就自己接回去跑。沒有任何探險委託會因此漏收 ——
-    /// 未收取的成果是僱員身上的持續狀態(收之前連新委託都下不了),只會留著等下一輪。</para></summary>
+    /// <summary>true ＝ 稀有品繳交循環正在跑,所以 AutoRetainer 自己的一般僱員自動處理這一幀要整個讓路。
+    /// 🔴 為什麼一定要互斥:兩邊**驅動的是同一個僱員清單,而且共用同一條 <see cref="P.TaskManager"/>**。
+    /// ⚠️ 但**不要**把這個 bug 讀成「只有那個收尾設定會中」。互斥要擋的是**搶僱員**那一步,不是收尾那一步。
+    /// ⚠️ 這是**延後不是取消**:排程器的啟用狀態與 <see cref="Reason"/> 都原封不動留著,只是這段期間不 Tick,循環一停下來下一幀就自己接回去跑。
+    /// </summary>
     internal static bool RetainerAutomationDeferred { get; private set; }
 
     /// <summary>每幀更新一次 <see cref="RetainerAutomationDeferred"/>,並且**只在翻轉時**各印一行。
@@ -128,24 +97,10 @@ internal static unsafe class SchedulerMain
     }
 
     /// <summary>使用者在 UI 上親手切換「啟用」核取方塊時的統一入口(主視窗與僱員列表懸浮列共用)。
-    ///
-    /// 這個核取方塊原本在多角模式執行中會被 <c>BeginDisabled</c> 鎖住，要按住 CTRL 才點得動。
-    /// 🔴 鎖的理由是真的：手動 <see cref="EnablePlugin"/> 會把 <see cref="Reason"/> 從
-    /// <see cref="PluginEnableReason.MultiMode"/> 覆蓋成 Auto/Manual，而 <see cref="Tick"/> 只有在
-    /// Reason 是 MultiMode 時才會在本角色收工後「關閉僱員列表 ＋ 停用外掛(＋開寶箱／分解)」。
-    /// 換成 Auto/Manual 之後改走 <c>C.TaskCompletedBehavior*</c>，其預設值是
-    /// <see cref="TaskCompletedBehavior.Stay_in_retainer_list_and_keep_plugin_enabled"/>：
-    /// 角色會一直站在傳喚鈴前，<c>IsOccupied()</c> 恆真，<see cref="MultiMode.Tick"/> 的每一條動作分支
-    /// 都被擋住 ＝ 多角模式停在原地不換角，而且開寶箱／分解被靜默跳過。
-    ///
-    /// 使用者裁定「永遠可介入」，所以鎖已經拿掉。為了讓介入不會把排程器留在上面那個狀態，
-    /// 多角模式執行中手動啟用時**沿用 MultiMode 這個理由**——使用者拿到的仍然是「按下去就生效」，
-    /// 只是收工後的收尾行為與多角模式自己啟用時一致。主視窗標題會顯示 <c>[MultiMode]</c>，
-    /// 所以這件事在列上看得見，不是只藏在 log 裡。
-    ///
-    /// ⚠️ 停用方向**不會**連帶關掉多角模式(那是使用者沒要求的行為改動，而且旁邊就有獨立的
-    /// 「Multi」核取方塊)。多角模式仍在跑時它會在下一輪自己把外掛重新打開，這一點寫進了
-    /// 說明圖示與這裡的 Information log。停用也**不會**中止已經排進 TaskManager 的工作。</summary>
+    /// 🔴 鎖的理由是真的：多角模式停在原地不換角，而且開寶箱／分解被靜默跳過。
+    /// 使用者裁定「永遠可介入」，多角模式執行中手動啟用時**沿用 MultiMode 這個理由**。
+    /// ⚠️ 停用方向**不會**連帶關掉多角模式。停用也**不會**中止已經排進 TaskManager 的工作。
+    /// </summary>
     internal static void SetEnabledByUser(bool enable, PluginEnableReason manualReason)
     {
         if(enable)
@@ -517,16 +472,8 @@ internal static unsafe class SchedulerMain
     /// retainer, auto-vendor sells them), so this is safe - and useful - to run while the inventory
     /// is too full to collect ventures.</summary>
     /// <remarks>
-    /// 🔴 入列時算出來的「有工作」會過期。auto-vendor 與無條件存入讀的都是**玩家背包**，那是所有雇員
-    /// 共用的一份 —— 佇列裡第一個雇員把該賣的賣掉、該存的存完之後，後面的雇員讀到的是同一個已經被清空的
-    /// 背包，卻照樣被開起來、什麼都沒做、再關掉（使用者看到的「問完馬上關」）。所以這裡在
-    /// <see cref="RetainerListHandlers.SelectRetainerByName"/> **之前**重驗共用的那一半。
-    ///
-    /// 逐雇員的那一半（entrust-duplicates）驗不了：那要讀雇員自己的背包，而雇員沒開起來就讀不到。
-    /// 入列時記下來的旗標因此是「當時有」，不是「現在還有」。
-    ///
-    /// 失敗方向鎖在安全側：只有在「確定讀得到玩家背包」**且**「共用部分確定已清空」**且**「沒有逐雇員
-    /// 工作」三者同時成立時才跳過。讀不到、拿不到設定、有任何一絲不確定 ⇒ 照舊開啟（＝這個修改之前的
+    /// 🔴 入列時算出來的「有工作」會過期。
+    /// 失敗方向鎖在安全側。
     /// 行為）。少開一次會漏掉真正該做的搬運，多開一次只是浪費幾秒。
     /// </remarks>
     private static bool TryDrainEntrustVendorPass()
@@ -587,15 +534,10 @@ internal static unsafe class SchedulerMain
         catch(Exception e) { e.Log(); }
     }
 
-    /// <summary>The half of the deferred entrust/vendor work that is read entirely off the <b>player's</b>
-    /// inventory: auto-vendor, and entrust's "unconditional" items/categories checked against the player's
-    /// carried counts. That inventory is shared by every retainer, so this answer is not specific to any
-    /// one of them - and it goes stale the moment an earlier retainer in the batch consumes it, which is
-    /// why <see cref="TryDrainEntrustVendorPass"/> asks again instead of trusting the queued answer.
-    ///
-    /// <para>The plan is still per-retainer (each retainer may point at a different
-    /// <see cref="EntrustPlan"/>), so this is evaluated with that retainer's plan against the live shared
-    /// inventory.</para></summary>
+    /// <summary>The half of the deferred entrust/vendor work that is read entirely off the <b>player's</b> inventory: auto-vendor, and entrust's "unconditional" items/categories checked against the player's carried counts.
+    /// That inventory is shared by every retainer, so this answer is not specific to any one of them.
+    /// The plan is still per-retainer, so this is evaluated with that retainer's plan against the live shared inventory.
+    /// </summary>
     /// <remarks>
     /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少報工作、不可能多報**。
     /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
@@ -670,21 +612,11 @@ internal static unsafe class SchedulerMain
         return false;
     }
 
-    /// <summary>The half of the deferred entrust/vendor work that belongs to <b>this specific retainer</b>:
-    /// entrust-duplicates, which matches what sits in this retainer's own bags against what the player is
-    /// carrying.
-    ///
-    /// <para>🔴 Only collectable while this retainer is open - the retainer containers are not mapped
-    /// otherwise. This is the half of the duplicates rule that depends on the retainer, and the only half
-    /// that cannot change while it is left alone, so it is what the queue carries;
-    /// <see cref="PlayerHoldsAnyOf"/> supplies the other half live at drain time.</para>
-    ///
-    /// <para>Both variants of the rule require the player to be holding the same item id that the retainer
-    /// holds - multi-stack wants any amount of it, partial-stack wants a matching-quality stack to top up
-    /// an incomplete one. So an id being absent from this set, or present but no longer carried by the
-    /// player, both mean "no duplicates work for that id". The set therefore only ever needs the
-    /// retainer-side conditions applied: not protected, not fuel, and (partial-stack only) a real,
-    /// non-unique item whose stack here still has room.</para></summary>
+    /// <summary>The half of the deferred entrust/vendor work that belongs to <b>this specific retainer</b>: entrust-duplicates.
+    /// 🔴 Only collectable while this retainer is open - the retainer containers are not mapped otherwise.
+    /// This is the half of the duplicates rule that depends on the retainer, and the only half that cannot change while it is left alone, so it is what the queue carries.
+    /// The set therefore only ever needs the retainer-side conditions applied.
+    /// </summary>
     /// <remarks>
     /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少收候選、不可能多收**。少收＝可能少開一次雇員，
     /// 所以這裡刻意收得寬：品質(HQ)不納入比對、multi-stack 不預判數量，一律把判斷留給 drain 時的實際掃描。
