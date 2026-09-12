@@ -101,7 +101,7 @@ public static unsafe class PartSwapperTasks
                     PluginLog.Information($"[AutoRetainer] 換件計畫指定的零件 ID {componentId} 不存在於本地 Item 資料表,略過 slot {slot} 的換件。");
                     return false;
                 }
-                var partName = componentRow.Name.ToString();
+                var partName = componentRow.Name.ExtractText();
                 var matched = false;
 
                 for(var i = 0; i < availablePartAmount.UInt; i++)
