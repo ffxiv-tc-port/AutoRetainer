@@ -115,25 +115,13 @@ internal static unsafe class AutoGCHandin
     private static long PhaseEnteredAt;
     private static uint ListCountAtHandin;
 
-    // 逾時只是保險絲，不是節奏來源：
-    //  - AwaitingList 的閘門是「清單筆數變了」，而不管是主動刷新還是遊戲自己重建都會讓它變，
-    //    所以主動刷新萬一沒作用，這一段自然退回舊行為（實測 0.562 秒）而不是空等到逾時。
-    //  - 真的走到逾時代表狀態已經不對，這時寧可重新掃描也不要卡在那裡。
-    //
-    // ⚠️ 逾時的下限不能拉太低：走到逾時之後我們會退回去掃描清單，而清單如果還是舊的，
-    // FindNextHandinItem 有可能挑到剛剛交掉的那一件，接著被 HasInInventory 判成
-    // 「道具不在背包」而中斷整段繳交。純退回路徑（等遊戲自己重建）實測約 0.56 秒，
-    // 所以預設值留了約 3 倍餘裕。
+    // 逾時只是保險絲，不是節奏來源。
+    // AwaitingList 的閘門是「清單筆數變了」，主動刷新萬一沒作用，這一段自然退回舊行為。
+    // ⚠️ 逾時的下限不能拉太低：FindNextHandinItem 有可能挑到剛剛交掉的那一件，「道具不在背包」而中斷整段繳交。
     private const int RewardTimeoutMs = 3000;
     // 走到這裡代表獎勵視窗已經關掉（伺服器確認繳交），代理人卻遲遲不能收事件。
-    // 舊值 5000 太長：這種情況下退回「等遊戲自己重建」本來就會成功，不需要空等五秒。
-    //
+    // 這種情況下退回「等遊戲自己重建」本來就會成功，不需要空等五秒。
     // ⚠️ 這道保險絲同時是「AddonId != 0 這個閘門萬一在台服不成立」的成本上限。
-    // ✅ 該前提已有二進位佐證：開清單視窗的 0x140E57570 在 OpenAddon(0xBD) 之後於
-    //    0x140E579DB 寫 agent->AddonId；而開獎勵視窗的 0x140E57A60 是把 OpenAddon(0xBE)
-    //    的結果寫進 agent+0x80、完全不動 AddonId。所以 AddonId != 0 確實代表「綁的是清單視窗」。
-    // ⚠️ 但餘裕沒有註解原本寫的那麼寬：實機 2196 件量到的最大閘門等待是 656ms，
-    //    1000ms 是 1.5 倍不是 2 倍（一次都沒燒斷）。機器更慢時會退回「等遊戲自己重建」。
     private const int RefreshTimeoutMs = 1000;
 
     private const int MinListTimeoutMs = 300;
@@ -564,16 +552,9 @@ internal static unsafe class AutoGCHandin
                                 {
                                     throw new GCHandinInterruptedException($"Item {itemName} was not found in inventory");
                                 }
-                                // 🔴🔴 這道檢查是承重牆，不是防禦性裝飾，**不要拿掉也不要降成 assert**。
-                                //    2026-08-06 離線反組譯直證：AgentGrandCompanySupply::ReceiveEvent
-                                //    的選列路徑（0x140E55BED）會先把**原始**索引寫進 agent+0x8C，
-                                //    只有在解析命中時才於 0x140E55CC0 覆寫；而下游的
-                                //    0x141B7B8C0 只有 `cmp r13w, 0xB` 這個**下界**分岔，
-                                //    對稀有品 vector 的長度完全沒有上界檢查，且索引被截成 16 bit
-                                //    —— idx >= 11 直接算 [this+0x778] - 0x738 + idx*0xA8 後複製整筆
-                                //    （含 Utf8String，第二層解參考）。越界＝AccessViolation，
-                                //    那是 corrupted-state exception，try/catch 攔不到。
-                                //    reader.NumItems 正好是正確的界。
+                                // 🔴 這道檢查是承重牆，不是防禦性裝飾，**不要拿掉也不要降成 assert**。
+                                // 對稀有品 vector 的長度完全沒有上界檢查。 越界＝AccessViolation，那是 corrupted-state exception，try/catch 攔不到。
+                                // reader.NumItems 正好是正確的界。
                                 if(nextItem.Value.Index < 0 || nextItem.Value.Index >= reader.NumItems)
                                 {
                                     throw new GCHandinInterruptedException($"Item index {nextItem.Value.Index} out of range (0..{reader.NumItems})");

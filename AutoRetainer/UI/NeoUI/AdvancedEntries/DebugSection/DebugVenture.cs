@@ -56,16 +56,10 @@ internal unsafe class DebugVenture : DebugSectionBase
         }
         if(ImGui.CollapsingHeader(Loc.T("Ventures")))
         {
-            // 這個傾印是給 VentureUtils.GetAvailableVentureNames() 當對照用的（就是下面那個
-            // CollapsingHeader），兩邊必須讀同一個陣列 = StringArrayType.RetainerTask。
-            // 🔴 原本寫死 95：這個字面值是 2023-03-26 那次 commit 留下來的，之後從來沒跟著版本更新過。
-            // 它不是 7.2→7.3 那個 +1 位移的受害者 —— 兩種世代底下 95 都不是探險陣列
-            // （7.2 = OrchestrionPlayListSelect，7.3 = Orchestrion），是一顆放了兩年多的獨立既有 bug。
+            // 這個傾印是給 VentureUtils.GetAvailableVentureNames() 當對照用的，兩邊必須讀同一個陣列 = StringArrayType.RetainerTask。
             // 🔴 改用具名列舉而不是換一個新的魔術數字：下次陣列再位移時它會自己跟著動。
-            // ⚠️ 寫完整命名空間：本檔沒有 using FFXIVClientStructs.FFXIV.Component.GUI，
-            // 而補 using 會讓裸寫的 RetainerTask 在別處有撞名風險（VentureUtils 就撞過 Lumina 的同名表格型別）。
-            // 🔴 四層裸鏈：Framework（isPointer:true）→ UIModule（裸欄位）→ GetRaptureAtkModule()
-            //    → 陣列。任一層 null 都是攔不到的 AVE，逐層判。
+            // ⚠️ 寫完整命名空間：而補 using 會讓裸寫的 RetainerTask 在別處有撞名風險（VentureUtils 就撞過 Lumina 的同名表格型別）。
+            // 🔴 四層裸鏈：任一層 null 都是攔不到的 AVE，逐層判。
             var framework = CSFramework.Instance();
             var atkModule = framework == null || framework->UIModule == null
                 ? null

@@ -300,16 +300,9 @@ internal static unsafe class VoyageUtils
         if(plan == null) return "No or unknown plan selected";
         if(plan.Name.Length > 0) return plan.Name;
         if(plan.Points.Count == 0) return $"Plan {plan.GUID}";
-        // plan.Points 可以由使用者從剪貼簿貼進來(SubmarinePointPlanUI 的 Paste plan settings,
-        // 走 JsonConvert 反序列化,沒有任何範圍驗證),所以點位 ID 不可信。而本方法被多個
-        // ImGui.BeginCombo / Selectable 每幀呼叫 —— Dalamud 的 UiBuilder 攔到 Draw 例外後會
-        // 把 this.Draw 設成 null,整個外掛的視窗在重開遊戲前都不會再畫出來。
+        // plan.Points 可以由使用者從剪貼簿貼進來，所以點位 ID 不可信。
         // 查無此列時顯示 "?<id>" 而不是靜默略過:讓「這個計畫有壞點位」在列上直接看得見。
-        // Location 欄是扇區代號字母(A/B/.../AC),各語言版本一致;台服實測 exd-tc/7.20/
-        // SubmarineExploration.csv 全部 160 列,非空的 Location 全數符合 [A-Z]{1,2}。
-        // 這裡原本會對取表指定日文語言,但本艦隊的 Lumina
-        // fork 在 ExcelModule.GetRawSheetCore() 開頭無條件執行 language = Language,語言參數是
-        // 死參數(對所有客戶端皆然)——留著只會讓讀碼的人誤以為真的取到了日文表。移除後行為等價。
+        // 原本會對取表指定日文語言，語言參數是死參數。
         var sheet = Svc.Data.GetExcelSheet<SubmarineExploration>();
         return $"{plan.GetMap()?.Name}: {plan.Points.Select(x => sheet.TryGetRow(x, out var row) ? row.Location.ToString() : $"?{x}").Join("→")}";
     }
