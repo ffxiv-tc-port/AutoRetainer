@@ -82,9 +82,15 @@ internal static unsafe class OfflineDataManager
             };
             C.OfflineData.Add(data);
         }
-        data.World = ExcelWorldHelper.GetName(Svc.Objects.LocalPlayer.HomeWorld.RowId);
-        data.Name = Svc.Objects.LocalPlayer.Name.ToString();
-        if(Player.Object.CurrentWorld.RowId != Player.Object.HomeWorld.RowId)
+        // 📌 2026-09-13：本 pin 的 IPlayerCharacter 包裝是「每格×每種 kind 預配一個、
+        // 存取時就地改寫 Address」（Dalamud ObjectTable.cs:198-231），所以每寫一次
+        // Svc.Objects.LocalPlayer 就重新解一次原生指標。同一格內取一次就好：
+        // 既少兩次原生讀取，也讓「中途變 null」這件事不可能發生。
+        var localPlayer = Svc.Objects.LocalPlayer;
+        if(localPlayer == null) return;
+        data.World = ExcelWorldHelper.GetName(localPlayer.HomeWorld.RowId);
+        data.Name = localPlayer.Name.ToString();
+        if(localPlayer.CurrentWorld.RowId != localPlayer.HomeWorld.RowId)
         {
             data.WorldOverride = Player.CurrentWorld;
         }
@@ -106,8 +112,57 @@ internal static unsafe class OfflineDataManager
         var uiState = UIState.Instance();
         if(inventoryManager == null || uiState == null) return;
 
-        data.Gil = (uint)inventoryManager->GetInventoryItemCount(1);
-        data.ClassJobLevelArray = uiState->PlayerState.ClassJobLevels.ToArray();
+        // 🔴 2026-09-13：這兩個欄位原本是**無條件覆寫**，而它們的來源在登入初期都回零。
+        // 這跟同檔下面 WriteOfflineInventoryData 的 <remarks> 講的是同一件事，
+        // 只是那四個欄位已經上了閘門、這兩個沒有 —— 而本函式最常被呼叫的時機
+        // 正是換角登入的第一秒（TerritoryChanged 排入的 EnqueueWriteWhenPlayerAvailable，
+        // 它唯一的閘門是 Player.Available ＝物件表 0 號槽有東西，
+        // 那比「角色資料到齊」早得多）。
+        //
+        // ⚠️ 寫進去的零不是只影響顯示：ClassJobLevelArray 由 Utils.GetJobLevel() 讀，
+        // 而 MultiMode.cs:478/491 用它判「這個僱員還能不能練級」（canLevel）。整條歸零
+        // ⇒ 該角色的練級探險靜默不再派出，而且零值會存進設定檔、在角色離線時
+        // 被當成真值。所以讀不到就不寫，保留上一次的值（過期的真值好過寫死的假零）。
+        var currency = inventoryManager->GetInventoryContainer(InventoryType.Currency);
+        if(currency != null && currency->Items != null && currency->IsLoaded)
+        {
+            data.Gil = (uint)inventoryManager->GetInventoryItemCount(1);
+            LoggedGilSkip = false;
+        }
+        else
+        {
+            LogSkipOnce(ref LoggedGilSkip, "gil (InventoryType.Currency container not loaded)");
+        }
+
+        // PlayerState.IsLoaded 是原生自己的就緒旗標（PlayerState+0x0），Dalamud 的
+        // IPlayerState.ContentId 內部就是拿它當閘門。再加一道「至少有一個職業等級 > 0」：
+        // 真實角色不可能整條全零，全零只代表原生還沒填。
+        if(Svc.PlayerState.IsLoaded)
+        {
+            var classJobLevels = uiState->PlayerState.ClassJobLevels;
+            var anyLevel = false;
+            for(var i = 0; i < classJobLevels.Length; i++)
+            {
+                if(classJobLevels[i] > 0)
+                {
+                    anyLevel = true;
+                    break;
+                }
+            }
+            if(anyLevel)
+            {
+                data.ClassJobLevelArray = classJobLevels.ToArray();
+                LoggedClassJobSkip = false;
+            }
+            else
+            {
+                LogSkipOnce(ref LoggedClassJobSkip, "class job levels (PlayerState.ClassJobLevels still all zero)");
+            }
+        }
+        else
+        {
+            LogSkipOnce(ref LoggedClassJobSkip, "class job levels (PlayerState.IsLoaded is false)");
+        }
         if(writeGatherables)
         {
             try
@@ -164,10 +219,40 @@ internal static unsafe class OfflineDataManager
             var fc = infoModule == null ? null : infoModule->GetInfoProxyFreeCompany();
             if(fc == null) return;
 
-            if(Player.Object.Struct()->FreeCompanyTagString != "" && (fc->Id == 0 || fc->NameString == "")) return;
+            // 🔴🔴 2026-09-13：原本這幾行走的是 FFXIVClientStructs 產生的 `*String` 屬性
+            // （FreeCompanyTagString / NameString），而那些屬性的實作是
+            // MemoryMarshal.CreateReadOnlySpanFromNullTerminated(...) —— **完全沒有長度上界**，
+            // 從固定陣列的第一個位元組開始一路掃到遇見 0 為止。
+            // 而那兩塊都很小：Character.FreeCompanyTag 只有 7 bytes（+0x22F0，而 Character
+            // 宣告大小 9056）、InfoProxyFreeCompany.Name 只有 22 bytes（+124）。
+            // 剛登入時這兩塊都可能還是未初始化的位元組，掉進去就是一條沒有上界的掃描。
+            // 📌 這不是推論：**同一份實機 boot log 裡別的外掛就是這樣崩的**
+            //    （ICE，堆疊：IndexOfNullByte ← CreateReadOnlySpanFromNullTerminated
+            //     ← AddonMaster.WKSMissionInfomation.get_CriticalScore）。
+            // 🔑 FFXIVClientStructs 對每一個 `*String` 都同時產生一個**有界的 Span<byte>**
+            //    版本（FreeCompanyTag / Name），改讀那個就沒有無界掃描這回事。
+            //    語意逐字相同：`XString != ""` ⟺ `X[0] != 0`。
+            //
+            // ⚠️ 第二件事：名字沒有終止符就代表那 22 bytes 還不是一個合法字串。
+            // 原本會把它整段當成名字寫進設定檔（含欄位外的位元組）—— 那是靜默資料損毀。
+            // 與同檔「讀不到就不覆寫」同一個策略：沒終止符就不寫，保留上一次的名字。
+            var fcName = fc->Name;
+            var playerHasFCTag = localPlayer.Struct()->FreeCompanyTag[0] != 0;
+            if(playerHasFCTag && (fc->Id == 0 || fcName[0] == 0)) return;
             data.FCID = fc->Id;
             if(!C.FCData.ContainsKey(fc->Id)) C.FCData[fc->Id] = new();
-            C.FCData[fc->Id].Name = fc->NameString;
+            if(fcName[0] != 0 && fcName.IndexOf((byte)0) >= 0)
+            {
+                // Span<byte>.Read() 是 ECommons 的有界讀取（只掃這 22 bytes）。
+                C.FCData[fc->Id].Name = fcName.Read();
+                LoggedFCNameSkip = false;
+            }
+            else if(playerHasFCTag)
+            {
+                // 只在「玩家真的有部隊」時才記：沒部隊的角色名字空白是正常狀態，
+                // 印成診断會讓未來查 log 的人去跟一個不存在的問題。
+                LogSkipOnce(ref LoggedFCNameSkip, "free company name (InfoProxyFreeCompany.Name is not a terminated string yet)");
+            }
 
             var uiModule = UIModule.Instance();
             var atkModule = uiModule == null ? null : uiModule->GetRaptureAtkModule();
@@ -232,6 +317,9 @@ internal static unsafe class OfflineDataManager
         data.VentureCoffers = (uint)InventoryManager.Instance()->GetInventoryItemCount(VentureCofferItemId);
     }
 
+    private static bool LoggedGilSkip;
+    private static bool LoggedClassJobSkip;
+    private static bool LoggedFCNameSkip;
     private static bool LoggedLeveFailure;
     private static bool LoggedCustomDeliveryFailure;
     private static bool LoggedTomestoneFailure;
@@ -384,6 +472,19 @@ internal static unsafe class OfflineDataManager
             if(x.WeeklyLimit > 0) LimitedTomestoneWeeklyCap = x.WeeklyLimit;
         }
         return LimitedTomestoneWeeklyCap;
+    }
+
+    /// <remarks>「這一輪某個原生結構還沒就緒，所以那個欄位不覆寫」的診斷。
+    /// 用 <c>Information</c> 是因為這是要使用者回報的等級（實機的盲區只有 <c>Verbose</c>）；
+    /// 不用 <c>DuoLog</c> —— 它每一級都會無條件印進聊天視窗。
+    /// 🔴 這條路徑每秒都會走到（Tick 的 1000ms 節流），所以用旗標壓成「每個略過的
+    /// 區段只印一行」，並在該欄位真的寫成功時把旗標清掉 ⇒ 每一次登入最多各一行，
+    /// 不會洗掉實機記錄。</remarks>
+    private static void LogSkipOnce(ref bool latch, string what)
+    {
+        if(latch) return;
+        latch = true;
+        Svc.Log.Information($"[AutoRetainer] Offline data: skipped writing {what}; keeping the previous value.");
     }
 
     /// <remarks>同一個錯誤一次 session 只記一次：這條路徑每秒都會走到，簽章真的失效時
