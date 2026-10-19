@@ -1,4 +1,5 @@
-﻿using ECommons.ExcelServices;
+﻿using AutoRetainer.Internal;
+using ECommons.ExcelServices;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace AutoRetainer.UI.NeoUI.AdvancedEntries.DebugSection;
@@ -26,9 +27,9 @@ internal unsafe class DebugGCAuto : DebugSectionBase
             if(TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon) && IsAddonReady(addon))
             {
                 var reader = new ReaderGrandCompanySupplyList(addon);
-                if(reader.IsLoaded)
+                var ptr = NativeLayout.GetSupplyListEntries(addon);
+                if(reader.IsLoaded && ptr != null)
                 {
-                    var ptr = (GCExpectEntry*)*(nint*)((nint)addon + 648);
                     for(var i = 0; i < reader.NumItems; i++)
                     {
                         var entry = ptr[i];

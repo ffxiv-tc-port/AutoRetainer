@@ -19,7 +19,10 @@ using ECommons.Configuration;
 using ECommons.Events;
 using ECommons.ExcelServices;
 using ECommons.ExcelServices.TerritoryEnumeration;
+using ECommons.EzIpcManager;
 using ECommons.EzSharedDataManager;
+using ECommons.IPC;
+using ECommons.IPC.Subscribers;
 using ECommons.GameHelpers;
 using ECommons.Reflection;
 using ECommons.Singletons;
@@ -77,12 +80,18 @@ public unsafe class AutoRetainer : IDalamudPlugin
 
     internal static OfflineCharacterData Data => Utils.GetCurrentCharacterData();
 
-    public AutoRetainer(IDalamudPluginInterface pi)
+    public AutoRetainer(IDalamudPluginInterface pi, Dalamud.Game.ISigScanner sigScanner)
     {
+        // 必須在任何初始化之前、且在建構子同步路徑上：驗不過就擲例外讓插件載入失敗（Load 是下一幀才跑，擲在那裡只會半載入）。
+        NativeLayout.Initialize(sigScanner.TryScanText);
         //PluginLoader.CheckAndLoad(pi, "https://love.puni.sh/plugins/AutoRetainer/blacklist.txt", delegate
         {
             P = this;
             ECommonsMain.Init(pi, this, Module.DalamudReflector);
+            PluginLog.Information($"[AutoRetainer] 遊戲版面推導通過：稀有品繳交清單陣列 +0x{NativeLayout.SupplyListEntriesOffset:X}、僱員物品指令 {(NativeLayout.RetainerItemCommandOffset < 0 ? "停用（函式對不上）" : $"+0x{NativeLayout.RetainerItemCommandOffset:X}")}");
+            // 讓「呼叫了對方沒有的 IPC 方法」不再完全靜默。
+            // 訂閱越早越好：事件只在 IPC **呼叫**當下才被查閱，在這裡訂閱就涵蓋往後所有呼叫。
+            EzIpcFailureLog.Enable();
 #if CUSTOMCS
             PluginLog.Warning($"Using custom FFXIVClientStructs");
             var gameVersion = DalamudReflector.TryGetDalamudStartInfo(out var ver) ? ver.GameVersion.ToString() : "unknown";
@@ -116,13 +125,15 @@ public unsafe class AutoRetainer : IDalamudPlugin
         //);
     }
 
+    // 一定要經過 EzConfig.Set：EzConfig.Save() 存的是它自己手上的那份參考，只換這裡的欄位會讓之後的存檔寫回舊物件。
     internal void SetConfig(Config c)
     {
-        config = c;
+        config = EzConfig.Set<Config>(c);
     }
 
     public void Load()
     {
+        Loc.Load(Svc.ClientState.ClientLanguage);
         EzConfig.Migrate<Config>();
         config = EzConfig.Init<Config>();
 
@@ -139,7 +150,16 @@ public unsafe class AutoRetainer : IDalamudPlugin
         SubmarineUnlockPlanUI = new();
         SubmarinePointPlanUI = new();
 
-        TaskManager = new(new(abortOnTimeout: true, timeLimitMS: 20000, showDebug: true));
+        // 🔴 訂閱順序＝每幀的呼叫順序:這一行必須排在下面 TaskManager = new(...) 之前。
+        // 守衛的解除點若排在它後面,每幀就變成「先按、後解除」。
+        // 解除點掛在最前面就不會被別人的例外連累而漏掉一幀。
+        Svc.Framework.Update += DialogGuardsTick;
+
+        // showDebug 跟隨 /autoretainer debug（C.Verbose）。
+        // 🔴 切換要即時生效必須同時改 DefaultConfiguration：見 SyncTaskManagerDebugOutput()。
+        // TaskTimeoutLog.Attach()：逾時時多印一行「是哪一步逾時」的 Warning，並蓋掉 ECommons 那行完全匿名的。
+        // 訊息尾巴再接一段現場快照（TimeoutStateProbe），讓「開得慢」與「等錯東西」在 log 上分得出來。
+        TaskManager = TaskTimeoutLog.Attach(new(new(abortOnTimeout: true, timeLimitMS: 20000, showDebug: C.Verbose)), "AutoRetainer", TimeoutStateProbe.Describe);
         Memory = new();
         Svc.PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         Svc.PluginInterface.UiBuilder.OpenMainUi += () =>
@@ -152,7 +172,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         };
         Svc.ClientState.Logout += Logout;
         Svc.Condition.ConditionChange += ConditionChange;
-        EzCmd.Add("/autoretainer", CommandHandler, """
+        EzCmd.Add("/autoretainer", CommandHandler, Loc.T("""
             Open plugin interface
             /ays - alias for /autoretainer
             /autoretainer e|enable → Enable plugin
@@ -161,14 +181,13 @@ public unsafe class AutoRetainer : IDalamudPlugin
             /autoretainer m|multi - toggle MultiMode
             /autoretainer relog Character Name@WorldName - relog to the targeted character if configured
             /autoretainer b|browser - open venture browser
-            /autoretainer expert - toggle expert settings
             /autoretainer debug - toggle debug menu and verbose output
             /autoretainer shutdown <hours> [minutes] [seconds] - schedule a game shutdown in this amount of time
             /autoretainer itemsell - begin selling items to NPC or retainer if possible
             /autoretainer het - enter nearby own house or apartment if possible
             /autoretainer reset - reset all pending tasks
             /autoretainer deliver - deliver expert delivery items
-            """);
+            """));
         EzCmd.Add("/ays", CommandHandler);
         Svc.Toasts.ErrorToast += Toasts_ErrorToast;
         Svc.Toasts.Toast += Toasts_Toast;
@@ -180,8 +199,10 @@ public unsafe class AutoRetainer : IDalamudPlugin
         VoyageMain.Init();
 
         MultiMode.Init();
+        MultiModeDtr.Init();
         NotificationMasterApi = new(Svc.PluginInterface);
-        ODMTaskManager = new(new(timeLimitMS: 60 * 1000, abortOnTimeout: true, showDebug: true));
+        // showDebug 同上面的 TaskManager：跟隨 /autoretainer debug。
+        ODMTaskManager = TaskTimeoutLog.Attach(new(new(timeLimitMS: 60 * 1000, abortOnTimeout: true, showDebug: C.Verbose)), "AutoRetainer/ODM");
 
         Safety.Check();
 
@@ -206,6 +227,14 @@ public unsafe class AutoRetainer : IDalamudPlugin
                 AutoRetainerWindow.IsOpen = true;
             }
         }
+        MultiMode.ReadReloadRecord();
+        // 🔴 IPCBase 預設 wrapper 是 SafeWrapper.None(例外會往外擲);我方一貫用 AnyException(靜默降級,回預設值),
+        // 不然「Lifestream 沒裝」會從「回 false」變成「擲例外」。
+        // ⚠️ ECommonsIPC.X 是 lazy 屬性(field ??= new()),wrapper 在**第一次存取當下**就烘死了,
+        // 所以這行必須早於任何 ECommonsIPC.* 的第一次存取;下面立刻取一次 Lifestream 強制建構。
+        IPCBase.DefaultWrapper = SafeWrapper.AnyException;
+        _ = ECommonsIPC.Lifestream;
+
         SingletonServiceManager.Initialize(typeof(AutoRetainerServiceManager));
 
     }
@@ -218,9 +247,12 @@ public unsafe class AutoRetainer : IDalamudPlugin
             //4330	57	33	0	False	リテイナーベンチャー「<Value>IntegerParameter(2)</Value> <Sheet(Item,IntegerParameter(1),0)/>」を依頼しました。
             //4330	57	33	0	False	Du hast deinen Gehilfen mit der Beschaffung von <SheetDe(Item,1,IntegerParameter(1),IntegerParameter(3),3,1)/> ( <Value>IntegerParameter(2)</Value>) beauftragt.
             //4330	57	33	0	False	Vous avez confié la tâche “<SheetFr(Item,12,IntegerParameter(1),2,1)/> ( <Value>IntegerParameter(2)</Value>)” à votre servant.
-            if(text.StartsWithAny("You assign your retainer".Cleanup(), "リテイナーベンチャー".Cleanup(), "Du hast deinen Gehilfen mit".Cleanup(), "Vous avez confié la tâche".Cleanup())
+            // 台服:向僱員下達了「<Value>IntegerParameter(2)</Value>級 <Sheet(Item,IntegerParameter(1),0)/>」的探險委託。
+            // 前綴讀遊戲自己的 LogMessage 表(第一個巨集之前的固定文字),客戶端跑哪個語言就拿到哪個語言。
+            // 🔴 讀不到時 Lang.LogMessageOpening 回的是字面備援而不是空字串 —— 空前綴會讓每一則 toast 都命中。
+            if(text.StartsWithAny(Lang.LogMessageOpening(4330, "向僱員下達了").Cleanup())
                 && Utils.TryGetCurrentRetainer(out var ret)
-                && C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var offlineData)
+                && C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var offlineData)
                 && offlineData.RetainerData.TryGetFirst(x => x.Name == ret, out var offlineRetainerData))
             {
                 offlineRetainerData.VentureBeginsAt = P.Time;
@@ -236,11 +268,28 @@ public unsafe class AutoRetainer : IDalamudPlugin
         }
     }
 
+    /// <summary>
+    /// 讓兩個常駐 TaskManager 的 dalamud.log 除錯輸出跟上 <see cref="Config.Verbose"/>
+    /// （<c>/autoretainer debug</c>）當下的值。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>改 <see cref="Config.Verbose"/> 的地方都要呼叫這支</b>，否則切換只會在下次載入才生效。
+    /// 🔴 只能寫 true/false，<b>不可以寫 null</b> —— Tick 開頭的 <c>AssertNotNull()</c> 會擲例外。
+    /// </remarks>
+    internal void SyncTaskManagerDebugOutput()
+    {
+        var verbose = C.Verbose;
+        // 兩個都可能還沒建好（Load() 途中被呼叫、或第二實例根本沒跑 Load）。
+        if(TaskManager != null) TaskManager.DefaultConfiguration.ShowDebug = verbose;
+        if(ODMTaskManager != null) ODMTaskManager.DefaultConfiguration.ShowDebug = verbose;
+    }
+
     private void CommandHandler(string command, string arguments)
     {
         if(arguments.EqualsIgnoreCase("debug"))
         {
             config.Verbose = !config.Verbose;
+            SyncTaskManagerDebugOutput();
             DuoLog.Information($"Debug mode {(config.Verbose ? "enabled" : "disabled")}");
             S.NeoWindow.Reload();
         }
@@ -258,7 +307,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         }
         else if(arguments.EqualsIgnoreCaseAny("m", "multi"))
         {
-            MultiMode.Enabled = !MultiMode.Enabled;
+            MultiMode.SetEnabled(!MultiMode.Enabled, "指令 /ays multi", MultiModeChangeCause.User);
             MultiMode.OnMultiModeEnabled();
         }
         else if(arguments.StartsWithAny(StringComparison.OrdinalIgnoreCase, "m ", "multi "))
@@ -266,13 +315,13 @@ public unsafe class AutoRetainer : IDalamudPlugin
             var arg2 = arguments.Split(" ")[1];
             if(arg2.EqualsIgnoreCaseAny("d", "disable"))
             {
-                if(MultiMode.Enabled) MultiMode.Enabled = false;
+                if(MultiMode.Enabled) MultiMode.SetEnabled(false, "指令 /ays multi disable", MultiModeChangeCause.User);
             }
             else if(arg2.EqualsIgnoreCaseAny("e", "enable"))
             {
                 if(!MultiMode.Enabled)
                 {
-                    MultiMode.Enabled = true;
+                    MultiMode.SetEnabled(true, "指令 /ays multi enable（IPC PluginState.EnableMultiMode 也走這條）", MultiModeChangeCause.User);
                     MultiMode.OnMultiModeEnabled();
                 }
             }
@@ -285,7 +334,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
             {
                 if(!MultiMode.Enabled)
                 {
-                    MultiMode.Enabled = true;
+                    MultiMode.SetEnabled(true, "指令 /ays night", MultiModeChangeCause.User);
                     MultiMode.OnMultiModeEnabled();
                 }
             }
@@ -302,7 +351,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
                 C.NightMode = true;
                 if(!MultiMode.Enabled)
                 {
-                    MultiMode.Enabled = true;
+                    MultiMode.SetEnabled(true, "指令 /ays night enable", MultiModeChangeCause.User);
                     MultiMode.OnMultiModeEnabled();
                 }
             }
@@ -363,13 +412,13 @@ public unsafe class AutoRetainer : IDalamudPlugin
                 {
                     P.SkipNextEnable = true;
                     TaskInteractWithNearestBell.Enqueue(true);
-                    P.TaskManager.Enqueue(() => TryGetAddonMaster<AddonMaster.RetainerList>(out var m) && m.IsAddonReady);
+                    P.TaskManager.Enqueue(() => TryGetAddonMaster<AddonMaster.RetainerList>(out var m) && m.IsAddonReady, "CommandItemSell.WaitRetainerList");
                     P.TaskManager.Enqueue(() =>
                     {
                         P.TaskManager.BeginStack();
                         Safe(Utils.EnqueueVendorItemsByRetainer);
                         P.TaskManager.InsertStack();
-                    });
+                    }, "CommandItemSell.EnqueueVendorItemsByRetainer");
                     P.TaskManager.Enqueue(RetainerListHandlers.CloseRetainerList);
                 }
             }
@@ -517,37 +566,68 @@ public unsafe class AutoRetainer : IDalamudPlugin
         }
     }
 
+    /// <summary>
+    /// 只做一件事:每幀解除那些「窗已經不在了」的按下記號(<see cref="DialogGuards.Tick"/>)。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 刻意獨立成一個處理器、而且在 <see cref="Load"/> 的<b>最前面</b>訂閱(排在
+    /// <c>TaskManager = new(...)</c> 之前),理由寫在訂閱處:<see cref="Tick"/> 自己排在 NeoTaskManager 的 Tick 後面,
+    /// 解除點放進 <see cref="Tick"/> 等於「先按、後解除」。
+    /// </remarks>
+    private void DialogGuardsTick(object _) => DialogGuards.Tick();
+
     private void Tick(object _)
     {
+        // DialogGuards.Tick() 刻意不在這裡:它在 Load() 最前面獨立訂閱(DialogGuardsTick),所以下面每一個模組 Tick
+        //    看到的都已經是「這一幀掃過、該解除的都解除了」的守衛狀態。
+        MultiModeDtr.Tick();
+        MultiMode.TickRestoreAfterReload();
+        // 🔴 必須在下面兩個消費端(SchedulerMain.Tick 與僱員感知自動開鈴)之前、而且**無條件**跑,
+        //    這樣兩邊看到的是同一幀的同一個答案,而且「開始讓路／恢復」兩個邊緣都各印得到一行。
+        SchedulerMain.UpdateRetainerAutomationDeferral();
         if(!IPC.Suppressed)
         {
-            if(SchedulerMain.PluginEnabled && Svc.ClientState.LocalPlayer != null)
+            if(SchedulerMain.PluginEnabled && Svc.Objects.LocalPlayer != null)
             {
                 SchedulerMain.Tick();
-                if(!C.SelectedRetainers.ContainsKey(Svc.ClientState.LocalContentId))
+                if(!C.SelectedRetainers.ContainsKey(Svc.PlayerState.ContentId))
                 {
-                    C.SelectedRetainers[Svc.ClientState.LocalContentId] = [];
+                    C.SelectedRetainers[Svc.PlayerState.ContentId] = [];
                 }
             }
         }
         MiniTA.Tick();
         OfflineDataManager.Tick();
         AutoGCHandin.Tick();
+        // ⚠️ 必須在 AutoGCHandin.Tick() 之後:循環會等 AutoGCHandin.Operation 落回 false 來判斷
+        // 「這一輪繳完了」,先跑的話看到的是上一幀的舊值。
+        GCExpertDeliveryLoop.Tick();
         MultiMode.Tick();
+        // 必須緊接在 MultiMode.Tick() 之後：它讀的是 MultiMode.Tick 這一幀留下的「沒事做」記號。
+        MultiModeRoundTrip.Tick();
         NotificationHandler.Tick();
+        // 「返航/探險時間到」的邊緣偵測。刻意跟 NotificationHandler 放在一起、而且無條件跑：
+        // 它看的是 C.OfflineData 裡的絕對時間戳，所以不限當前角色，也不需要排程器啟用。
+        TataruPraiseWatcher.Tick();
         NewYesAlreadyManager.Tick();
+        AutoBuyFuelManager.Tick();
         Artisan.ArtisanTick();
         FPSManager.Tick();
         PriorityManager.Tick();
         TextAdvanceManager.Tick();
         Shutdown.Tick();
         BailoutManager.Tick();
-        if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && Utils.TryGetCurrentRetainer(out var name) && Utils.TryGetRetainerByName(name, out var retainer))
+        // Both of these recover from an aborted task queue, so they must be driven from the framework
+        // update rather than from the queue they are watching.
+        AutomoveManager.Tick();
+        RetainerBulkOperation.Tick();
+        // 僱員開著時每幀都會進來：只要探險 ID，不建整份僱員清單。查到的那一筆名字就等於 name。
+        if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && Utils.TryGetCurrentRetainer(out var name) && GameRetainerManager.TryGetVentureIdByName(name, out var ventureId))
         {
-            if(!retainer.VentureID.EqualsAny(0u, LastVentureID))
+            if(ventureId != 0 && ventureId != LastVentureID)
             {
-                LastVentureID = retainer.VentureID;
-                PluginLog.Debug($"Retainer {retainer.Name} current venture={LastVentureID}");
+                LastVentureID = ventureId;
+                PluginLog.Debug($"Retainer {name} current venture={LastVentureID}");
             }
         }
         else
@@ -579,14 +659,17 @@ public unsafe class AutoRetainer : IDalamudPlugin
             }
         }
         IsNextToBell = false;
-        if(C.RetainerSense && Svc.ClientState.LocalPlayer != null && Svc.ClientState.LocalPlayer.HomeWorld.RowId == Svc.ClientState.LocalPlayer.CurrentWorld.RowId)
+        if(C.RetainerSense && Svc.Objects.LocalPlayer != null && Svc.Objects.LocalPlayer.HomeWorld.RowId == Svc.Objects.LocalPlayer.CurrentWorld.RowId)
         {
-            if(!IPC.Suppressed && !IsOccupied() && !C.OldRetainerSense && !TaskManager.IsBusy && !Utils.MultiModeOrArtisan && !Svc.Condition[ConditionFlag.InCombat] && !Svc.Condition[ConditionFlag.BoundByDuty] && Utils.IsAnyRetainersCompletedVenture())
+            // ⚠️ !SchedulerMain.RetainerAutomationDeferred:稀有品繳交循環在跑的時候不要自己去點鈴。
+            //    這條路徑不看 SchedulerMain.PluginEnabled,所以光是擋住 SchedulerMain.Tick() 擋不到它 ——
+            //    它會把 TaskInteractWithNearestBell 直接排進循環正在用的那條共用佇列。
+            if(!IPC.Suppressed && !IsOccupied() && !C.OldRetainerSense && !TaskManager.IsBusy && !Utils.MultiModeOrArtisan && !Svc.Condition[ConditionFlag.InCombat] && !Svc.Condition[ConditionFlag.BoundByDuty] && !SchedulerMain.RetainerAutomationDeferred && SchedulerMain.RetainerPassAvailable && Utils.IsAnyRetainersCompletedVenture())
             {
                 var bell = Utils.GetReachableRetainerBell(true);
-                if(bell == null || LastPosition != Svc.ClientState.LocalPlayer.Position)
+                if(bell == null || LastPosition != Svc.Objects.LocalPlayer.Position)
                 {
-                    LastPosition = Svc.ClientState.LocalPlayer.Position;
+                    LastPosition = Svc.Objects.LocalPlayer.Position;
                     LastMovementAt = Environment.TickCount64;
                 }
                 if(bell != null)
@@ -607,10 +690,20 @@ public unsafe class AutoRetainer : IDalamudPlugin
                 }
             }
         }
-        if(Utils.IsBusy && TryGetAddonByName<AtkUnitBase>("Trade", out var trade))
+        // 先看有沒有交易視窗（幾乎永遠沒有）再問忙不忙：問忙不忙要走一次 Lifestream IPC。
+        if(TryGetAddonByName<AtkUnitBase>("Trade", out var trade) && Utils.IsBusy)
         {
-            Callback.Fire(trade, true, -1);
+            // 🔴 同一扇 Trade 只拒絕一次(窗消失後下一扇才會再被拒絕):拒絕之後 Trade「正在關閉中」的那幾幀
+            //    GetAddonByName 仍拿得到實例,再送就是攔不到的原生 AccessViolation。
+            if(DialogGuards.TryPressOnce("Trade", (nint)trade, "DeclineTrade"))
+            {
+                Callback.Fire(trade, true, -1);
+            }
         }
+        // IPC 端點 AutoRetainer.IsBusy 讀的每幀快照(見 Modules/IPC.cs 的 UpdateIsBusySnapshot)。
+        // 放在 Tick 的最後、而且無條件跑:上面每一個模組這一幀的變動都已經發生完。
+        // 這支只讀三個布林,不碰原生記憶體,所以不另外包 try。
+        IPC.UpdateIsBusySnapshot();
     }
 
     private void Toasts_ErrorToast(ref Dalamud.Game.Text.SeStringHandling.SeString message, ref bool isHandled)
@@ -621,10 +714,11 @@ public unsafe class AutoRetainer : IDalamudPlugin
             //5800	60	8	0	False	他のデータセンター<Highlight>StringParameter(1)</Highlight>へ遊びに行っているため操作できません。
             //5800	60	8	0	False	Der Vorgang kann nicht ausgeführt werden, da der Charakter gerade das Datenzentrum <Highlight>StringParameter(1)</Highlight> bereist.
             //5800	60	8	0	False	Impossible d'exécuter cette commande. Le personnage se trouve dans un autre centre de traitement de données (<Highlight>StringParameter(1)</Highlight>).
+            //5800	60	8	0	False	由於正前往<Highlight>StringParameter(1)</Highlight>遊玩，無法操作。（台服）
             if(message.ToString().StartsWithAny(Lang.UnableToVisitWorld))
             {
 
-                MultiMode.Enabled = false;
+                MultiMode.SetEnabled(false, "未登入時的錯誤訊息：角色正在其他資料中心遊玩、無法操作", MultiModeChangeCause.AutoRetainer);
             }
         }
     }
@@ -633,6 +727,8 @@ public unsafe class AutoRetainer : IDalamudPlugin
     {
         //if (PluginLoader.IsLoaded)
         {
+            // 排在最前面：後面任何一步都不該影響「卸載當下多角色模式開著沒」的紀錄。
+            Safe(MultiMode.WriteReloadRecord);
             Safe(() => FFXIVInstanceMonitor.ReleaseLock());
             Safe(() => quickSellItems.Disable());
             Safe(() => quickSellItems.Dispose());
@@ -641,6 +737,8 @@ public unsafe class AutoRetainer : IDalamudPlugin
             Safe(() => Svc.ClientState.Logout -= Logout);
             Safe(() => Svc.Condition.ConditionChange -= ConditionChange);
             Safe(() => Svc.Framework.Update -= Tick);
+            Safe(() => Svc.Framework.Update -= DialogGuardsTick);
+            Safe(() => DialogGuards.ForceTeardown());
             Safe(() => Svc.Toasts.ErrorToast -= Toasts_ErrorToast);
             Safe(() => Svc.Toasts.Toast -= Toasts_Toast);
             Safe(() => NewYesAlreadyManager.Unlock());
@@ -652,18 +750,41 @@ public unsafe class AutoRetainer : IDalamudPlugin
             Safe(() => FPSManager.ForceRestore());
             Safe(() => PriorityManager.RestorePriority());
             Safe(() => VoyageMain.Shutdown());
+            Safe(() => MultiModeDtr.Dispose());
             Safe(() => ContextMenuManager.Dispose());
+            Safe(() => EzIpcFailureLog.Disable());
+            Safe(() => Services.Lifestream.LifestreamHousePath.Dispose());
             PunishLibMain.Dispose();
             ECommonsMain.Dispose();
         }
         //PluginLoader.Dispose();
     }
 
+    /// <remarks>
+    /// 🔴 <c>API.GetOfflineCharacterData</c> 會回 <c>null</c>（查無此 CID，或 IpcFrameworkGate 逾時），所以判空後跳過、不做事。
+    /// ⚠️ <c>GetAdditionalRetainerData</c> 逾時同樣回 <c>null</c>，而且那條路<b>特別危險</b>：
+    /// 拿一份全預設值物件照既有契約寫回去會把僱員真正的設定蓋掉，
+    /// 所以也是判空後跳過。
+    /// </remarks>
     private void AddVenture(string name, uint ventureId)
     {
-        if(API.Ready && API.GetOfflineCharacterData(Player.CID).RetainerData.TryGetFirst(x => x.Name == name, out var rdata))
+        if(!API.Ready) return;
+        var ocd = API.GetOfflineCharacterData(Player.CID);
+        if(ocd == null)
+        {
+            LogMissingOfflineCharacterData(nameof(AddVenture));
+            return;
+        }
+        if(ocd.RetainerData.TryGetFirst(x => x.Name == name, out var rdata))
         {
             var adata = API.GetAdditionalRetainerData(Player.CID, rdata.Name);
+            if(adata == null)
+            {
+                // 提供端（Modules/IPC.cs 的 GetARD）逾時時回 null，而且明講「不要寫回」——
+                // 拿一份預設值寫回去會把這名僱員真正的設定蓋掉。
+                LogMissingOfflineCharacterData(nameof(AddVenture));
+                return;
+            }
             if(adata.VenturePlan.List.TryGetFirst(x => x.ID == ventureId, out var v))
             {
                 v.Num += 1;
@@ -676,15 +797,37 @@ public unsafe class AutoRetainer : IDalamudPlugin
         }
     }
 
+    /// <remarks>同 <see cref="AddVenture"/>：查無離線資料時列舉出空序列，而不是擲 NullReferenceException。</remarks>
     private IEnumerable<string> ListRetainers()
     {
-        if(API.Ready)
+        if(!API.Ready) yield break;
+        var ocd = API.GetOfflineCharacterData(Player.CID);
+        if(ocd == null)
         {
-            foreach(var x in API.GetOfflineCharacterData(Player.CID).RetainerData)
-            {
-                yield return x.Name;
-            }
+            LogMissingOfflineCharacterData(nameof(ListRetainers));
+            yield break;
         }
+        foreach(var x in ocd.RetainerData)
+        {
+            yield return x.Name;
+        }
+    }
+
+    /// <remarks>
+    /// 自帶節流，<b>刻意不用</b> <c>ECommons.Throttlers.EzThrottler</c>：那是整個外掛共用的
+    /// 靜態 <c>Dictionary</c> 而且零同步，從非 framework 執行緒進來會弄壞字典本身。
+    /// 這裡只用一個 <c>long</c> ＋ <c>Interlocked.CompareExchange</c>，多執行緒同時進來也只有一條印得出來。
+    /// 寫 Information：要使用者回報的診斷。
+    /// </remarks>
+    private static long LastMissingOfflineCharacterDataLogTick;
+
+    private static void LogMissingOfflineCharacterData(string caller)
+    {
+        var now = Environment.TickCount64;
+        var last = System.Threading.Volatile.Read(ref LastMissingOfflineCharacterDataLogTick);
+        if(last != 0 && now - last < 60000) return;
+        if(System.Threading.Interlocked.CompareExchange(ref LastMissingOfflineCharacterDataLogTick, now, last) != last) return;
+        PluginLog.Information($"[AutoRetainer] {caller}：查無目前角色的離線資料（AutoRetainer 還沒替這個角色建立資料，或資料查詢逾時），已跳過這次操作。");
     }
 
     internal HashSet<string> GetSelectedRetainers(ulong cid)
@@ -743,7 +886,11 @@ public unsafe class AutoRetainer : IDalamudPlugin
                         else
                         {
                             var bellBehavior = Utils.IsAnyRetainersCompletedVenture() ? C.OpenBellBehaviorWithVentures : C.OpenBellBehaviorNoVentures;
-                            if(bellBehavior != OpenBellBehavior.Pause_AutoRetainer && IsKeyPressed(C.Suppress) && !CSFramework.Instance()->WindowInactive)
+                            // CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null。
+                            // 讀不到就當作「視窗非作用中」＝不取消開鈴動作，維持原本的行為
+                            // （抑制鍵是額外的覆寫，拿不到狀態時不要擅自覆寫）。
+                            var framework = CSFramework.Instance();
+                            if(bellBehavior != OpenBellBehavior.Pause_AutoRetainer && IsKeyPressed(C.Suppress) && framework != null && !framework->WindowInactive)
                             {
                                 bellBehavior = OpenBellBehavior.Do_nothing;
                                 Notify.Info($"Open bell action cancelled");
@@ -803,6 +950,10 @@ public unsafe class AutoRetainer : IDalamudPlugin
     private void Logout(int _, int __)
     {
         SchedulerMain.DisablePlugin();
+
+        // 這個佇列裝的是「僱員名字」，而僱員名字只在該角色底下唯一。多角模式換角是走登出的，
+        // 沒清乾淨的殘留項目會在下一個角色被按名字比對到（同名僱員在不同角色底下是可能的）。
+        SchedulerMain.ClearPendingEntrustVendorPass("logout");
 
         if(!P.TaskManager.IsBusy)
         {

@@ -53,14 +53,23 @@ public static unsafe class TaskChangeCharacter
         }
         P.TaskManager.Enqueue(() => SelectCharacter(charaName, charaWorld), $"Select chara {charaName}@{charaWorld}", new(timeLimitMS: 1000000));
         P.TaskManager.Enqueue(ConfirmLogin);
+        if(C.PostLoginSceneSettleDelay > 0)
+        {
+            PluginLog.Verbose($"Waiting {C.PostLoginSceneSettleDelay}s for scene to settle after login before continuing");
+            P.TaskManager.EnqueueDelay(C.PostLoginSceneSettleDelay * 1000);
+        }
     }
+
+    // 登出確認框的文字（Addon 115）：登出等待中每幀都要比對，表在插件存活期間不變，第一次取到就重用。
+    private static string LogoutConfirmText => field ??= Svc.Data.GetExcelSheet<Addon>()?.GetRow(115).Text.ToDalamudString().GetText();
 
     public static bool? SelectYesLogout()
     {
         if(!Svc.ClientState.IsLoggedIn) return true;
-        var addon = Utils.GetSpecificYesno(Svc.Data.GetExcelSheet<Addon>()?.GetRow(115).Text.ToDalamudString().GetText());
+        var addon = Utils.GetSpecificYesno(LogoutConfirmText);
         if(addon == null || !IsAddonReady(addon)) return false;
-        if(Utils.GenericThrottle && EzThrottler.Throttle("ConfirmLogout"))
+        // 🔴 這支按完 return false 持續輪詢到登出:登出確認框關閉中三關全過,同一扇只按一次。
+        if(Utils.GenericThrottle && EzThrottler.Throttle("ConfirmLogout") && DialogGuards.TryPressOnce("SelectYesno", (nint)addon, "ConfirmLogout"))
         {
             new AddonMaster.SelectYesno((nint)addon).Yes();
             return false;
@@ -71,7 +80,7 @@ public static unsafe class TaskChangeCharacter
     public static bool? Logout()
     {
         if(C.DontLogout) return null;
-        var addon = Utils.GetSpecificYesno(Svc.Data.GetExcelSheet<Addon>()?.GetRow(115).Text.ToDalamudString().GetText());
+        var addon = Utils.GetSpecificYesno(LogoutConfirmText);
         if(addon != null) return true;
         var isLoggedIn = Svc.Condition.Any();
         if(!isLoggedIn) return true;
@@ -95,6 +104,8 @@ public static unsafe class TaskChangeCharacter
             var compareTo = Svc.Data.GetExcelSheet<Lobby>()?.GetRow(11).Text.GetText();
             if(m.Text == compareTo)
             {
+                // 這裡沒有節流;選項按下即關窗,同一扇 SelectString 只按一次。
+                if(!DialogGuards.TryPressOnce("SelectString", (nint)m.Base, "SelectServiceAccount")) return false;
                 m.Entries[account].Select();
                 return true;
             }
@@ -110,13 +121,14 @@ public static unsafe class TaskChangeCharacter
     {
         if(TryGetAddonByName<AtkUnitBase>("TitleDCWorldMap", out var addon) && addon->IsVisible)
         {
-            PluginLog.Information($"Visible");
+            PluginLog.Verbose($"Visible");
             Utils.RethrottleGeneric();
             return true;
         }
         if(TryGetAddonMaster<AddonMaster._TitleMenu>(out var m) && m.IsReady)
         {
-            if(Utils.GenericThrottle && EzThrottler.Throttle("ClickTitleMenuStart"))
+            // 標題選單按下後是隱藏不是拆除,位址會留著:走 15 幀的例行逃生口,補按仍受 500ms 節流。
+            if(Utils.GenericThrottle && EzThrottler.Throttle("ClickTitleMenuStart") && DialogGuards.TryPressOnce("_TitleMenu", (nint)m.Base, "ClickSelectDataCenter", escapeIsRoutine: true))
             {
                 m.DataCenter();
                 return false;
@@ -133,13 +145,13 @@ public static unsafe class TaskChangeCharacter
     {
         if(TryGetAddonByName<AtkUnitBase>("_CharaSelectListMenu", out var addon) && addon->IsVisible)
         {
-            PluginLog.Information($"Visible");
+            PluginLog.Verbose($"Visible");
             Utils.RethrottleGeneric();
             return true;
         }
         if(TryGetAddonMaster<AddonMaster._TitleMenu>(out var m) && m.IsReady)
         {
-            if(Utils.GenericThrottle && EzThrottler.Throttle("ClickTitleMenuStart"))
+            if(Utils.GenericThrottle && EzThrottler.Throttle("ClickTitleMenuStart") && DialogGuards.TryPressOnce("_TitleMenu", (nint)m.Base, "ClickStart", escapeIsRoutine: true))
             {
                 m.Start();
                 return false;
@@ -156,7 +168,7 @@ public static unsafe class TaskChangeCharacter
     {
         if(TryGetAddonMaster<AddonMaster.TitleDCWorldMap>(out var m) && m.IsAddonReady)
         {
-            if(Utils.GenericThrottle && EzThrottler.Throttle("ClickDCSelect"))
+            if(Utils.GenericThrottle && EzThrottler.Throttle("ClickDCSelect") && DialogGuards.TryPressOnce("TitleDCWorldMap", (nint)m.Base, "ClickDCSelect"))
             {
                 m.Select(dc);
                 return true;
@@ -187,12 +199,16 @@ public static unsafe class TaskChangeCharacter
         if(TryGetAddonMaster<AddonMaster._CharaSelectListMenu>(out var m) && m.IsAddonReady && TryGetAddonMaster<AddonMaster._CharaSelectWorldServer>(out var mw))
         {
             if(m.TemporarilyLocked) return false;
+            // 節流沒到的幀，下面不論找不找得到角色或伺服器都只回 false（每個點擊都先過 GenericThrottle）；
+            // 先看一眼節流，就不必在選角畫面每幀重建整份角色與伺服器清單。
+            if(!Utils.GenericThrottleOpen) return false;
             if(mw.Worlds.Length == 0) return false;
             foreach(var c in m.Characters)
             {
                 if(c.Name == name && ExcelWorldHelper.GetName(c.HomeWorld) == world)
                 {
-                    if(Utils.GenericThrottle && EzThrottler.Throttle("SelectChara"))
+                    // 角色清單在登入前不會關:帶參數組(哪一格),同一格 15 幀內不重送。
+                    if(Utils.GenericThrottle && EzThrottler.Throttle("SelectChara") && DialogGuards.TryPressOnce("_CharaSelectListMenu", (nint)m.Base, "SelectChara", $"Login{c.Index}", escapeIsRoutine: true))
                     {
                         /*if (!c.IsSelected)
                         {
@@ -211,7 +227,7 @@ public static unsafe class TaskChangeCharacter
             {
                 if(w.Name == world)
                 {
-                    if(Utils.GenericThrottle && EzThrottler.Throttle("SelectWorld"))
+                    if(Utils.GenericThrottle && EzThrottler.Throttle("SelectWorld") && DialogGuards.TryPressOnce("_CharaSelectWorldServer", (nint)mw.Base, "SelectWorld", $"World{w.Index}", escapeIsRoutine: true))
                     {
                         w.Select();
                     }
@@ -234,9 +250,10 @@ public static unsafe class TaskChangeCharacter
         }
         if(TryGetAddonMaster<AddonMaster.SelectYesno>(out var m) && m.IsAddonReady)
         {
-            if(m.Text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.LogInPartialText))
+            var text = m.Text;
+            if(!DialogGuards.TextIsUnstable(text) && text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.LogInPartialText))
             {
-                if(Utils.GenericThrottle && EzThrottler.Throttle("ConfirmLogin"))
+                if(Utils.GenericThrottle && EzThrottler.Throttle("ConfirmLogin") && DialogGuards.TryPressOnce("SelectYesno", (nint)m.Base, "ConfirmLogin"))
                 {
                     m.Yes();
                     return true;

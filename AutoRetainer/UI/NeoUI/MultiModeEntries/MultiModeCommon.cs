@@ -1,68 +1,87 @@
 ﻿namespace AutoRetainer.UI.NeoUI.MultiModeEntries;
 public class MultiModeCommon : NeoUIEntry
 {
-    public override string Path => "Multi Mode/Common Settings";
+    public override string Path => Loc.T("Multi Mode/Common Settings");
 
     public override NuiBuilder Builder { get; init; } = new NuiBuilder()
-        .Section("Common Settings")
-        .Checkbox($"Wait on login screen", () => ref C.MultiWaitOnLoginScreen, "If no character is available for ventures, you will be logged off until any character is available again. Title screen movie will be disabled while this option and MultiMode are enabled.")
-        .Checkbox($"Disable Multi Mode on Manual Login", () => ref C.MultiDisableOnRelog, "Upon relogging via AutoRetainer's UI or command, disable Multi Mode.")
-        .Checkbox($"Do not reset Preferred Character on Manual Login", () => ref C.MultiNoPreferredReset, "Upon relogging via AutoRetainer's UI or command, do not reset preferred character.")
-        .Checkbox("Allow entering shared houses", () => ref C.SharedHET)
-        .Checkbox("Attempt to enter house on login even when Multi Mode is disabled", () => ref C.HETWhenDisabled)
-        .Checkbox("Do not teleport or enter house for retainers when already next to bell", () => ref C.NoTeleportHetWhenNextToBell)
+        .Section(Loc.T("Common Settings"))
+        .Checkbox(Loc.T("Wait on login screen"), () => ref C.MultiWaitOnLoginScreen, Loc.T("If no character is available for ventures, you will be logged off until any character is available again. Title screen movie will be disabled while this option and MultiMode are enabled."))
+        .Checkbox(Loc.T("Disable Multi Mode on Manual Login"), () => ref C.MultiDisableOnRelog, Loc.T("Upon relogging via AutoRetainer's UI or command, disable Multi Mode."))
+        .Checkbox(Loc.T("Do not reset Preferred Character on Manual Login"), () => ref C.MultiNoPreferredReset, Loc.T("Upon relogging via AutoRetainer's UI or command, do not reset preferred character."))
+        .Checkbox(Loc.T("Stop Questionable before switching characters"), () => ref C.MultiStopQuestionableBeforeRelog, Loc.T("When Multi Mode is about to switch to the next character, ask Questionable to stop its automated quest run first. Without this, the quest run is cut off by the logout instead of stopping cleanly. AutoRetainer does not wait for Questionable - the character switch proceeds either way."))
+        .Checkbox(Loc.T("Allow entering shared houses"), () => ref C.SharedHET)
+        .Checkbox(Loc.T("Attempt to enter house on login even when Multi Mode is disabled"), () => ref C.HETWhenDisabled)
+        .Checkbox(Loc.T("Do not teleport or enter house for retainers when already next to bell"), () => ref C.NoTeleportHetWhenNextToBell)
+        .SliderInt(150f, Loc.T("Post-login scene settle delay, seconds"), () => ref C.PostLoginSceneSettleDelay.ValidateRange(0, 30), 0, 15, Loc.T("After logging into a character during Multi Mode character switching, wait this many extra seconds before AutoRetainer starts interacting with the game. This gives the scene, graphics resources and game settings time to finish loading after the login/zone transition, which is when crashes are most likely to occur. Increase this if you experience crashes during character switching."))
 
-        .Section("Game startup")
-        .Checkbox($"Enable Multi Mode on Game Boot", () => ref C.MultiAutoStart)
-        .Widget("Auto-login on Game Boot", (x) =>
+        .Section(Loc.T("Game startup"))
+        .Checkbox(Loc.T("Enable Multi Mode on Game Boot"), () => ref C.MultiAutoStart)
+        .Widget(Loc.T("Auto-login on Game Boot"), (x) =>
         {
             ImGui.SetNextItemWidth(150f);
             var names = C.OfflineData.Where(s => !s.Name.IsNullOrEmpty()).Select(s => $"{s.Name}@{s.World}");
             var dict = names.ToDictionary(s => s, s => Censor.Character(s));
-            dict.Add("", "Disabled");
-            dict.Add("~", "Last logged in character");
+            dict.Add("", Loc.T("Disabled"));
+            dict.Add("~", Loc.T("Last logged in character"));
             ImGuiEx.Combo(x, ref C.AutoLogin, ["", "~", .. names], names: dict);
         })
-        .SliderInt(150f, "Delay", () => ref C.AutoLoginDelay.ValidateRange(0, 60), 0, 20, "Set appropriate delay to let plugins fully load before logging in and to allow yourself some time to cancel login if needed")
+        .SliderInt(150f, Loc.T("Delay"), () => ref C.AutoLoginDelay.ValidateRange(0, 60), 0, 20, Loc.T("Set appropriate delay to let plugins fully load before logging in and to allow yourself some time to cancel login if needed"))
 
-        .Section("Inventory warnings")
-        .InputInt(100f, $"Retainer list: remaining inventory slots warning", () => ref C.UIWarningRetSlotNum.ValidateRange(2, 1000))
-        .InputInt(100f, $"Retainer list: remaining ventures warning", () => ref C.UIWarningRetVentureNum.ValidateRange(2, 1000))
-        .InputInt(100f, $"Deployables list: remaining inventory slots warning", () => ref C.UIWarningDepSlotNum.ValidateRange(2, 1000))
-        .InputInt(100f, $"Deployables list: remaining fuel warning", () => ref C.UIWarningDepTanksNum.ValidateRange(20, 1000))
-        .InputInt(100f, $"Deployables list: remaining repair kit warning", () => ref C.UIWarningDepRepairNum.ValidateRange(5, 1000))
+        .Section(Loc.T("Inventory warnings"))
+        .InputInt(100f, Loc.T("Retainer list: remaining inventory slots warning"), () => ref C.UIWarningRetSlotNum.ValidateRange(2, 1000))
+        .InputInt(100f, Loc.T("Retainer list: remaining ventures warning"), () => ref C.UIWarningRetVentureNum.ValidateRange(2, 1000))
+        .InputInt(100f, Loc.T("Deployables list: remaining inventory slots warning"), () => ref C.UIWarningDepSlotNum.ValidateRange(2, 1000))
+        .InputInt(100f, Loc.T("Deployables list: remaining fuel warning"), () => ref C.UIWarningDepTanksNum.ValidateRange(20, 1000))
+        .InputInt(100f, Loc.T("Deployables list: remaining repair kit warning"), () => ref C.UIWarningDepRepairNum.ValidateRange(5, 1000))
 
-        .Section("Teleportation")
-        .Widget(() => ImGuiEx.Text("Lifestream plugin is required"))
+        // 這裡刻意不用 NuiBuilder 的 collapsible:true（它是可用的）：折疊已經由下面那顆總開關負責，
+        // 關掉之後這個區塊只剩一行，而且總開關是設定、會存檔（ImGui 的折疊狀態不會存檔）。
+        .Section(Loc.T("Character list allowance columns"))
+        .Checkbox(Loc.T("Show allowance columns in character list"), () => ref C.UIShowAllowances, Loc.T("Adds four columns to every character row: S = Grand Company seals, L = levequest allowances, D = custom delivery allowances left this week, T = limited tomestones acquired this week. A grey question mark means AutoRetainer has not managed to read that value on that character yet - it is filled in automatically shortly after logging in. A grey dash on the seal column means the character has not joined a Grand Company. Hover a column for the time it was sampled."))
+        .If(() => C.UIShowAllowances)
+        .Indent()
+        .Checkbox(Loc.T("Column S: Grand Company seals"), () => ref C.UIShowAllowanceSeals)
+        .Checkbox(Loc.T("Column L: levequest allowances"), () => ref C.UIShowAllowanceLeves)
+        .Checkbox(Loc.T("Column D: custom delivery allowances"), () => ref C.UIShowAllowanceCustomDeliveries)
+        .Checkbox(Loc.T("Column T: weekly tomestones"), () => ref C.UIShowAllowanceTomestones)
+        .InputInt(100f, Loc.T("Character list: Grand Company seal warning margin"), () => ref C.UIWarningGCSealsMargin.ValidateRange(0, 90000))
+        .InputInt(100f, Loc.T("Character list: levequest allowance warning"), () => ref C.UIWarningLeveAllowancesNum.ValidateRange(1, 100))
+        .InputInt(100f, Loc.T("Character list: custom delivery allowance warning"), () => ref C.UIWarningCustomDeliveryNum.ValidateRange(0, 12))
+        .InputInt(100f, Loc.T("Character list: weekly tomestone warning margin"), () => ref C.UIWarningTomestoneMargin.ValidateRange(0, 2000))
+        .Unindent()
+        .EndIf()
+
+        .Section(Loc.T("Teleportation"))
+        .Widget(() => ImGuiEx.Text(Loc.T("Lifestream plugin is required")))
         .Widget(() => ImGuiEx.PluginAvailabilityIndicator([new("Lifestream", new Version("2.2.1.1"))]))
-        .TextWrapped("You must register houses in Lifestream plugin for every character you want this option to work or enable Simple Teleport.")
-        .TextWrapped("You can customize these settings per character in character configuration menu.")
+        .TextWrapped(Loc.T("You must register houses in Lifestream plugin for every character you want this option to work or enable Simple Teleport."))
+        .TextWrapped(Loc.T("You can customize these settings per character in character configuration menu."))
         .Widget(() =>
         {
             if(Data != null && Data.GetAreTeleportSettingsOverriden())
             {
-                ImGuiEx.TextWrapped(ImGuiColors.DalamudRed, "For current character teleport options are customized.");
+                ImGuiEx.TextWrapped(ImGuiColors.DalamudRed, Loc.T("For current character teleport options are customized."));
             }
         })
-        .Checkbox("Enabled", () => ref C.GlobalTeleportOptions.Enabled)
+        .Checkbox(Loc.T("Enabled"), () => ref C.GlobalTeleportOptions.Enabled)
         .Indent()
-        .Checkbox("Teleport for retainers...", () => ref C.GlobalTeleportOptions.Retainers)
+        .Checkbox(Loc.T("Teleport for retainers..."), () => ref C.GlobalTeleportOptions.Retainers)
         .Indent()
-        .Checkbox("...to private house", () => ref C.GlobalTeleportOptions.RetainersPrivate)
-        .Checkbox("...to free company house", () => ref C.GlobalTeleportOptions.RetainersFC)
-        .Checkbox("...to apartment", () => ref C.GlobalTeleportOptions.RetainersApartment)
-        .TextWrapped("If all above are disabled or fail, will be teleported to inn.")
+        .Checkbox(Loc.T("...to private house"), () => ref C.GlobalTeleportOptions.RetainersPrivate)
+        .Checkbox(Loc.T("...to free company house"), () => ref C.GlobalTeleportOptions.RetainersFC)
+        .Checkbox(Loc.T("...to apartment"), () => ref C.GlobalTeleportOptions.RetainersApartment)
+        .TextWrapped(Loc.T(SharedText.FallbackTeleportToInn))
         .Unindent()
-        .Checkbox("Teleport to free company house for deployables", () => ref C.GlobalTeleportOptions.Deployables)
-        .Checkbox("Enable Simple Teleport", () => ref C.AllowSimpleTeleport)
+        .Checkbox(Loc.T(SharedText.TeleportToFcHouseForDeployables), () => ref C.GlobalTeleportOptions.Deployables)
+        .Checkbox(Loc.T("Enable Simple Teleport"), () => ref C.AllowSimpleTeleport)
         .Unindent()
-        .Widget(() => ImGuiEx.HelpMarker("""
+        .Widget(() => ImGuiEx.HelpMarker(Loc.T("""
             Allows teleporting to houses without registering them in Lifestream. Note: the Lifestream plugin is still required for teleportation to work.
 
             Warning: This option is less reliable than registering your houses in Lifestream. Use it only if necessary.
-            """, EColor.RedBright, FontAwesomeIcon.ExclamationTriangle.ToIconString()))
+            """), EColor.RedBright, FontAwesomeIcon.ExclamationTriangle.ToIconString()))
 
-        .Section("Bailout Module")
-        .Checkbox("Auto-close and retry logging in on connection errors", () => ref C.ResolveConnectionErrors, "Upon disconnecting, AutoRetainer will attempt to log back in. If the session has expired, no login attempt will be made.")
+        .Section(Loc.T("Bailout Module"))
+        .Checkbox(Loc.T("Auto-close and retry logging in on connection errors"), () => ref C.ResolveConnectionErrors, Loc.T("Upon disconnecting, AutoRetainer will attempt to log back in. If the session has expired, no login attempt will be made."))
         .Widget(() => ImGuiEx.PluginAvailabilityIndicator([new("NoKillPlugin")]));
 }

@@ -72,8 +72,11 @@ public unsafe class DebugAddonMaster : DebugSectionBase
                     m.SelectWorld();
                 }
                 //PluginLog.Information($"Chars: {m.Characters.Print("\n")}");
-                ImGuiEx.Text($"{AgentLobby.Instance()->LobbyUpdateStage}");
-                ImGuiEx.Text($"{AgentLobby.Instance()->HoveredCharacterContentId}");
+                // AgentLobby 取得器合法回 null。拿不到時印 "?" 而不是一個看起來正常的值 ——
+                // 偵錯視窗把「不知道」畫成 0/False 會直接誤導看的人。
+                var lobby = AgentLobby.Instance();
+                ImGuiEx.Text($"{(lobby == null ? "?" : $"{lobby->LobbyUpdateStage}")}");
+                ImGuiEx.Text($"{(lobby == null ? "?" : $"{lobby->HoveredCharacterContentId}")}");
                 foreach(var x in m.Characters)
                 {
                     if(ImGui.Button(x.ToString() + "/select"))

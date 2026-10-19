@@ -1,4 +1,5 @@
-﻿using Dalamud.Game.Text.SeStringHandling;
+﻿using AutoRetainer.Services;
+using Dalamud.Game.Text.SeStringHandling;
 using ECommons.ChatMethods;
 
 namespace AutoRetainer.Modules;
@@ -22,6 +23,9 @@ internal static class NotificationHandler
                 });
                 IsHidden = false;
                 IsNotified = true;
+                // 🔴 這裡是<b>狀態邊緣</b>（currentState 剛從 false 翻成 true），
+                //    不是輪詢路徑——放進 GetNotifyState 或 Tick 開頭的話會變成每幀一顆氣球。
+                RetainerTrayNotify.OnRetainersBecameAvailable();
             }
             else
             {
@@ -52,7 +56,7 @@ internal static class NotificationHandler
         }
         else
         {
-            if(Svc.ClientState.LocalContentId != 0 && C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var x))
+            if(Svc.PlayerState.ContentId != 0 && C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var x))
             {
                 foreach(var r in x.RetainerData)
                 {

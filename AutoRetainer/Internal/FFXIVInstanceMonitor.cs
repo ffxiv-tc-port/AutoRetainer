@@ -51,7 +51,7 @@ public class FFXIVInstanceMonitor
     {
         try
         {
-            Stream.Dispose();
+            Stream?.Dispose();
         }
         catch(Exception e)
         {

@@ -8,20 +8,20 @@ public sealed class FcDataManager
 
     public void Draw()
     {
-        ImGui.Checkbox($"Update every 30 hours", ref C.UpdateStaleFCData);
+        ImGui.Checkbox(Loc.T("Update every 30 hours"), ref C.UpdateStaleFCData);
         ImGui.SameLine();
-        if(ImGuiEx.Button("Update", Player.Interactable))
+        if(ImGuiEx.Button(Loc.T("Update"), Player.Interactable))
         {
             S.FCPointsUpdater.ScheduleUpdateIfNeeded(true);
         }
         ImGui.SameLine();
-        ImGui.Checkbox($"Show only wallet FC", ref C.DisplayOnlyWalletFC);
+        ImGui.Checkbox(Loc.T("Show only wallet FC"), ref C.DisplayOnlyWalletFC);
         if(ImGui.BeginTable("FCData", 5, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
         {
-            ImGui.TableSetupColumn($"Name", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn($"Characters");
-            ImGui.TableSetupColumn($"Gil");
-            ImGui.TableSetupColumn($"FC points");
+            ImGui.TableSetupColumn(Loc.T("Name"), ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn(Loc.T("Characters"));
+            ImGui.TableSetupColumn(Loc.T("Gil"));
+            ImGui.TableSetupColumn(Loc.T("FC points"));
             ImGui.TableSetupColumn($"##control");
             ImGui.TableHeadersRow();
 
@@ -35,19 +35,19 @@ public sealed class FcDataManager
                 if(!x.Value.GilCountsTowardsChara && C.DisplayOnlyWalletFC) continue;
                 ImGui.TableNextRow();
                 ImGui.TableNextColumn();
-                ImGuiEx.TextV(C.NoNames ? $"Free company {++i}" : x.Value.Name);
+                ImGuiEx.TextV(C.NoNames ? string.Format(Loc.T("Free company {0}"), ++i) : x.Value.Name);
 
                 ImGui.TableNextColumn();
                 foreach(var c in C.OfflineData.Where(z => z.FCID == x.Key))
                 {
                     ImGuiEx.Text(x.Value.HolderChara == c.CID && x.Value.GilCountsTowardsChara ? EColor.GreenBright : null, Censor.Character(c.Name, c.World));
-                    if(ImGuiEx.HoveredAndClicked("Left click - Relog to this character"))
+                    if(ImGuiEx.HoveredAndClicked(Loc.T("Left click - Relog to this character")))
                     {
                         Svc.Commands.ProcessCommand($"/ays relog {c.Name}@{c.World}");
                     }
                     if(x.Value.GilCountsTowardsChara)
                     {
-                        if(ImGuiEx.HoveredAndClicked("Right click - set as gil holder", ImGuiMouseButton.Right))
+                        if(ImGuiEx.HoveredAndClicked(Loc.T("Right click - set as gil holder"), ImGuiMouseButton.Right))
                         {
                             x.Value.HolderChara = c.CID;
                         }
@@ -59,7 +59,7 @@ public sealed class FcDataManager
                 {
                     ImGuiEx.Text($"{x.Value.Gil:N0}");
                     totalGil += x.Value.Gil;
-                    ImGuiEx.Tooltip($"Last updated {UpdatedWhen(x.Value.LastGilUpdate)}. Ctrl + click to reset");
+                    ImGuiEx.Tooltip(string.Format(Loc.T("Last updated {0}. Ctrl + click to reset"), UpdatedWhen(x.Value.LastGilUpdate)));
                     if(ImGuiEx.HoveredAndClicked() && ImGuiEx.Ctrl)
                     {
                         x.Value.LastGilUpdate = -1;
@@ -68,7 +68,7 @@ public sealed class FcDataManager
                 }
                 else
                 {
-                    ImGuiEx.Text($"Unknown");
+                    ImGuiEx.Text(Loc.T("Unknown"));
                 }
 
                 ImGui.TableNextColumn();
@@ -76,32 +76,32 @@ public sealed class FcDataManager
                 {
                     ImGuiEx.Text($"{x.Value.FCPoints:N0}");
                     totalPoint += x.Value.FCPoints;
-                    ImGuiEx.Tooltip($"Last updated {UpdatedWhen(x.Value.FCPointsLastUpdate)}");
+                    ImGuiEx.Tooltip(string.Format(Loc.T("Last updated {0}"), UpdatedWhen(x.Value.FCPointsLastUpdate)));
                 }
                 else
                 {
-                    ImGuiEx.Text($"Unknown");
+                    ImGuiEx.Text(Loc.T("Unknown"));
                 }
 
                 ImGui.TableNextColumn();
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.ButtonCheckbox($"\uf555##FC{x.Key}", ref x.Value.GilCountsTowardsChara, EColor.Green);
                 ImGui.PopFont();
-                ImGuiEx.Tooltip("Mark this free company as Wallet FC. Gil Display tab will include money of this FC.");
+                ImGuiEx.Tooltip(Loc.T("Mark this free company as Wallet FC. Gil Display tab will include money of this FC."));
                 ImGui.SameLine();
                 if(ImGuiEx.IconButton(FontAwesomeIcon.Trash, $"{x.Key}Dele", enabled: ImGuiEx.Ctrl))
                 {
                     new TickScheduler(() => C.FCData.Remove(x));
                 }
 
-                ImGuiEx.Tooltip($"Hold CTRL and click to delete this FC. Note that if you will relog to that FC, it will appear again.");
+                ImGuiEx.Tooltip(Loc.T("Hold CTRL and click to delete this FC. Note that if you will relog to that FC, it will appear again."));
             }
 
             ImGui.TableNextRow();
             ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, EColor.GreenDark.ToUint());
             ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg1, EColor.GreenDark.ToUint());
             ImGui.TableNextColumn();
-            ImGuiEx.Text($"TOTAL");
+            ImGuiEx.Text(Loc.T("TOTAL"));
             ImGui.TableNextColumn();
             ImGui.TableNextColumn();
             ImGuiEx.Text($"{totalGil:N0}");
@@ -115,23 +115,31 @@ public sealed class FcDataManager
         string UpdatedWhen(long time)
         {
             var diff = DateTimeOffset.Now.ToUnixTimeMilliseconds() - time;
-            if(diff < 1000L * 60) return "just now";
-            if(diff < 1000L * 60 * 60) return $"{(int)(diff / 1000 / 60)} minute(s) ago";
-            if(diff < 1000L * 60 * 60 * 60) return $"{(int)(diff / 1000 / 60 / 60)} hour(s) ago";
-            return $"{(int)(diff / 1000 / 60 / 60 / 24)} day(s) ago";
+            if(diff < 1000L * 60) return Loc.T("just now");
+            if(diff < 1000L * 60 * 60) return string.Format(Loc.T("{0} minute(s) ago"), (int)(diff / 1000 / 60));
+            if(diff < 1000L * 60 * 60 * 60) return string.Format(Loc.T("{0} hour(s) ago"), (int)(diff / 1000 / 60 / 60));
+            return string.Format(Loc.T("{0} day(s) ago"), (int)(diff / 1000 / 60 / 60 / 24));
         }
     }
 
+    // 金幣分頁開著時每幀對每個角色×每個部隊各呼叫一次；用索引走清單，不配置閉包、委派與列舉器。結果與 TryGetFirst 相同（取第一個符合的）。
     public OfflineCharacterData GetHolderChara(ulong fcid, FCData data)
     {
-        if(C.OfflineData.TryGetFirst(x => x.FCID == fcid && x.CID == data.HolderChara, out var chara))
+        var list = C.OfflineData;
+        if(list == null) return null;
+        for(var i = 0; i < list.Count; i++)
         {
-            return chara;
+            var chara = list[i];
+            if(chara.FCID == fcid && chara.CID == data.HolderChara) return chara;
         }
-        else if(C.OfflineData.TryGetFirst(x => x.FCID == fcid, out var fchara))
+        for(var i = 0; i < list.Count; i++)
         {
-            data.HolderChara = fchara.CID;
-            return fchara;
+            var fchara = list[i];
+            if(fchara.FCID == fcid)
+            {
+                data.HolderChara = fchara.CID;
+                return fchara;
+            }
         }
         return null;
     }

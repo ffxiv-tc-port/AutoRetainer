@@ -15,9 +15,39 @@ using Lumina.Excel.Sheets;
 
 namespace AutoRetainer.Modules.Voyage;
 
+/// <summary>
+/// <see cref="VoyageUtils.SelectRoutePointSafe(string, out uint)"/> 的結果。
+/// ⚠️ 零值刻意是 <see cref="Unknown"/> 而不是 <see cref="Selected"/> ——
+/// 讓 default 落在樂觀值上，任何漏填的路徑都會靜默變成「成功」。
+/// </summary>
+internal enum RoutePointPickResult
+{
+    Unknown,
+    /// <summary>真的按下去了。</summary>
+    Selected,
+    /// <summary>面板上找得到這個點，但遊戲判定不可選（航行距離不足、未解鎖、等級不足…）。</summary>
+    NotSelectable,
+    /// <summary>面板上根本沒有這個名字的點位（多半是海圖選錯，或計畫來自別的服務版本）。</summary>
+    NotFound,
+    /// <summary>航線面板當下不在或還沒 ready。</summary>
+    PanelUnavailable,
+}
+
 internal static unsafe class VoyageUtils
 {
-    internal static bool DontReassign => (C.TempCollectB != LimitedKeys.None && IsKeyPressed(C.TempCollectB) && !CSFramework.Instance()->WindowInactive);
+    /// <remarks>
+    /// CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null，裸解參考是攔不到的 AVE。
+    /// 讀不到就當作「視窗非作用中」＝不啟用暫停指派（不擅自覆寫使用者原本的行為）。
+    /// </remarks>
+    internal static bool DontReassign
+    {
+        get
+        {
+            if(C.TempCollectB == LimitedKeys.None || !IsKeyPressed(C.TempCollectB)) return false;
+            var framework = CSFramework.Instance();
+            return framework != null && !framework->WindowInactive;
+        }
+    }
 
     internal static uint[] Workshops = [Houses.Company_Workshop_Empyreum, Houses.Company_Workshop_The_Goblet, Houses.Company_Workshop_Mist, Houses.Company_Workshop_Shirogane, Houses.Company_Workshop_The_Lavender_Beds];
 
@@ -33,21 +63,33 @@ internal static unsafe class VoyageUtils
         return ret;
     }
 
+    // 以下四支是部署頁每幀每個角色都會呼叫的狀態圖示判斷，寫成迴圈只是不要每幀配置閉包與列舉器；
+    // 判斷內容、呼叫順序與短路點都與等價的 Where／Any 寫法一致。
     internal static bool IsNotEnoughSubmarinesEnabled(this OfflineCharacterData data)
     {
-        return data.GetVesselData(VoyageType.Submersible).Count > data.GetVesselData(VoyageType.Submersible).Where(x => data.GetEnabledVesselsData(VoyageType.Submersible).Contains(x.Name)).Count();
+        var subs = data.GetVesselData(VoyageType.Submersible);
+        var enabledCount = 0;
+        foreach(var x in subs)
+        {
+            if(data.GetEnabledVesselsData(VoyageType.Submersible).Contains(x.Name)) enabledCount++;
+        }
+        return subs.Count > enabledCount;
     }
 
     internal static bool IsThereNotAssignedSubmarine(this OfflineCharacterData data)
     {
-        return data.GetVesselData(VoyageType.Submersible).Where(x => data.GetEnabledVesselsData(VoyageType.Submersible).Contains(x.Name)).Any(x => x.ReturnTime == 0);
+        foreach(var x in data.GetVesselData(VoyageType.Submersible))
+        {
+            if(data.GetEnabledVesselsData(VoyageType.Submersible).Contains(x.Name) && x.ReturnTime == 0) return true;
+        }
+        return false;
     }
 
     internal static bool AreAnySuboptimalBuildsFound(this OfflineCharacterData data)
     {
-        var v = data.GetVesselData(VoyageType.Submersible).Where(x => data.GetEnabledVesselsData(VoyageType.Submersible).Contains(x.Name));
-        foreach(var s in v)
+        foreach(var s in data.GetVesselData(VoyageType.Submersible))
         {
+            if(!data.GetEnabledVesselsData(VoyageType.Submersible).Contains(s.Name)) continue;
             var adata = data.GetAdditionalVesselData(s.Name, VoyageType.Submersible);
             if(adata.IsUnoptimalBuild(out _))
             {
@@ -59,11 +101,20 @@ internal static unsafe class VoyageUtils
 
     internal static bool AreAnyInvalidRedeploysActive(this OfflineCharacterData data)
     {
-        if(C.SubmarineUnlockPlans.Any(x => x.EnforcePlan))
+        var anyEnforced = false;
+        foreach(var x in C.SubmarineUnlockPlans)
         {
-            var v = data.GetVesselData(VoyageType.Submersible).Where(x => data.GetEnabledVesselsData(VoyageType.Submersible).Contains(x.Name));
-            foreach(var s in v)
+            if(x.EnforcePlan)
             {
+                anyEnforced = true;
+                break;
+            }
+        }
+        if(anyEnforced)
+        {
+            foreach(var s in data.GetVesselData(VoyageType.Submersible))
+            {
+                if(!data.GetEnabledVesselsData(VoyageType.Submersible).Contains(s.Name)) continue;
                 var adata = data.GetAdditionalVesselData(s.Name, VoyageType.Submersible);
                 if(adata.VesselBehavior == VesselBehavior.Redeploy)
                 {
@@ -76,12 +127,14 @@ internal static unsafe class VoyageUtils
 
     internal static bool IsUnoptimalBuild(this AdditionalVesselData adata, out string justification)
     {
-        var conf = adata.GetSubmarineBuild().Trim();
+        // 組裝字串只在有規則落在這個等級範圍時才需要；沒設任何規則時每幀每艘都組一次是白工。
+        string conf = null;
         //PluginLog.Information($"{conf}");
         foreach(var x in C.UnoptimalVesselConfigurations)
         {
             if(adata.Level >= x.MinRank && adata.Level <= x.MaxRank)
             {
+                conf ??= adata.GetSubmarineBuild().Trim();
                 if(x.ConfigurationsInvert)
                 {
                     //PluginLog.Information($"{conf} vs {x.Configurations.Print()}={conf.EqualsIgnoreCaseAny(x.Configurations)}");
@@ -125,7 +178,9 @@ internal static unsafe class VoyageUtils
 
     internal static int? GetVesselIndex(string name, VoyageType type)
     {
-        var w = HousingManager.Instance()->WorkshopTerritory;
+        var housing = HousingManager.Instance();
+        if(housing == null) return null;
+        var w = housing->WorkshopTerritory;
         if(w == null) return null;
         var adata = GetAdditionalVesselData(Data, name, type);
         if(adata.IndexOverride > 0) return adata.IndexOverride - 1;
@@ -182,14 +237,62 @@ internal static unsafe class VoyageUtils
             }
         }
 
-        foreach(var x in Unlocks.PointToUnlockPoint.Where(z => z.Value.Point < 9000 && !plan.ExcludedRoutes.Contains(z.Key)))
+        // 兩個開關都開才是「同圖先收乾淨」；UnlockRouteAlsoExploreUnexplored 關著時
+        // 根本不會排未探索的點，先後順序也就沒有意義。
+        var exploreFirst = C.UnlockRouteExploreBeforeUnlock && C.UnlockRouteAlsoExploreUnexplored;
+
+        // 🔴 未探索段會決定整份清單鎖定哪一張地圖(它排在開新點之前),所以這裡必須先排除
+        //    「目前這艘潛水艇等級不夠、跑不到」的點位 —— 否則那種點位會把錨點吃掉,
+        //    下游 GetUnlockPointsFromPlan 再依 RankReq 把它濾掉,結果是「別的地圖的新點也一起被擋住」,
+        //    要等潛水艇升到那一級才會恢復。判準與下游逐字相同(subLevel >= RankReq)。
+        //    讀不到目前這艘(沒開工房面板、只是開著規劃器視窗看清單)就不過濾,清單照樣顯示完整。
+        var currentSub = CurrentSubmarine.Get();
+        var currentSubRank = currentSub == null ? -1 : (int)currentSub->RankId;
+
+        // 挑點順序由 C.UnlockRouteExploreBeforeUnlock 決定：true（預設）＝先把同一張地圖上「已解鎖但未探索」的點收乾淨，
+        // 再去開新點；false＝先開新點，沒有新點可開時才回頭補跑未探索的點。
+        // 🔴 兩段各自的 break 都以 ret.First() 所在的地圖為準（一趟航行只跑一張圖），所以「哪一段先跑」同時決定「這一趟鎖定哪張圖」：
+        //    先跑未探索段時錨點落在「還有未探索點的最小 id 地圖」，那張圖全部探索完之後錨點自然往後推，不會卡住。
+        //    ⚠️ UnlockSubs 那兩段沒有地圖約束，它們若先加了點，錨點就是那些點所在的圖。
+        void AddPointsToUnlockNew()
         {
-            if(ret.Count > 0 && Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(ret.First().point).Map.RowId != Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(x.Key).Map.RowId) break;
-            if(!P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Key, true) && P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Value.Point, true) && !ret.Any(z => z.point == x.Value.Point))
+            foreach(var x in Unlocks.PointToUnlockPoint.Where(z => z.Value.Point < 9000 && !plan.ExcludedRoutes.Contains(z.Key)))
             {
-                ret.Add((x.Value.Point, $"{VoyageUtils.GetSubmarineExplorationName(x.Key)} not unlocked"));
+                if(ret.Count > 0 && Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(ret.First().point).Map.RowId != Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(x.Key).Map.RowId) break;
+                if(!P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Key, true) && P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Value.Point, true) && !ret.Any(z => z.point == x.Value.Point))
+                {
+                    ret.Add((x.Value.Point, $"{VoyageUtils.GetSubmarineExplorationName(x.Key)} not unlocked{(exploreFirst ? " (new point, picked after same-map cleanup)" : "")}"));
+                }
             }
         }
+
+        // 補跑「已解鎖但未探索」的點（解鎖模式只會跑「探索後能解鎖新點」的點，終端點位被解鎖成
+        // 可選之後不會自己被跑過一次，所以永遠不會打勾）。
+        // 📌 C.UnlockRouteAlsoExploreUnexplored 的實際預設是 true（Config.cs）
+        void AddUnexploredPoints()
+        {
+            if(!C.UnlockRouteAlsoExploreUnexplored) return;
+            foreach(var x in Unlocks.PointToUnlockPoint.Where(z => z.Value.Point < 9000 && !plan.ExcludedRoutes.Contains(z.Key)))
+            {
+                if(ret.Count > 0 && Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(ret.First().point).Map.RowId != Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(x.Key).Map.RowId) break;
+                if(P.SubmarineUnlockPlanUI.IsMapUnlocked(x.Key, true) && !P.SubmarineUnlockPlanUI.IsMapExplored(x.Key, true) && (currentSubRank < 0 || currentSubRank >= GetSubmarineExploration(x.Key)?.RankReq) && !ret.Any(z => z.point == x.Key))
+                {
+                    ret.Add((x.Key, $"{VoyageUtils.GetSubmarineExplorationName(x.Key)} unlocked but not explored{(exploreFirst ? " (same-map cleanup, before new points)" : " (last resort, only when nothing left to unlock)")}"));
+                }
+            }
+        }
+
+        if(exploreFirst)
+        {
+            AddUnexploredPoints();
+            AddPointsToUnlockNew();
+        }
+        else
+        {
+            AddPointsToUnlockNew();
+            AddUnexploredPoints();
+        }
+
         return ret;
     }
 
@@ -198,9 +301,14 @@ internal static unsafe class VoyageUtils
         return C.SubmarineUnlockPlans.FirstOrDefault(x => x.GUID == guid);
     }
 
+    /// <summary>等同 <c>C.SubmarinePointPlans.FirstOrDefault(x =&gt; x.GUID == guid)</c>，但不配置閉包與列舉器（部署頁每幀每艘都會問）。</summary>
     internal static SubmarinePointPlan GetSubmarinePointPlanByGuid(string guid)
     {
-        return C.SubmarinePointPlans.FirstOrDefault(x => x.GUID == guid);
+        foreach(var x in C.SubmarinePointPlans)
+        {
+            if(x.GUID == guid) return x;
+        }
+        return null;
     }
 
     internal static SubmarineMap? GetMap(this SubmarinePointPlan plan)
@@ -214,7 +322,11 @@ internal static unsafe class VoyageUtils
         if(plan == null) return "No or unknown plan selected";
         if(plan.Name.Length > 0) return plan.Name;
         if(plan.Points.Count == 0) return $"Plan {plan.GUID}";
-        return $"{plan.GetMap()?.Name}: {plan.Points.Select(x => Svc.Data.GetExcelSheet<SubmarineExploration>(ClientLanguage.Japanese).GetRow(x).Location.ToString()).Join("→")}";
+        // plan.Points 可以由使用者從剪貼簿貼進來，所以點位 ID 不可信。
+        // 查無此列時顯示 "?<id>" 而不是靜默略過:讓「這個計畫有壞點位」在列上直接看得見。
+        // 刻意不指定取表語言：語言參數是死參數。
+        var sheet = Svc.Data.GetExcelSheet<SubmarineExploration>();
+        return $"{plan.GetMap()?.Name}: {plan.Points.Select(x => sheet.TryGetRow(x, out var row) ? row.Location.ToString() : $"?{x}").Join("→")}";
     }
 
     internal static uint GetMapId(this SubmarinePointPlan plan)
@@ -230,7 +342,11 @@ internal static unsafe class VoyageUtils
             {
                 return PanelType.TypeSelector;
             }
-            var text = GenericHelpers.ReadSeString(&addon->UldManager.NodeList[3]->GetAsAtkTextNode()->NodeText).GetText();
+            // 🔴 走 Utils.TryGetNodeText(上界、元素、節點型別都驗):GetAsAtkTextNode() 是 [MemberFunction],
+            //    對 null 節點呼叫＝當場 AVE,而 &...->NodeText 是靜默的毒指標 0xC0。
+            //    讀不到面板標題就回 Unknown ＝「認不出這是哪種面板」,與既有的「三種都比不中」
+            //    同一條路徑(fail-closed:呼叫端不會據此把潛艇當飛空艇操作)。
+            if(!Utils.TryGetNodeText(&addon->UldManager, 3, out var text)) return PanelType.Unknown;
             if(text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.PanelSubmersible))
             {
                 return PanelType.Submersible;
@@ -272,7 +388,7 @@ internal static unsafe class VoyageUtils
 
     internal static bool IsVoyagePanel(this IGameObject obj)
     {
-        return obj?.Name.ToString().EqualsIgnoreCaseAny(Lang.PanelName) == true;
+        return obj != null && Utils.ObjectNameEquals(obj, Lang.PanelName);
     }
 
     internal static bool IsVoyageCondition()
@@ -292,7 +408,7 @@ internal static unsafe class VoyageUtils
     internal static bool TryGetNearestVoyagePanel(out IGameObject obj)
     {
         //Data ID: 2007820
-        if(Svc.Objects.TryGetFirst(x => x.Name.ToString().EqualsIgnoreCaseAny(Lang.PanelName) && x.IsTargetable, out var o))
+        if(Svc.Objects.TryGetFirst(x => Utils.ObjectNameEquals(x, Lang.PanelName) && x.IsTargetable, out var o))
         {
             obj = o;
             return true;
@@ -324,11 +440,14 @@ internal static unsafe class VoyageUtils
     internal static void WriteOfflineData()
     {
         //PluginLog.Debug($"WriteOfflineDataSub");
-        if(HousingManager.Instance()->WorkshopTerritory != null && C.OfflineData.TryGetFirst(x => x.CID == Player.CID, out var ocd))
+        // HousingManager 本身也要判：它才是先解參考的那一個。
+        var housing = HousingManager.Instance();
+        if(housing == null) return;
+        if(housing->WorkshopTerritory != null && C.OfflineData.TryGetFirst(x => x.CID == Player.CID, out var ocd))
         {
             ocd.WriteOfflineInventoryData();
             {
-                var vessels = HousingManager.Instance()->WorkshopTerritory->Airship;
+                var vessels = housing->WorkshopTerritory->Airship;
                 var temp = new List<OfflineVesselData>();
                 foreach(var x in vessels.Data)
                 {
@@ -348,7 +467,7 @@ internal static unsafe class VoyageUtils
                 }
             }
             {
-                var vessels = HousingManager.Instance()->WorkshopTerritory->Submersible;
+                var vessels = housing->WorkshopTerritory->Submersible;
                 var temp = new List<OfflineVesselData>();
                 for(var i = 0; i < Math.Min(4, vessels.DataPointers.Length); i++)
                 {
@@ -363,10 +482,21 @@ internal static unsafe class VoyageUtils
                         adata.NextLevelExp = vessel->NextLevelExp;
                         adata.CurrentExp = vessel->CurrentExp;
                         //PluginLog.Debug("Write offline sub data");
-                        adata.Part1 = (int)GetVesselComponent(i, VoyageType.Submersible, 0)->ItemId;
-                        adata.Part2 = (int)GetVesselComponent(i, VoyageType.Submersible, 1)->ItemId;
-                        adata.Part3 = (int)GetVesselComponent(i, VoyageType.Submersible, 2)->ItemId;
-                        adata.Part4 = (int)GetVesselComponent(i, VoyageType.Submersible, 3)->ItemId;
+                        // 這裡用 Try 版而不是會丟例外的 GetVesselComponent，理由有兩個：
+                        // 1. 本函式在航海面板裡每 100ms 跑一次，且沒有任何呼叫端接例外。
+                        // 2. 這四個欄位會被持久化進 OfflineData。四個要嘛全寫要嘛全不寫——
+                        //    只寫到一半或寫進 0，等於把「這一瞬間讀不到」固化成「這艘船沒有這個零件」，
+                        //    之後的 UI 顯示與換零件計畫都會照著錯的值走。讀不到就留著上一輪的舊值。
+                        if(TryGetVesselComponent(i, VoyageType.Submersible, 0, out var part1)
+                            && TryGetVesselComponent(i, VoyageType.Submersible, 1, out var part2)
+                            && TryGetVesselComponent(i, VoyageType.Submersible, 2, out var part3)
+                            && TryGetVesselComponent(i, VoyageType.Submersible, 3, out var part4))
+                        {
+                            adata.Part1 = (int)part1->ItemId;
+                            adata.Part2 = (int)part2->ItemId;
+                            adata.Part3 = (int)part3->ItemId;
+                            adata.Part4 = (int)part4->ItemId;
+                        }
                         adata.Points = vessel->CurrentExplorationPoints.ToArray();
                     }
                 }
@@ -390,8 +520,10 @@ internal static unsafe class VoyageUtils
     {
         if(C.MultiModeType == MultiModeType.Retainers) return false;
         if(C.DisableRetainerVesselReturn == 0) return false;
-        foreach(var x in C.OfflineData.Where(x => x.WorkshopEnabled).Where(x => !x.IsLockedOut()))
+        // 多角模式的排程每幀都會問這支；兩層 Where 攤平成迴圈，篩選順序（先看 WorkshopEnabled 再看鎖區）不變。
+        foreach(var x in C.OfflineData)
         {
+            if(!x.WorkshopEnabled || x.IsLockedOut()) continue;
             if(x.WorkshopEnabled && x.AreAnyEnabledVesselsReturnInNext(C.DisableRetainerVesselReturn * 60)) return true;
         }
         return false;
@@ -411,6 +543,20 @@ internal static unsafe class VoyageUtils
         return "";
     }
 
+    internal static (string Text, int ModdedCount) GetSubmarineBuildDisplay(this AdditionalVesselData data)
+    {
+        if(data.Part1 != 0 && data.Part2 != 0 && data.Part3 != 0 && data.Part4 != 0)
+        {
+            var str = Build.ToIdentifier((ushort)((Items)data.Part1).GetPartId())
+                + Build.ToIdentifier((ushort)((Items)data.Part2).GetPartId())
+                + Build.ToIdentifier((ushort)((Items)data.Part3).GetPartId())
+                + Build.ToIdentifier((ushort)((Items)data.Part4).GetPartId());
+            var moddedCount = str.Count(c => c == '+');
+            return (" " + str.Replace("+", ""), moddedCount);
+        }
+        return ("", 0);
+    }
+
     internal static string GetPlanBuild(this LevelAndPartsData data)
     {
         if(data.Part1 != 0 && data.Part2 != 0 && data.Part3 != 0 && data.Part4 != 0)
@@ -427,13 +573,17 @@ internal static unsafe class VoyageUtils
 
     internal static VoyageType? DetectAddonType(AtkUnitBase* addon)
     {
-        var textptr = addon->UldManager.NodeList[3]->GetAsAtkTextNode()->NodeText;
-        var text = GenericHelpers.ReadSeString(&textptr).GetText();
-        if(text.Contains("Select an airship."))
+        // 🔴 判空要做在取值之前:把 NodeText **整個 Utf8String 複製到區域變數**這個動作本身
+        //    就是對毒指標 0xC0 起頭的 0x68 位元組做讀取,炸在那一行,
+        //    而不是在後面看起來有判空的 ReadSeString 裡面。所以走 Utils.TryGetNodeText。
+        //    取不到就回 null ＝「認不出型別」,與既有的「兩個字串都比不中」同一條路徑。
+        if(addon == null) return null;
+        if(!Utils.TryGetNodeText(&addon->UldManager, 3, out var text)) return null;
+        if(text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.PanelAirship))
         {
             return VoyageType.Airship;
         }
-        if(text.Contains("Select a submersible."))
+        if(text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.PanelSubmersible))
         {
             return VoyageType.Submersible;
         }
@@ -468,8 +618,9 @@ internal static unsafe class VoyageUtils
     }
 
 
-    internal static InventoryItem* GetVesselComponent(int vesselIndex, VoyageType type, int slotIndex)
+    internal static bool TryGetVesselComponent(int vesselIndex, VoyageType type, int slotIndex, out InventoryItem* component)
     {
+        component = null;
         int begin;
         InventoryType itype;
         if(type == VoyageType.Airship)
@@ -487,14 +638,39 @@ internal static unsafe class VoyageUtils
             throw new ArgumentOutOfRangeException(nameof(type));
         }
         var index = begin + slotIndex;
-        var slot = FFXIVClientStructs.FFXIV.Client.Game.InventoryManager.Instance()->GetInventoryContainer(itype)->GetInventorySlot(index);
-        return slot;
+        var container = FFXIVClientStructs.FFXIV.Client.Game.InventoryManager.Instance()->GetInventoryContainer(itype);
+        if(container == null) return false;
+        // GetInventorySlot 是虛擬函式（進遊戲原生碼），對超界索引的行為未經證實，所以先自己夾。
+        // 正常情況下 index 一定在範圍內（vesselIndex 由 GetVesselIndexByName 產生，查不到會丟例外）。
+        if(index < 0 || index >= container->Size) return false;
+        component = container->GetInventorySlot(index);
+        return component != null;
+    }
+
+    /// <remarks>
+    /// 🔴 讀不到時**丟例外，不回 null**。呼叫端全部拿到指標就直接解參考，回 null 只是把同一個
+    /// 解參考往上搬一層；而靜默回退更糟——<see cref="GetIsVesselNeedsRepair"/> 會把「讀不到」
+    /// 算成「這個零件不用修」，那是**錯的但看起來合理**的答案，船會帶著壞掉的零件出航。
+    /// 同檔的 <see cref="GetVesselIndexByName"/> 對它自己的「查不到」也是丟例外，行為一致。
+    /// 需要「讀不到就安靜跳過」語意的呼叫端請改用 <see cref="TryGetVesselComponent"/>。
+    /// </remarks>
+    internal static InventoryItem* GetVesselComponent(int vesselIndex, VoyageType type, int slotIndex)
+    {
+        if(!TryGetVesselComponent(vesselIndex, type, slotIndex, out var component))
+        {
+            throw new InvalidOperationException($"Could not read vessel component: vessel={vesselIndex}, type={type}, slot={slotIndex}");
+        }
+        return component;
     }
 
     internal static int GetVesselIndexByName(string name, VoyageType type)
     {
         var index = 0;
-        var h = HousingManager.Instance()->WorkshopTerritory;
+        // 讀不到就讓 h 保持 null，落到函式尾端既有的 throw —— 與 WorkshopTerritory 為 null
+        // 時的行為完全一致（不用三元：指標與 null 字面值之間沒有隱含轉換，CS0173）。
+        WorkshopTerritory* h = null;
+        var housing = HousingManager.Instance();
+        if(housing != null) h = housing->WorkshopTerritory;
         if(h != null)
         {
             if(type == VoyageType.Airship)
@@ -552,9 +728,15 @@ internal static unsafe class VoyageUtils
         return data.AnyEnabledVesselsAvailable(VoyageType.Airship) || data.AnyEnabledVesselsAvailable(VoyageType.Submersible);
     }
 
+    // 多角模式的決策區塊在等當前角色時每幀呼叫；寫成迴圈不配置閉包，仍先看有沒有啟用再問可不可用
+    // （IsVesselAvailable 會替沒資料的船建立附加資料，順序不能動）。
     internal static bool AnyEnabledVesselsAvailable(this OfflineCharacterData data, VoyageType type)
     {
-        return data.GetVesselData(type).Any(x => data.GetEnabledVesselsData(type).Contains(x.Name) && data.IsVesselAvailable(x, type));
+        foreach(var x in data.GetVesselData(type))
+        {
+            if(data.GetEnabledVesselsData(type).Contains(x.Name) && data.IsVesselAvailable(x, type)) return true;
+        }
+        return false;
     }
 
     internal static OfflineVesselData GetOfflineVesselData(this OfflineCharacterData data, string name, VoyageType type)
@@ -570,11 +752,13 @@ internal static unsafe class VoyageUtils
         return null;
     }
 
+    /// <remarks>部署頁（開了「等所有部署艇」時）與多角模式排程每幀都會問；列舉比對寫成 is 樣式，
+    /// 與 EqualsAny 同一組值，只是不配置陣列、閉包與裝箱。</remarks>
     internal static bool IsVesselAvailable(this OfflineCharacterData data, OfflineVesselData x, VoyageType type, int advanceSeconds = 0)
     {
         return (x.ReturnTime != 0 && x.GetRemainingSeconds() < C.UnsyncCompensation + advanceSeconds)
             ||
-            (x.ReturnTime == 0 && data.GetAdditionalVesselData(x.Name, type).VesselBehavior.EqualsAny(VesselBehavior.LevelUp, VesselBehavior.Unlock, VesselBehavior.Use_plan, VesselBehavior.Redeploy));
+            (x.ReturnTime == 0 && data.GetAdditionalVesselData(x.Name, type).VesselBehavior is VesselBehavior.LevelUp or VesselBehavior.Unlock or VesselBehavior.Use_plan or VesselBehavior.Redeploy);
     }
 
     internal static bool IsVesselNotDeployed(this OfflineVesselData x)
@@ -630,19 +814,38 @@ internal static unsafe class VoyageUtils
         return true;
     }
 
+    // 排程與部署頁每幀都會對每個角色呼叫，所以寫成迴圈不配置閉包；判斷、IsVesselAvailable 的呼叫順序
+    // 與短路點都與等價的 Where／Any／All 寫法一致（IsVesselAvailable 會替沒資料的船建立附加資料，順序不能動）。
     internal static bool AreAnyEnabledVesselsReturnInNext(this OfflineCharacterData data, VoyageType type, int seconds, bool all = false, bool ignorePerCharaSetting = false)
     {
         if((all || (!ignorePerCharaSetting && data.MultiWaitForAllDeployables)) && data.CheckVesselForWaitTreshold(type, seconds))
         {
-            var v = data.GetVesselData(type).Where(x => data.GetEnabledVesselsData(type).Contains(x.Name));
-            return v.Any() && v.All(x => data.IsVesselAvailable(x, type, seconds));
+            // 即 v.Any() && v.All(...)：先確認至少有一艘啟用中的船，再從頭要求每一艘都可用。
+            var anyEnabled = false;
+            foreach(var x in data.GetVesselData(type))
+            {
+                if(data.GetEnabledVesselsData(type).Contains(x.Name))
+                {
+                    anyEnabled = true;
+                    break;
+                }
+            }
+            if(!anyEnabled) return false;
+            foreach(var x in data.GetVesselData(type))
+            {
+                if(!data.GetEnabledVesselsData(type).Contains(x.Name)) continue;
+                if(!data.IsVesselAvailable(x, type, seconds)) return false;
+            }
+            return true;
         }
         else
         {
-            var v = data.GetVesselData(type).Where(x => data.IsVesselAvailable(x, type, seconds) && data.GetEnabledVesselsData(type).Contains(x.Name));
-            if(v.Any())
+            foreach(var x in data.GetVesselData(type))
             {
-                return true;
+                if(data.IsVesselAvailable(x, type, seconds) && data.GetEnabledVesselsData(type).Contains(x.Name))
+                {
+                    return true;
+                }
             }
         }
         return false;
@@ -665,8 +868,15 @@ internal static unsafe class VoyageUtils
         return null;
     }
 
-    internal static void SelectRoutePointSafe(string FullOrShortName)
+    /// <summary>
+    /// 依名稱點選航線上的一個點位。
+    /// 🔴 這個方法對「找不到」與「遊戲判定不可選」兩種情形都是**靜默跳過**的，呼叫端必須看回傳值，不能假設呼叫完就一定選上了。
+    /// 🔴 刻意不改流程（跳過、繼續往下走），回傳值只是讓呼叫端能記 log。
+    /// </summary>
+    /// <param name="statusFlag">遊戲給這個點位的狀態旗標；面板上找不到該點位時是 <see cref="uint.MaxValue"/>。</param>
+    internal static RoutePointPickResult SelectRoutePointSafe(string FullOrShortName, out uint statusFlag)
     {
+        statusFlag = uint.MaxValue;
         Log($"Requested selection of {FullOrShortName} point.");
         if(TryGetAddonByName<AtkUnitBase>("AirShipExploration", out var addon) && IsAddonReady(addon))
         {
@@ -678,22 +888,30 @@ internal static unsafe class VoyageUtils
                 Log($"  Comparing {i} {dest} with {FullOrShortName}");
                 if(FullOrShortName.EqualsIgnoreCaseAny(dest.NameFull, dest.NameShort))
                 {
+                    statusFlag = dest.StatusFlag;
                     Log($"    Found {FullOrShortName}, CanBeSelected = {dest.CanBeSelected}");
                     if(dest.CanBeSelected)
                     {
-                        SelectRoutePointSafe(i);
+                        return SelectRoutePointSafe(i) ? RoutePointPickResult.Selected : RoutePointPickResult.NotSelectable;
                     }
-                    return;
+                    return RoutePointPickResult.NotSelectable;
                 }
                 else
                 {
                     Log($"    Negative comparison result");
                 }
             }
+            return RoutePointPickResult.NotFound;
         }
+        return RoutePointPickResult.PanelUnavailable;
     }
 
-    internal static void SelectRoutePointSafe(int which)
+    /// <summary>
+    /// 依索引點選航線上的一個點位。回傳值＝「有沒有真的送出選取」。
+    /// ⚠️ 這裡會**重讀一次** reader 再判一次 CanBeSelected，所以呼叫端在上一幀讀到的
+    /// 「可選」不保證這裡也成立 —— 兩者不一致時以這裡的回傳值為準。
+    /// </summary>
+    internal static bool SelectRoutePointSafe(int which)
     {
         Log($"Requested selection of point by ID={which}.");
         if(TryGetAddonByName<AtkUnitBase>("AirShipExploration", out var addon) && IsAddonReady(addon))
@@ -706,12 +924,19 @@ internal static unsafe class VoyageUtils
             if(dest.CanBeSelected)
             {
                 VoyageUtils.Log($"  Selecting {dest.NameFull} / {which}");
-                P.Memory.SelectRoutePointUnsafe(which);
+                if(!P.Memory.SelectRoutePointUnsafe(which))
+                {
+                    // 守衛擋下(同一扇窗對同一點剛送過)或面板在兩次讀取之間變了:當這次沒送出,交給呼叫端的既有失敗路徑。
+                    VoyageUtils.Log($"  Selection of {dest.NameFull} / {which} was not sent this frame");
+                    return false;
+                }
+                return true;
             }
             else
             {
                 VoyageUtils.Log($"  Can't select {dest.NameFull} / {which}, skipping");
             }
         }
+        return false;
     }
 }

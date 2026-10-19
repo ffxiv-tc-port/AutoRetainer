@@ -13,6 +13,9 @@ internal static unsafe class TaskRedeployPreviousLog
         TaskIntelligentRepair.Enqueue(name, type);
         P.TaskManager.Enqueue(VoyageScheduler.SelectViewPreviousLog);
         P.TaskManager.Enqueue(VoyageScheduler.WaitUntilFinalizeDeployAddonExists);
+        // 🔑 「再派出」也會把這一趟的收穫結算掉，所以跟「收回」同樣要送提示。
+        if(type == VoyageType.Submersible)
+            P.TaskManager.Enqueue(() => { GilDeltaIPC.HintSubmarineReturn(name); return true; }, "GilDeltaHintSubmarineReturn");
         P.TaskManager.Enqueue(VoyageScheduler.RedeployVessel);
         P.TaskManager.EnqueueDelay(10, true);
         P.TaskManager.Enqueue(CheckForFuel);
@@ -41,7 +44,7 @@ internal static unsafe class TaskRedeployPreviousLog
                         }
                         else if(C.FailureNoFuel == WorkshopFailAction.StopPlugin)
                         {
-                            MultiMode.Enabled = false;
+                            MultiMode.SetEnabled(false, "潛水艇：燃料不足（設定為停止）", MultiModeChangeCause.AutoRetainer);
                             VoyageScheduler.Enabled = false;
                         }
                         P.TaskManager.BeginStack();

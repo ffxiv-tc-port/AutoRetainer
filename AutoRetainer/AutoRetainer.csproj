@@ -2,8 +2,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<Authors>Puni.sh</Authors>
-		<Version>4.5.1.13</Version>
+		<BuildNumberFile>$(MSBuildProjectDirectory)\BuildNumber.txt</BuildNumberFile>
+		<_PreviousBuildNumber Condition="Exists('$(BuildNumberFile)')">$([System.IO.File]::ReadAllText('$(BuildNumberFile)').Trim())</_PreviousBuildNumber>
+		<_PreviousBuildNumber Condition="'$(_PreviousBuildNumber)' == ''">0</_PreviousBuildNumber>
+		<BuildNumber>$([MSBuild]::Add($(_PreviousBuildNumber), 1))</BuildNumber>
+		<VersionPrefix>7.15.0</VersionPrefix>
+		<Version>$(VersionPrefix).$(BuildNumber)</Version>
+		<AssemblyVersion>$(Version)</AssemblyVersion>
+		<FileVersion>$(Version)</FileVersion>
 	</PropertyGroup>
+
+	<Target Name="PersistBuildNumber" AfterTargets="Build">
+		<WriteLinesToFile File="$(BuildNumberFile)" Lines="$(BuildNumber)" Overwrite="true" />
+	</Target>
 
 	<PropertyGroup>
 		<TargetFramework>net9.0-windows7.0</TargetFramework>
@@ -36,6 +47,7 @@
 		<ProjectReference Include="..\AutoRetainerAPI\AutoRetainerAPI\AutoRetainerAPI.csproj" />
 		<ProjectReference Include="..\ECommons.FileWriter\ECommons.FileWriter\ECommons.FileWriter.csproj" ReferenceOutputAssembly="false" OutputItemType="Content" CopyToOutputDirectory="Always" />
 		<ProjectReference Include="..\ECommons\ECommons\ECommons.csproj" />
+		<ProjectReference Include="..\ECommons.IPC\ECommons.IPC\ECommons.IPC.csproj" />
 		<ProjectReference Include="..\NightmareUI.OtterGuiWrapper\NightmareUI.OtterGuiWrapper\NightmareUI.OtterGuiWrapper.csproj" />
 		<ProjectReference Include="..\NightmareUI\NightmareUI\NightmareUI.csproj" />
 		<ProjectReference Include="..\OtterGui\OtterGui.csproj" />
@@ -69,7 +81,7 @@
     </ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="DalamudPackager" Version="2.1.13" />
+		<PackageReference Include="DalamudPackager" Version="13.0.0" />
 		<PackageReference Include="NotificationMasterAPI" Version="1.0.0.1" />
 		<Reference Include="Newtonsoft.Json">
 			<HintPath>$(DalamudLibPath)Newtonsoft.Json.dll</HintPath>
@@ -79,8 +91,24 @@
 			<HintPath>$(DalamudLibPath)Dalamud.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
-		<Reference Include="ImGui.NET">
-			<HintPath>$(DalamudLibPath)ImGui.NET.dll</HintPath>
+		<Reference Include="Serilog">
+			<HintPath>$(DalamudLibPath)Serilog.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="Dalamud.Bindings.ImGui">
+			<HintPath>$(DalamudLibPath)Dalamud.Bindings.ImGui.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="Dalamud.Bindings.ImPlot">
+			<HintPath>$(DalamudLibPath)Dalamud.Bindings.ImPlot.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="Dalamud.Bindings.ImGuizmo">
+			<HintPath>$(DalamudLibPath)Dalamud.Bindings.ImGuizmo.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="TerraFX.Interop.Windows">
+			<HintPath>$(DalamudLibPath)TerraFX.Interop.Windows.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 		<Reference Include="Lumina">
@@ -95,14 +123,14 @@
 			<HintPath>$(DalamudLibPath)ImGuiScene.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
-		<Reference Include="PInvoke.User32">
-			<HintPath>$(DalamudLibPath)PInvoke.User32.dll</HintPath>
-			<Private>False</Private>
-		</Reference>
       <Reference Include="Dalamud.Common">
           <HintPath>$(DalamudLibPath)Dalamud.Common.dll</HintPath>
           <Private>False</Private>
       </Reference>
+	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Include="loc\*.json" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -149,4 +177,20 @@
 	    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
 	  </None>
 	</ItemGroup>
+
+	<!-- ECommons 的文件註解檔 ECommons.xml 執行期用不到：不複製進輸出目錄，出貨包也就不帶它（ECommons.pdb 照留，崩潰堆疊行號要用）。 -->
+	<Target Name="ExcludeECommonsXmlDoc" AfterTargets="ResolveAssemblyReferences">
+		<ItemGroup>
+			<_ECommonsXmlDoc Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'ECommons.xml'" />
+			<ReferenceCopyLocalPaths Remove="@(_ECommonsXmlDoc)" />
+		</ItemGroup>
+	</Target>
+
+	<!-- ECommons.IPC 的文件註解檔 ECommons.IPC.xml 執行期用不到：不複製進輸出目錄，出貨包也就不帶它（ECommons.IPC.pdb 照留，崩潰堆疊行號要用）。 -->
+	<Target Name="ExcludeECommonsIPCXmlDoc" AfterTargets="ResolveAssemblyReferences">
+		<ItemGroup>
+			<_ECommonsIPCXmlDoc Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'ECommons.IPC.xml'" />
+			<ReferenceCopyLocalPaths Remove="@(_ECommonsIPCXmlDoc)" />
+		</ItemGroup>
+	</Target>
 </Project>

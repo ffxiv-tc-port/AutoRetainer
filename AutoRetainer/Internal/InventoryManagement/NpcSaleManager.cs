@@ -22,6 +22,12 @@ public static unsafe class NpcSaleManager
         if(Utils.ShouldSkipNPCVendor() && !ignoreRestriction) return;
         if(GetValidNPC() == null) return;
         if(!Data.GetIMSettings().IMEnableNpcSell) return;
+        if(!P.Memory.CanSellToShop)
+        {
+            // ignoreRestriction＝使用者親手觸發，才在聊天視窗說明；自動路徑靠載入時那行 Warning。
+            if(ignoreRestriction) DuoLog.Warning("AutoRetainer：遊戲改版後找不到「賣給商店」的函式，自動賣給 NPC 已停用，請等插件更新。");
+            return;
+        }
         foreach(var type in InventorySpaceManager.GetAllowedToSellInventoryTypes())
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(type);
@@ -91,7 +97,7 @@ public static unsafe class NpcSaleManager
     {
         return Svc.Objects.OrderBy(x => Vector3.Distance(Player.Position, x.Position))
             .Where(x =>
-            x.DataId.EqualsAny(VendorDataID)
+            x.BaseId.EqualsAny(VendorDataID)
             && x.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
             && Vector3.Distance(Player.Position, x.Position) < 7f
             ).FirstOrDefault();
@@ -112,7 +118,7 @@ public static unsafe class NpcSaleManager
         else
         {
             if(Player.IsAnimationLocked) return false;
-            if(EzThrottler.Throttle("InteractWithNPC", 2000))
+            if(!IsOccupied() && EzThrottler.Throttle("InteractWithNPC", 2000))
             {
                 TargetSystem.Instance()->InteractWithObject(npc.Struct(), false);
             }
@@ -127,9 +133,11 @@ public static unsafe class NpcSaleManager
         {
             foreach(var entry in m.Entries)
             {
-                if(Svc.Data.GetExcelSheet<GilShop>().Select(x => x.Name.GetText()).Contains(entry.Text))
+                // 讀到 U+FFFD 這一幀不碰;選項按下即關窗,同一扇只按一次。
+                var entryText = entry.Text;
+                if(!DialogGuards.TextIsUnstable(entryText) && Svc.Data.GetExcelSheet<GilShop>().Select(x => x.Name.GetText()).Contains(entryText))
                 {
-                    if(EzThrottler.Throttle("SelectStringSell", 2000))
+                    if(EzThrottler.Throttle("SelectStringSell", 2000) && DialogGuards.TryPressOnce("SelectIconString", (nint)m.Base, "SelectStringSell"))
                     {
                         entry.Select();
                     }
@@ -144,7 +152,7 @@ public static unsafe class NpcSaleManager
     {
         if(TryGetAddonByName<AtkUnitBase>("Shop", out var addon) && IsAddonReady(addon))
         {
-            if(EzThrottler.Throttle("CloseShop", 2000))
+            if(EzThrottler.Throttle("CloseShop", 2000) && DialogGuards.TryPressOnce("Shop", (nint)addon, "CloseShop"))
             {
                 Callback.Fire(addon, true, -1);
             }

@@ -7,8 +7,8 @@ internal static unsafe class TaskWaitSelectString
 {
     internal static void Enqueue(int ms)
     {
-        P.TaskManager.Enqueue(() => { return TryGetAddonByName<AtkUnitBase>("SelectString", out _); });
-        P.TaskManager.Enqueue(() => GenericHandlers.Throttle(ms));
-        P.TaskManager.Enqueue(() => GenericHandlers.WaitFor(ms));
+        P.TaskManager.Enqueue(() => { return TryGetAddonByName<AtkUnitBase>("SelectString", out _); }, "WaitSelectString.WaitAddon");
+        P.TaskManager.Enqueue(() => GenericHandlers.Throttle(ms), "WaitSelectString.Throttle");
+        P.TaskManager.Enqueue(() => GenericHandlers.WaitFor(ms), "WaitSelectString.WaitFor");
     }
 }

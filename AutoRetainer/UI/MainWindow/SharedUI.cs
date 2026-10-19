@@ -11,7 +11,7 @@ internal static class SharedUI
         if(data.IsLockedOut())
         {
             FontAwesome.PrintV(EColor.RedBright, FontAwesomeIcon.Lock);
-            ImGuiEx.Tooltip("This character is located on a data center which you have temporarily disabled. Navigate to configuration to remove it.");
+            ImGuiEx.Tooltip(Loc.T("This character is located on a data center which you have temporarily disabled. Navigate to configuration to remove it."));
             ImGui.SameLine();
         }
     }
@@ -19,7 +19,7 @@ internal static class SharedUI
     internal static void DrawMultiModeHeader(OfflineCharacterData data, string overrideTitle = null)
     {
         var b = true;
-        ImGui.CollapsingHeader($"{Censor.Character(data.Name)} {overrideTitle ?? "Configuration"}##conf", ref b, ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
+        ImGui.CollapsingHeader($"{Censor.Character(data.Name)} {overrideTitle ?? Loc.T("Configuration")}##conf", ref b, ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
         if(b == false)
         {
             ImGui.CloseCurrentPopup();
@@ -29,13 +29,13 @@ internal static class SharedUI
 
     internal static void DrawServiceAccSelector(OfflineCharacterData data)
     {
-        ImGuiEx.Text($"Service Account Selection");
+        ImGuiEx.Text(Loc.T("Service Account Selection"));
         ImGuiEx.SetNextItemWidthScaled(150);
-        if(ImGui.BeginCombo("##Service Account Selection", $"Service Account {data.ServiceAccount + 1}", ImGuiComboFlags.HeightLarge))
+        if(ImGui.BeginCombo("##Service Account Selection", $"{Loc.T("Service Account ")}{data.ServiceAccount + 1}", ImGuiComboFlags.HeightLarge))
         {
             for(var i = 1; i <= 10; i++)
             {
-                if(ImGui.Selectable($"Service Account {i}"))
+                if(ImGui.Selectable($"{Loc.T("Service Account ")}{i}"))
                 {
                     data.ServiceAccount = i - 1;
                 }
@@ -46,7 +46,7 @@ internal static class SharedUI
 
     internal static void DrawPreferredCharacterUI(OfflineCharacterData data)
     {
-        if(ImGui.Checkbox("Preferred Character", ref data.Preferred))
+        if(ImGui.Checkbox(Loc.T("Preferred Character"), ref data.Preferred))
         {
             foreach(var z in C.OfflineData)
             {
@@ -56,25 +56,24 @@ internal static class SharedUI
                 }
             }
         }
-        ImGuiComponents.HelpMarker("When operating in multi mode, if there are no other characters with imminent ventures to collect, it will relog back to your preferred character.");
+        ImGuiComponents.HelpMarker(Loc.T("When operating in multi mode, if there are no other characters with imminent ventures to collect, it will relog back to your preferred character."));
     }
 
     internal static void DrawExcludeReset(OfflineCharacterData data)
     {
-        new NuiBuilder().Section("Character Data Expunge/Reset", collapsible: true)
+        new NuiBuilder().Section(Loc.T("Character Data Expunge/Reset"), collapsible: true)
         .Widget(() =>
         {
-            if(ImGuiEx.ButtonCtrl("Exclude Character"))
+            if(ImGuiEx.ButtonCtrl(Loc.T("Exclude Character")))
             {
                 C.Blacklist.Add((data.CID, data.Name));
             }
-            ImGuiComponents.HelpMarker("Excluding this character will immediately reset it's settings, remove it from this list and exclude all retainers from being processed. You can still run manual tasks on it's retainers. You can cancel this action in settings.");
-            if(ImGuiEx.ButtonCtrl("Reset character data"))
+            ImGuiComponents.HelpMarker(Loc.T("Excluding this character will immediately reset it's settings, remove it from this list and exclude all retainers from being processed. You can still run manual tasks on it's retainers. You can cancel this action in settings."));
+            if(ImGuiEx.ButtonCtrl(Loc.T("Reset character data")))
             {
                 new TickScheduler(() => C.OfflineData.RemoveAll(x => x.CID == data.CID));
             }
-            ImGuiComponents.HelpMarker("Character's saved data will be removed without excluding it. Character data will be regenerated once you log back into this character.");
-            ImGuiGroup.EndGroupBox();
+            ImGuiComponents.HelpMarker(Loc.T("Character's saved data will be removed without excluding it. Character data will be regenerated once you log back into this character."));
         }).Draw();
     }
 }

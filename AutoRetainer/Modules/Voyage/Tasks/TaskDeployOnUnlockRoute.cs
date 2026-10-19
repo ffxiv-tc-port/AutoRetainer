@@ -36,7 +36,9 @@ internal static unsafe class TaskDeployOnUnlockRoute
         var points = unlock.GetPrioritizedPointList();
         VoyageUtils.Log($"GetPrioritizedPointList: {points.Select(x => $"{x.point}/{x.justification}").Join("\n")}");
         var numPoints = mode == UnlockMode.SpamOne ? 1 : 5;
-        var subLevel = CurrentSubmarine.Get()->RankId;
+        var curSub = CurrentSubmarine.Get();
+        if(curSub == null) throw new InvalidOperationException(CurrentSubmarine.Unavailable);
+        var subLevel = curSub->RankId;
         var adjustedPoints = points.Where(x => subLevel >= VoyageUtils.GetSubmarineExploration(x.point)?.RankReq).Take(numPoints);
         return adjustedPoints.ToArray();
     }

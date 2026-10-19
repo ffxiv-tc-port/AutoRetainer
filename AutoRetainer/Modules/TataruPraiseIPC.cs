@@ -1,0 +1,79 @@
+using Dalamud.Plugin.Ipc.Exceptions;
+
+namespace AutoRetainer.Modules;
+
+/// <summary>
+/// 單向橋接到「塔塔露誇獎」(TataruPraise)：整輪自動化成功收尾時請它念一句。
+/// </summary>
+/// <remarks>
+/// 🔴 <b>零組件相依。</b>只用 Dalamud 原生 CallGate 的字串契約，對方沒安裝時本檔的每一條路徑都是 no-op。
+/// 🔴 契約名逐字取自 TataruPraise 的 <c>IpcContract.cs</c>。所以三個字串都寫成常數，不散在呼叫點上。
+/// 🔴 <b>只能從主執行緒(framework tick / Draw)呼叫。</b> ⚠️ 這是<b>單向通知</b>。
+/// </remarks>
+internal static class TataruPraiseIPC
+{
+    /// <summary><c>Func&lt;string, bool&gt;</c>：<b>這一個情境</b>現在出不出得了聲（總開關＋這個情境的開關＋這個情境有已合成的語音）。</summary>
+    /// <remarks>📌 刻意<b>不</b>看冷卻：冷卻是「這一次剛好不出聲」，不是「不能出聲」。</remarks>
+    internal const string TagIsAvailableFor = "TataruPraise.IsAvailableFor";
+
+    /// <summary><c>Func&lt;string, bool&gt;</c>：從指定情境的誇獎池挑一句念。</summary>
+    internal const string TagPraise = "TataruPraise.Praise";
+
+    /// <summary>
+    /// 送過去的情境字串。
+    /// ⚠️ TataruPraise 拿這個字串當 <c>pool.json</c> 的鍵，<b>對不上就靜默不出聲</b>
+    /// (它會寫一行 Information 說「情境沒有已合成語音的句子」)。
+    /// </summary>
+    internal const string CategoryVoyage = "潛艇";
+
+    /// <summary>
+    /// 僱員探險完成時送的情境字串。
+    /// ⚠️ 刻意與 <see cref="CategoryVoyage"/> 分開：收僱員時念「潛艇回來啦」是誤導，
+    /// 兩種提醒必須聽得出差別。TataruPraise 端要有同名的池，對不上一樣是靜默不出聲。
+    /// </summary>
+    internal const string CategoryRetainer = "僱員";
+
+    /// <summary>
+    /// 稀有品繳交循環整趟成功收尾時送的情境字串。
+    /// ⚠️ 與 <see cref="CategoryVoyage"/>、<see cref="CategoryRetainer"/> 一樣是獨立的池：
+    /// 「東西回來了要去收」跟「一批繳交跑完了」是兩件事，聽起來要不一樣。
+    /// 🔴 逐字與 TataruPraise 端的池鍵一致，錯一個字就是靜默不出聲(對方只會寫一行 Information)。
+    /// </summary>
+    internal const string CategoryExpertDelivery = "稀有品";
+
+    /// <summary>
+    /// 請塔塔露誇一句。對方沒裝、關著、或池裡沒東西，這裡都是安靜的 no-op。
+    /// </summary>
+    /// <param name="category">情境字串，用 <see cref="CategoryVoyage"/>、<see cref="CategoryRetainer"/>
+    /// 或 <see cref="CategoryExpertDelivery"/>。</param>
+    /// <param name="reason">寫進記錄用的來源描述，讓 log 分得出是哪一條邊觸發的。</param>
+    internal static void TryPraise(string category, string reason)
+    {
+        if(!C.TataruPraiseOnCompletion) return;
+
+        try
+        {
+            // 每次呼叫前先問一次「這一個情境」出不出得了聲：總開關關著、使用者把這個情境關掉、
+            // 或這個情境一句已合成的都沒有，都在這裡擋掉。
+            // 🔴 不要退回去問 IsAvailable：那個問的是「整池」，於是「潛艇有句子、僱員一句都沒有」
+            //    這種情況它照樣回 true，這道閘門等於白做。
+            if(!Svc.PluginInterface.GetIpcSubscriber<string, bool>(TagIsAvailableFor).InvokeFunc(category)) return;
+
+            var accepted = Svc.PluginInterface.GetIpcSubscriber<string, bool>(TagPraise).InvokeFunc(category);
+            // 🔴 真的出聲(true)才寫 Information：要使用者回報的診斷。
+            //    回 false 是預期中的正常結果(IsAvailableFor 刻意不看冷卻，冷卻中照樣回 true)，每輪都會走到，降到 Debug 免得洗版。
+            if(accepted)
+                PluginLog.Information($"[TataruPraise] {reason}：Praise(「{category}」) 回傳 {accepted}。");
+            else
+                PluginLog.Debug($"[TataruPraise] {reason}：Praise(「{category}」) 回傳 {accepted}。");
+        }
+        catch(IpcNotReadyError)
+        {
+            // 對方沒安裝／沒載入。這是完全正常的狀態，刻意不寫 log——沒裝的人每輪都會走到這裡。
+        }
+        catch(Exception e)
+        {
+            PluginLog.Information($"[TataruPraise] 呼叫失敗({reason})：{e.Message}");
+        }
+    }
+}

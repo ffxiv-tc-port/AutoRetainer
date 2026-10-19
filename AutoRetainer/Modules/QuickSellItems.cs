@@ -1,6 +1,7 @@
 ﻿using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Hooking;
+using Dalamud.Utility;
 using Dalamud.Utility.Signatures;
 using ECommons.Interop;
 using ECommons.MathHelpers;
@@ -15,7 +16,11 @@ namespace AutoRetainer.Modules;
 public unsafe class QuickSellItems : IDisposable
 {
     internal delegate void* OpenInventoryContext(AgentInventoryContext* agent, InventoryType inventory, ushort slot, int a4, ushort a5, byte a6);
-    [Signature("83 B9 ?? ?? ?? ?? ?? 7E 11", DetourName = nameof(OpenInventoryContextDetour), Fallibility = Fallibility.Fallible)]
+    // 🔴 上游的短特徵碼 "83 B9 ?? ?? ?? ?? ?? 7E 11" 在台服不唯一(另一個命中是某函式的中段),而 [Signature] 取位址最低者 ——
+    //    排序一變就會靜默把 hook 掛到中段位址上,detour 會把別的函式的引數當成 AgentInventoryContext* 解參考(AVE 攔不到)。
+    //    所以延長到鎖進 OpenInventoryContext 專有的引數驗證序列(全部是結構位移常數,不含 rip 相對位移);
+    //    jle/jne/je 的 rel8 位移用 ?? 遮罩。特徵碼失配時 Fallible 讓 hook 留 null=功能靜默停用(fail-closed)。
+    [Signature("83 B9 E4 06 00 00 00 7E ?? 39 91 DC 06 00 00 75 ?? 44 39 81 E0 06 00 00 74 ??", DetourName = nameof(OpenInventoryContextDetour), Fallibility = Fallibility.Fallible)]
     internal Hook<OpenInventoryContext> openInventoryContextHook;
 
     public InventoryType[] CanSellFrom = [
@@ -48,6 +53,20 @@ public unsafe class QuickSellItems : IDisposable
     private string retrieveFromRetainerText;
     private string putUpForSaleText;
 
+    /// <summary>「被守衛擋下」的 <c>Information</c> 診斷最短間隔（毫秒）。</summary>
+    /// <remarks>
+    /// 🔑 右鍵很頻繁，每次被擋都寫一行會洗版。改成「每 3 秒最多一行、
+    /// 行內附上這段期間累計被擋幾次」：踩到的使用者一定看得到，而且看得到規模，log 又不會爆。
+    /// 🔴 刻意<b>不</b>用 <c>EzThrottler</c>：它是全外掛共用的靜態 <c>Dictionary</c> 且零同步，
+    /// 而這裡是在原生 hook 的 detour 裡執行。<c>Environment.TickCount64</c> 只讀一個單調時鐘，沒有共用狀態。
+    /// 🔴 也刻意不用 <c>DuoLog</c>：它在<b>每一個等級</b>都會無條件 <c>Svc.Chat.Print</c> 到聊天視窗。
+    /// </remarks>
+    private const long SkipLogIntervalMs = 3000;
+    private long lastSkipLogAt;
+    private int skippedSinceLog;
+    private long lastNotReadyLogAt;
+    private int notReadySinceLog;
+
     public QuickSellItems()
     {
         //5480	Have Retainer Sell Items
@@ -59,6 +78,7 @@ public unsafe class QuickSellItems : IDisposable
         //99	Put Up for Sale
         putUpForSaleText = Svc.Data.GetExcelSheet<Addon>()?.GetRow(99).Text.ToString() ?? "Put Up for Sale";
         Svc.Hook.InitializeFromAttributes(this);
+        if(openInventoryContextHook == null) PluginLog.Warning("[AutoRetainer] 特徵碼對不上（openInventoryContextHook）：按住快捷鍵右鍵道具直接出售／存入／取回的功能停用。");
         Toggle();
     }
 
@@ -89,7 +109,10 @@ public unsafe class QuickSellItems : IDisposable
     internal bool GetAction(out List<string> text)
     {
         text = [];
-        if(CSFramework.Instance()->WindowInactive) return false;
+        // CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null。
+        // 這支是從 hook detour 呼叫進來的，讀不到就直接回 false ＝ 不做快捷操作（fail-closed）。
+        var framework = CSFramework.Instance();
+        if(framework == null || framework->WindowInactive) return false;
         if(IsKeyPressed(C.SellKey))
         {
             text.Add(retainerSellText);
@@ -111,7 +134,7 @@ public unsafe class QuickSellItems : IDisposable
 
     private void* OpenInventoryContextDetour(AgentInventoryContext* agent, InventoryType inventoryType, ushort slot, int a4, ushort a5, byte a6)
     {
-        var retVal = openInventoryContextHook.Original(agent, inventoryType, slot, a4, a5, a6);
+        var retVal = openInventoryContextHook.OriginalDisposeSafe(agent, inventoryType, slot, a4, a5, a6);
         InternalLog.Verbose($"Inventory hook: {inventoryType}, {slot}");
         try
         {
@@ -129,14 +152,23 @@ public unsafe class QuickSellItems : IDisposable
                         {
                             var addonId = agent->AgentInterface.GetAddonId();
                             if(addonId == 0) return retVal;
-                            var addon = AtkStage.Instance()->RaptureAtkUnitManager->GetAddonById((ushort)addonId);
+                            // 🔴 半套判空：下面那行 addon == null 護的是**回傳值**，
+                            //    護不到 AtkStage.Instance()（isPointer:true，合法回 null）
+                            //    與它的 RaptureAtkUnitManager 欄位（+0x20 裸指標）。
+                            //    這裡在 hook detour 內，任一層 null 都是攔不到的 AVE。
+                            var stage = AtkStage.Instance();
+                            if(stage == null || stage->RaptureAtkUnitManager == null) return retVal;
+                            var addon = stage->RaptureAtkUnitManager->GetAddonById((ushort)addonId);
                             if(addon == null) return retVal;
 
                             for(var i = 0; i < agent->ContextItemCount; i++)
                             {
                                 var contextItemParam = agent->EventParams[agent->ContexItemStartIndex + i];
                                 if(contextItemParam.Type != ValueType.String) continue;
-                                var contextItemName = contextItemParam.GetValueAsString();
+                                // 🔴 GetValueAsString() 對 ValueType.String 走的是 CStringPointer.ToString()：完全不剝 SeString payload。
+                                // 兩端基準不同的話 text.Contains(...) 恆假,這個快捷功能靜默失效(不報錯、不寫 log),
+                                // 所以用 Dalamud 的 CStringPointer.ExtractText(),與另一端走同一支 Lumina 解析器。
+                                var contextItemName = contextItemParam.String.ExtractText();
 
                                 if(text.Contains(contextItemName))
                                 {
@@ -145,10 +177,65 @@ public unsafe class QuickSellItems : IDisposable
                                         DebugLog($"QRA found {i}:{contextItemName} but it's disabled");
                                         continue;
                                     }
-                                    Callback.Fire(addon, true, 0, i, 0U, 0, 0);
-                                    agent->AgentInterface.Hide();
-                                    addon->Close(true);
+                                    // 🔴 送出前的就地就緒檢查:放行條件是「**可見**」(IsAddonReady 三關之一),與 DialogGuards 常駐窗的解除條件(連續不可見)
+                                    //    是反面 ⇒ 記號就算在拆除途中被解除,這一發也會停在這裡,後果從攔不到的 AVE 降級成「這一次沒送出,再右鍵一次」。
+                                    // ⚠️ 這一關的假設:detour 在原函式跑完之後執行,此時 ContextMenu 已經可見。不成立的後果**不是崩潰**,是這個快捷功能停止動作(下面那行 Information 會自證)。
+                                    if(!IsAddonReady(addon))
+                                    {
+                                        notReadySinceLog++;
+                                        var readyNow = Environment.TickCount64;
+                                        if(readyNow - lastNotReadyLogAt >= SkipLogIntervalMs)
+                                        {
+                                            lastNotReadyLogAt = readyNow;
+                                            PluginLog.Information($"QuickSellItems:道具選單這一刻還沒就緒(IsAddonReady 為否),沒有自動選「{contextItemName}」。近期累計 {notReadySinceLog} 次。");
+                                            notReadySinceLog = 0;
+                                        }
+                                        return retVal;
+                                    }
+                                    // 🔴 上一扇 ContextMenu 仍在關閉中時同一位址再被交回來就是危險窗口:同一扇只送一次,
+                                    //    被擋就不自動選、讓遊戲自己的選單照常開(原函式已經跑過)。
+                                    if(!DialogGuards.TryPressOnce("ContextMenu", (nint)addon, "QuickSell"))
+                                    {
+                                        DebugLog($"QRA skipped {i}:{contextItemName}: same ContextMenu still closing");
+                                        // 使用者踩到這條時的現象是「按了沒反應」：原函式已經跑完，遊戲自己的右鍵選單
+                                        // 就留在畫面上（上面正好是「到市場出售／委託僱員出售物品」兩項），很容易被讀成
+                                        // 「外掛選錯項目」。要使用者回報的診斷：每 3 秒最多一行、附累計次數。
+                                        skippedSinceLog++;
+                                        var now = Environment.TickCount64;
+                                        if(now - lastSkipLogAt >= SkipLogIntervalMs)
+                                        {
+                                            lastSkipLogAt = now;
+                                            // FramesSincePress 只做位址等值比較、不解參；-1 代表記號剛好在這一瞬間被解除。
+                                            var since = DialogGuards.FramesSincePress("ContextMenu", (nint)addon);
+                                            PluginLog.Information($"QuickSellItems:上一扇道具選單還沒收乾淨(距上次送出 {since} 幀),這次右鍵沒有自動選「{contextItemName}」,遊戲自己的選單會留在畫面上。近期累計 {skippedSinceLog} 次;等選單關掉再按即可。");
+                                            skippedSinceLog = 0;
+                                        }
+                                        return retVal;
+                                    }
+                                    // 🔑 直接問原生端: FireCallback 的回傳值語意是「我有沒有替你把窗關掉」。
+                                    // 回 true ⇒ 窗已經被原生端關掉 ⇒ 這一輪什麼都不再碰; 回 false ⇒ 原生端沒關 ⇒ 補上 Hide＋Close 那兩發(選單照樣會被收掉)。
+                                    // 🔴 這裡刻意不用「下一輪重新解位址再關」那種形狀(Bank 那條路徑用的是它):這裡在 hook detour 內,沒有下一輪。
+                                    // 值的型別、數量與順序與 Callback.Fire(addon, true, 0, i, 0U, 0, 0) 逐格相同;用 CS 的 FireCallback 純粹是為了拿到回傳值。
+                                    var values = stackalloc AtkValue[]
+                                    {
+                                        new() { Type = ValueType.Int, Int = 0 },
+                                        new() { Type = ValueType.Int, Int = i },
+                                        new() { Type = ValueType.UInt, UInt = 0 },
+                                        new() { Type = ValueType.Int, Int = 0 },
+                                        new() { Type = ValueType.Int, Int = 0 },
+                                    };
+                                    var closedByGame = addon->FireCallback(5, values, true);
+                                    if(!closedByGame)
+                                    {
+                                        agent->AgentInterface.Hide();
+                                        addon->Close(true);
+                                    }
                                     DebugLog($"QRA Selected {i}:{contextItemName}");
+                                    // 「已」是常態，只寫 Debug；「未」＝走上面補關窗的後備路徑，罕見而值得看見，留 Information。
+                                    if(closedByGame)
+                                        PluginLog.Debug($"QuickSellItems:已送出「{contextItemName}」的選單 callback,原生端已替我們關閉選單");
+                                    else
+                                        PluginLog.Information($"QuickSellItems:已送出「{contextItemName}」的選單 callback,原生端未替我們關閉選單");
                                     return retVal;
                                 }
                             }

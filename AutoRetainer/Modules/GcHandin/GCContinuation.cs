@@ -32,26 +32,46 @@ internal static unsafe class GCContinuation
     public static bool DebugMode = false;
     public static bool DebugConf = false;
 
+    /// <summary>
+    /// Per-step configuration for the continuation chains, deliberately mirroring the one <see cref="ContinuePurchase"/> already uses.
+    /// P.TaskManager defaults to abortOnTimeout:true and Abort() clears the ENTIRE queue, so under the default configuration ANY step of this chain timing out also discarded <see cref="EnableDeliveringIfPossible"/>.
+    /// Skipping a step instead of killing the queue is safe here because every step is idempotent and self-checking.
+    /// </summary>
+    private static readonly TaskManagerConfiguration ContinuationConf = new(abortOnTimeout: false, timeLimitMS: 20000);
+
     public static void EnqueueInitiation(bool redeliver)
     {
-        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied);
-        P.TaskManager.Enqueue(GCContinuation.InteractWithShop);
-        P.TaskManager.Enqueue(BeginNewPurchase);
-        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied);
+        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied, ContinuationConf);
+        P.TaskManager.Enqueue(GCContinuation.InteractWithShop, ContinuationConf);
+        P.TaskManager.Enqueue(BeginNewPurchase, ContinuationConf);
+        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied, ContinuationConf);
         if(redeliver)
         {
-            P.TaskManager.Enqueue(GCContinuation.InteractWithExchange);
-            P.TaskManager.Enqueue(GCContinuation.SelectProvisioningMission);
-            P.TaskManager.Enqueue(() => GCContinuation.SelectSupplyListTab(2), "SelectSupplyListTab(2)");
-            P.TaskManager.Enqueue(GCContinuation.EnableDeliveringIfPossible);
+            P.TaskManager.Enqueue(GCContinuation.InteractWithExchange, ContinuationConf);
+            P.TaskManager.Enqueue(GCContinuation.SelectProvisioningMission, ContinuationConf);
+            P.TaskManager.Enqueue(() => GCContinuation.SelectSupplyListTab(2), "SelectSupplyListTab(2)", ContinuationConf);
+            P.TaskManager.Enqueue(GCContinuation.EnableDeliveringIfPossible, ContinuationConf);
+            // Without this the failure stays invisible: if the chain gets as far as here but the
+            // supply list never becomes operable, Operation is left false and automatic delivery
+            // just never resumes, with nothing said in chat. Runs as its own step so it reports the
+            // outcome of the whole chain rather than of any single addon check.
+            P.TaskManager.Enqueue(ReportIfDeliveringDidNotResume, "ReportIfDeliveringDidNotResume", ContinuationConf);
         }
+    }
+
+    private static void ReportIfDeliveringDidNotResume()
+    {
+        if(AutoGCHandin.Operation) return;
+        DuoLog.Warning(Loc.T("Could not resume automatic expert delivery after spending seals - reopen the supply list and enable it again if you want to continue."));
     }
 
     public static void EnqueueDeliveryClose()
     {
-        P.TaskManager.Enqueue(GCContinuation.CloseSupplyList);
-        P.TaskManager.Enqueue(GCContinuation.CloseSelectString);
-        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied);
+        // ContinuationConf for the same reason: under the default configuration CloseSupplyList failing takes
+        // CloseSelectString down with it, leaving the selection window sitting on screen with no explanation.
+        P.TaskManager.Enqueue(GCContinuation.CloseSupplyList, ContinuationConf);
+        P.TaskManager.Enqueue(GCContinuation.CloseSelectString, ContinuationConf);
+        P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied, ContinuationConf);
     }
 
     internal static bool SetVenturesExchangeAmount(int amount)
@@ -60,7 +80,17 @@ internal static unsafe class GCContinuation
         {
             if(EzThrottler.Throttle("GC SetMaxVenturesExchange"))
             {
-                var numeric = (AtkComponentNumericInput*)addon->UldManager.NodeList[8]->GetComponent();
+                // 🔴 NodeList[8] 的上界、元素、GetComponent() 的回值,三層任一取不到就回 false —— 呼叫端把 false 當成
+                //    「這次還沒設定成功」而在下一個節流窗重試,與既有的「addon 尚未 ready」同語意。
+                //    🔑 這裡絕不能回 true:回 true 等於謊報「數量已設好」,後面的確認步驟會照
+                //    版面上的預設值(1 個)成交,使用者拿到的委託票數量會靜默地不對。
+                var numericNode = Utils.GetNodeSafe(&addon->UldManager, 8);
+                var numeric = numericNode == null ? null : (AtkComponentNumericInput*)numericNode->GetComponent();
+                if(numeric == null)
+                {
+                    PluginLog.Information("ShopExchangeCurrencyDialog NodeList[8] 的數量輸入元件取不到(版面未建好或已拆除),這一輪不設定數量");
+                    return false;
+                }
                 var sealsPer = Utils.GetCurrentlyAvailableSharedExchangeListings().SafeSelect(VentureItem)?.Seals ?? 200u;
                 var maxBySeals = sealsPer > 0 ? (int)(GetAdjustedSeals() / sealsPer) : amount;
                 var set = Math.Min(amount, maxBySeals);
@@ -77,9 +107,12 @@ internal static unsafe class GCContinuation
     {
         if(TryGetAddonByName<AtkUnitBase>("ShopExchangeCurrencyDialog", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectExchange"))
         {
-            var button = addon->GetButtonNodeById(17);
-            if(button->IsEnabled)
+            var button = addon->GetComponentButtonById(17);
+            if(Utils.IsButtonEnabled(button))
             {
+                // 🔴 按「交換」即關窗;同一扇只按一次(與 CleanupUI 對這扇窗按取消共用同一把 key)。
+                //    被擋＝這一輪沒按到,回 false 讓下一輪再來,不回 true 謊稱這一步做完。
+                if(!DialogGuards.TryPressOnce("ShopExchangeCurrencyDialog", (nint)addon, "GC SelectExchange")) return false;
                 (*button).ClickAddonButton(addon);
             }
             return true;
@@ -87,13 +120,17 @@ internal static unsafe class GCContinuation
         return false;
     }
 
+    /// <remarks>
+    /// 🔴 兩處「按是」都經過 <see cref="PressYesOnce"/>:同一扇確認框在它消失前只按一次。
+    /// 直接按會在窗「正在關閉中」的那幾幀踩到原生 AccessViolation,詳見 <see cref="PressYesOnce"/>。
+    /// </remarks>
     internal static bool? ConfirmExchange()
     {
         {
             var x = Utils.GetSpecificYesno(x => x.RemoveWhitespaces().EqualsIgnoreCaseAny(Svc.Data.GetExcelSheet<Addon>().GetRow(2436).Text.GetText().RemoveWhitespaces(), Svc.Data.GetExcelSheet<Addon>().GetRow(11502).Text.GetText().RemoveWhitespaces()));
             if(x != null && FrameThrottler.Throttle("ConfirmCannotEquip", 4))
             {
-                new AddonMaster.SelectYesno((nint)x).Yes();
+                PressYesOnce((nint)x, "ConfirmCannotEquip");
                 return false;
             }
         }
@@ -101,7 +138,9 @@ internal static unsafe class GCContinuation
             var x = Utils.GetSpecificYesno(x => x.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.GCSealExchangeConfirm));
             if(x != null && EzThrottler.Throttle("GC ConfirmExchange"))
             {
-                new AddonMaster.SelectYesno((nint)x).Yes();
+                // 被封鎖時同樣回 true:這扇窗的「是」先前已經送出去了,這一步的工作確實已經完成,
+                // 回 false 會讓這一步空轉到逾時。
+                PressYesOnce((nint)x, "GC ConfirmExchange");
                 return true;
             }
         }
@@ -113,8 +152,14 @@ internal static unsafe class GCContinuation
         if(!which.InRange(0, 3, false)) throw new ArgumentOutOfRangeException(nameof(which));
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanyExchange", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectGCExchangeVerticalTab"))
         {
-            var button = addon->GetNodeById((uint)(37 + which))->GetAsAtkComponentRadioButton();
-            (*button).ClickRadioButton(addon);
+            // 🔴 fail-closed：取不到按鈕就回 false（＝這一輪沒做成，下一幀重試），
+            //    不能回 true（會讓流程以為分頁已經切好而繼續往下走），
+            //    更不能回 null —— NeoTaskManager 的 bool? 是三態，null 是 Abort，會把整條佇列清掉。
+            //    這與外層 addon 還沒就緒時走的那條 return false 是同一個語意。
+            if(!Utils.TryGetRadioButtonById(addon, (uint)(37 + which), out var button)) return false;
+            // 分頁鈕按下窗不關:帶參數組,同一扇窗對不同分頁各准按一次;同一分頁 15 幀內不重送。
+            if(!DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC SelectGCExchangeVerticalTab", $"VTab{which}", escapeIsRoutine: true)) return false;
+            button->ClickRadioButton(addon);
             return true;
         }
         return false;
@@ -125,8 +170,10 @@ internal static unsafe class GCContinuation
         if(!which.InRange(0, 4, false)) throw new ArgumentOutOfRangeException(nameof(which));
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanyExchange", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectGCExchangeHorizontalTab"))
         {
-            var button = addon->GetNodeById((uint)(44 + which))->GetAsAtkComponentRadioButton();
-            (*button).ClickRadioButton(addon);
+            // fail-closed：取不到就當「這一輪沒切成」重試（回 false），不是 Abort。
+            if(!Utils.TryGetRadioButtonById(addon, (uint)(44 + which), out var button)) return false;
+            if(!DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC SelectGCExchangeHorizontalTab", $"HTab{which}", escapeIsRoutine: true)) return false;
+            button->ClickRadioButton(addon);
             return true;
         }
         return false;
@@ -138,6 +185,12 @@ internal static unsafe class GCContinuation
         if(PlayerState.Instance()->GrandCompany == 2) return TwinAdder;
         if(PlayerState.Instance()->GrandCompany == 3) return ImmortalFlames;
         return null;
+    }
+
+    /// <summary>軍銜是否足以籌備稀有品。門檻 6 沿用上游 PunishXIV/AutoRetainer，台服沒有另外實測。</summary>
+    public static bool IsGCRankSufficientForExpertExchange()
+    {
+        return AutoGCHandin.GetRank() >= 6;
     }
 
     internal static bool? InteractWithExchange()
@@ -156,7 +209,7 @@ internal static unsafe class GCContinuation
         {
             if(Player.IsAnimationLocked) return false;
             var t = Svc.Targets.Target;
-            if(t.IsTargetable && t.DataId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCInteract"))
+            if(t.IsTargetable && t.BaseId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCInteract"))
             {
                 TargetSystem.Instance()->InteractWithObject(Svc.Targets.Target.Struct(), false);
                 return true;
@@ -166,7 +219,7 @@ internal static unsafe class GCContinuation
         {
             foreach(var t in Svc.Objects)
             {
-                if(t.IsTargetable && t.DataId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCSetTarget"))
+                if(t.IsTargetable && t.BaseId == dataID && Vector3.Distance(Player.Object.Position, t.Position) < 10f && !IsOccupied() && EzThrottler.Throttle("GCSetTarget"))
                 {
                     Svc.Targets.Target = t;
                     return false;
@@ -198,7 +251,9 @@ internal static unsafe class GCContinuation
         if(!which.InRange(0, 3, false)) throw new ArgumentOutOfRangeException(nameof(which));
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC SelectGCExpertDelivery"))
         {
-            var button = addon->GetNodeById((uint)(11 + which))->GetAsAtkComponentRadioButton();
+            // fail-closed：取不到就當「這一輪沒切成」重試（回 false），不是 Abort。
+            if(!Utils.TryGetRadioButtonById(addon, (uint)(11 + which), out var button)) return false;
+            if(!DialogGuards.TryPressOnce("GrandCompanySupplyList", (nint)addon, "GC SelectSupplyListTab", $"Tab{which}", escapeIsRoutine: true)) return false;
             button->ClickRadioButton(addon);
             return true;
         }
@@ -234,6 +289,8 @@ internal static unsafe class GCContinuation
     {
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC CloseSupplyList"))
         {
+            // 🔴 關窗即關;同一扇只送一次(關閉中的窗三關全過,再送就是 AVE)。
+            if(!DialogGuards.TryPressOnce("GrandCompanySupplyList", (nint)addon, "GC CloseSupplyList")) return false;
             Callback.Fire(addon, true, -1);
             return true;
         }
@@ -244,6 +301,7 @@ internal static unsafe class GCContinuation
     {
         if(TryGetAddonByName<AtkUnitBase>("SelectString", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC CloseSelectString"))
         {
+            if(!DialogGuards.TryPressOnce("SelectString", (nint)addon, "GC CloseSelectString")) return false;
             Callback.Fire(addon, true, -1);
             return true;
         }
@@ -254,6 +312,7 @@ internal static unsafe class GCContinuation
     {
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanyExchange", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC GrandCompanyExchange"))
         {
+            if(!DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC CloseExchange")) return false;
             Callback.Fire(addon, true, -1);
             return true;
         }
@@ -276,16 +335,19 @@ internal static unsafe class GCContinuation
 
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanyExchange", out var addon) && IsAddonReady(addon) && AutoGCHandin.IsValidGCTerritory())
         {
-            var reader = new ReaderGrandCompanyExchange(addon);
-            for(var i = 0; i < reader.Items.Count; i++)
+            // 清單只讀一次：Items 每次存取都重建整份，放在迴圈條件裡等於每一列重建兩次。
+            var items = new ReaderGrandCompanyExchange(addon).Items;
+            for(var i = 0; i < items.Count; i++)
             {
-                var itemInfo = reader.Items[i];
+                var itemInfo = items[i];
                 if(itemInfo.ItemID == 21072)
                 {
                     var currentRank = AutoGCHandin.GetRank();
                     if(currentRank >= itemInfo.RankReq && GetAdjustedSeals() >= itemInfo.Seals)
                     {
-                        if(FrameThrottler.Throttle("GCCont.OpenItem", 20))
+                        // 兌換窗按下不關(開出 ShopExchangeCurrencyDialog):帶參數組。
+                        if(FrameThrottler.Throttle("GCCont.OpenItem", 20)
+                            && DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC OpenSeals", $"Open{i}", escapeIsRoutine: true))
                         {
                             Callback.Fire(addon, true, 0, i, 1, Callback.ZeroAtkValue, currentRank >= itemInfo.RankReq, itemInfo.OpenCurrencyExchange, itemInfo.ItemID, itemInfo.IconID, itemInfo.Seals);
                             return true;
@@ -327,7 +389,7 @@ internal static unsafe class GCContinuation
             return (uint)Math.Min(canBuy, targetQuantity);
         }
 
-        var canFit = Utils.GetAmountThatCanFit(Utils.PlayerInvetories, meta.ItemID, false, out _);
+        var canFit = Utils.GetAmountThatCanFit(Utils.PlayerInvetories, meta.ItemID, false);
         if(canFit == 0)
         {
             if(!potential)
@@ -354,16 +416,28 @@ internal static unsafe class GCContinuation
         return canFit;
     }
 
-    public static bool DoesInventoryHaveDeliverableItem()
+    /// <remarks>
+    /// 讀不到的容器／格位一律跳過，也就是**只可能少報不可能多報**。呼叫端都拿 <c>false</c>
+    /// 去走「不做事」（不兌換／不出發），少報一律讓判斷倒向「不做事」。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
+    /// <param name="types">要掃的容器；<see langword="null"/>＝只掃背包（預設）。</param>
+    public static bool DoesInventoryHaveDeliverableItem(InventoryType[] types = null)
     {
-        foreach(var x in Utils.PlayerInvetories)
+        types ??= Utils.PlayerInvetories;
+        foreach(var x in types)
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(x);
+            if(inv == null) continue;
             for(var i = 0; i < inv->GetSize(); i++)
             {
                 var item = inv->GetInventorySlot(i);
-                var data = ExcelItemHelper.Get(item->ItemId);
+                if(item == null) continue;
                 if(item->ItemId == 0 || Data.GetIMSettings().IMProtectList.Contains(item->ItemId)) continue;
+                // ⚠️ data 必須在 ItemId == 0 的早退之後才取值：ExcelItemHelper.Get 對未知 ID 回 null，
+                // 不判空就讀 data.Value 會丟 InvalidOperationException。
+                var data = ExcelItemHelper.Get(item->ItemId);
+                if(data == null) continue;
                 if(!data.Value.ItemUICategory.RowId.EqualsAny([.. Utils.ArmorsUICategories, .. Utils.WeaponsUICategories])) continue;
                 if(!data.Value.GetRarity().EqualsAny(ItemRarity.Green, ItemRarity.Pink, ItemRarity.Blue)) continue;
                 if(data.Value.Desynth == 0) continue;
@@ -391,9 +465,10 @@ internal static unsafe class GCContinuation
             }
             else
             {
-                for(var i = 0; i < reader.Items.Count; i++)
+                var items = reader.Items;
+                for(var i = 0; i < items.Count; i++)
                 {
-                    var itemInfo = reader.Items[i];
+                    var itemInfo = items[i];
                     if(itemInfo.ItemID == meta.ItemID)
                     {
                         var canPurchase = AutoGCHandin.GetRank() >= itemInfo.RankReq;
@@ -404,6 +479,8 @@ internal static unsafe class GCContinuation
                             if(Utils.GenericThrottle && EzThrottler.Throttle("GCBuy"))
                             {
                                 if(CleanupUI()) return false;
+                                // 兌換窗按下不關(開出兌換數量框/確認框):帶參數組,同一列 15 幀內不重送。
+                                if(!DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC PurchaseItem", $"Buy{i}", escapeIsRoutine: true)) return false;
                                 if(!DebugConf)
                                 {
                                     Callback.Fire(addon, true, 0, i, 1, Callback.ZeroAtkValue, canPurchase, itemInfo.OpenCurrencyExchange, itemInfo.ItemID, itemInfo.IconID, itemInfo.Seals);
@@ -421,6 +498,7 @@ internal static unsafe class GCContinuation
                             if(Utils.GenericThrottle && EzThrottler.Throttle("GCBuy"))
                             {
                                 if(CleanupUI()) return false;
+                                if(!DialogGuards.TryPressOnce("GrandCompanyExchange", (nint)addon, "GC PurchaseItem", $"Buy{i}", escapeIsRoutine: true)) return false;
                                 if(!DebugConf)
                                 {
                                     Callback.Fire(addon, true, 0, i, adjustedAmount, Callback.ZeroAtkValue, canPurchase, itemInfo.OpenCurrencyExchange, Callback.ZeroAtkValue, Callback.ZeroAtkValue, Callback.ZeroAtkValue);
@@ -452,18 +530,18 @@ internal static unsafe class GCContinuation
         List<TaskManagerTask> tasks = [];
         if(listing.ItemID == VentureItem)
         {
-            tasks.Add(new(() => SetVenturesExchangeAmount((int)itemCount), conf));
+            tasks.Add(new(() => SetVenturesExchangeAmount((int)itemCount), "GCPurchase.SetVenturesAmount", conf));
             tasks.Add(new(SelectExchange, conf));
         }
         tasks.Add(new(ConfirmExchange, conf));
-        tasks.Add(new(() => AutoGCHandin.GetSeals() < sealsCount, conf));
+        tasks.Add(new(() => AutoGCHandin.GetSeals() < sealsCount, "GCPurchase.WaitSealsSpent", conf));
         tasks.Add(new(() =>
         {
             var newSeals = AutoGCHandin.GetSeals();
             var spent = sealsCount > newSeals ? sealsCount - newSeals : 0u;
             var purchased = listing.Seals > 0 ? spent / listing.Seals : 0u;
             exchangeItem.QuantitySingleTime = (int)Math.Max(0, exchangeItem.QuantitySingleTime - purchased);
-        }, conf));
+        }, "GCPurchase.UpdateRemainingQuantity", conf));
         tasks.Add(new FrameDelayTask(4));
         tasks.Add(new(BeginNewPurchase));
         P.TaskManager.InsertMulti([.. tasks]);
@@ -500,28 +578,35 @@ internal static unsafe class GCContinuation
         return null;
     }
 
+    // 「這扇窗已經按過了」的記號集中在 Helpers/DialogGuards.cs(以窗名為 key,不分按的是取消還是「是」,
+    // 也不分是哪個模組按的),解除點在 DialogGuards.Tick。
+    // 🔴 守衛的機制只在那裡有一份;不要在這裡再長一份副本。
+
+    /// <remarks>
+    /// 🔴 兩處「按取消」都經過 <see cref="DialogGuards.TryCancelDialogOnce"/>:窗被按下之後有
+    /// 「正在關閉中」的幾幀,此時再送一次 callback 就是攔不到的原生 AccessViolation。
+    /// 呼叫端的 <see cref="Utils.GenericThrottle"/> 不是防護(它記的是「上次動作在哪一幀」,不是「這扇窗已經按過」)。
+    /// 記號在 <see cref="DialogGuards"/>。回 <see langword="true"/> 代表「這一輪呼叫端不要再往下走」——
+    /// 涵蓋「剛按了取消」與「按過了、窗還在關閉中」兩種情形,兩者對呼叫端的意義相同(畫面上還有擋路的窗)。
+    /// </remarks>
     public static bool CleanupUI()
     {
-        {
-            if(TryGetAddonByName<AtkUnitBase>("SelectYesno", out var addon))
-            {
-                if(addon->IsReady())
-                {
-                    Callback.Fire(addon, true, -1);
-                    return true;
-                }
-            }
-        }
-        {
-            if(TryGetAddonByName<AtkUnitBase>("ShopExchangeCurrencyDialog", out var addon))
-            {
-                if(addon->IsReady())
-                {
-                    Callback.Fire(addon, true, -1);
-                    return true;
-                }
-            }
-        }
+        if(DialogGuards.TryCancelDialogOnce("SelectYesno")) return true;
+        if(DialogGuards.TryCancelDialogOnce("ShopExchangeCurrencyDialog")) return true;
         return false;
+    }
+
+    /// <summary>
+    /// 按下某一扇 SelectYesno 的「是」,但同一扇窗只按一次 —— 與 <see cref="DialogGuards.TryCancelDialogOnce"/>
+    /// 同一套機制,差別只在按的是「是」而不是取消。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 危險形狀與取消那邊完全相同(見 <see cref="CleanupUI"/>)。
+    /// 不在這裡再檢查一次 <c>IsReady</c>：呼叫端是用 Utils.GetSpecificYesno 取得這扇窗的，那裡已經驗過。
+    /// </remarks>
+    private static void PressYesOnce(nint addon, string label)
+    {
+        if(!DialogGuards.TryPressOnce("SelectYesno", addon, label)) return;
+        new AddonMaster.SelectYesno(addon).Yes();
     }
 }

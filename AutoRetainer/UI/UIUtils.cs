@@ -1,6 +1,8 @@
-﻿global using OverlayTextData = (System.Numerics.Vector2 Curpos, (bool Warning, string Text)[] Texts);
+﻿global using OverlayTextData = (System.Numerics.Vector2 Curpos, (bool Warning, string Text, bool Unknown, string Tooltip)[] Texts);
 using AutoRetainerAPI.Configuration;
+using AutoRetainer.Services.Lifestream;
 using ECommons.GameHelpers;
+using ECommons.IPC.Subscribers.LifestreamIPC;
 using ECommons.Interop;
 using Lumina.Excel.Sheets;
 
@@ -12,7 +14,7 @@ internal static class UIUtils
     {
         ref var dragDrop = ref Ref<ImGuiEx.RealtimeDragDrop<T>>.Get($"dsel{id}", () => new($"dsel{id}", x => x.ToString()));
         ImGui.PushID(id);
-        if(ImGui.BeginCombo("##addNew", "Add Entries...", ImGuiComboFlags.HeightLarge))
+        if(ImGui.BeginCombo("##addNew", Loc.T("Add Entries..."), ImGuiComboFlags.HeightLarge))
         {
             foreach(var x in Enum.GetValues<T>())
             {
@@ -70,7 +72,7 @@ internal static class UIUtils
         if(!C.NoCharaSearch)
         {
             ImGuiEx.SetNextItemFullWidth();
-            ImGui.InputTextWithHint("##search", "Search characters...", ref Ref<string>.Get("SearchChara"), 50);
+            ImGui.InputTextWithHint("##search", Loc.T("Search characters..."), ref Ref<string>.Get(Loc.T("SearchChara")), 50);
         }
     }
 
@@ -81,7 +83,7 @@ internal static class UIUtils
             ImGui.PushFont(UiBuilder.IconFont);
             ImGuiEx.Text("\uf0ac");
             ImGui.PopFont();
-            if(ImGuiEx.HoveredAndClicked("Visiting another data center. Right click to clear this status.", ImGuiMouseButton.Right))
+            if(ImGuiEx.HoveredAndClicked(Loc.T("Visiting another data center. Right click to clear this status."), ImGuiMouseButton.Right))
             {
                 data.WorldOverride = null;
             }
@@ -91,81 +93,300 @@ internal static class UIUtils
 
     public static void DrawTeleportIcons(ulong cid)
     {
-        var offlineData = C.OfflineData.FirstOrDefault(x => x.CID == cid);
+        var offlineData = FindOfflineData(cid);
         if(offlineData == null) return;
-        var data = S.LifestreamIPC.GetHousePathData(cid);
-        if(offlineData.GetAllowFcTeleportForSubs() || offlineData.GetAllowFcTeleportForRetainers())
+        var showFc = offlineData.GetAllowFcTeleportForSubs() || offlineData.GetAllowFcTeleportForRetainers();
+        var showPrivate = offlineData.GetAllowPrivateTeleportForRetainers();
+        if(!showFc && !showPrivate) return;
+        var data = GetHousePathForUi(cid, cid == HousePathHoveredCid ? HousePathHoverRefreshMs : HousePathRefreshMs);
+        var hovered = false;
+        if(showFc)
         {
             string error = null;
             if(data.FC == null)
             {
-                error = "Free company house is not registered in Lifestream";
+                error = Loc.T("Free company house is not registered in Lifestream");
             }
             else if(data.FC.PathToEntrance.Count == 0)
             {
-                error = "Free company house is registered in Lifestream but path to entrance is not set";
+                error = Loc.T("Free company house is registered in Lifestream but path to entrance is not set");
             }
             ImGui.PushFont(UiBuilder.IconFont);
             ImGuiEx.Text(error == null ? null : ImGuiColors.DalamudGrey3, "\uf1ad");
             ImGui.PopFont();
-            ImGuiEx.Tooltip(error ?? $"Free company house is registered in Lifestream and path is set. You will be teleported to Free company house for resending Deployables. If enabled, you will be teleported to Free company house for resending retainers as well.\nAddress: {Svc.Data.GetExcelSheet<Aetheryte>().GetRowOrDefault((uint)data.FC.ResidentialDistrict)?.Territory.Value.PlaceNameRegion.Value.Name}, ward {data.FC.Ward + 1}, plot {data.FC.Plot + 1}");
+            // ImGuiEx.Tooltip 自己也只在懸停時才畫；先判懸停只是不要每幀先組好一整句用不到的字串。
+            if(ImGui.IsItemHovered())
+            {
+                hovered = true;
+                ImGuiEx.Tooltip(error ?? string.Format(Loc.T("Free company house is registered in Lifestream and path is set. You will be teleported to Free company house for resending Deployables. If enabled, you will be teleported to Free company house for resending retainers as well.\nAddress: {0}, ward {1}, plot {2}"), Svc.Data.GetExcelSheet<Aetheryte>().GetRowOrDefault((uint)data.FC.ResidentialDistrict)?.Territory.Value.PlaceNameRegion.Value.Name, data.FC.Ward + 1, data.FC.Plot + 1));
+            }
             ImGui.SameLine(0, 3);
         }
-        if(offlineData.GetAllowPrivateTeleportForRetainers())
+        if(showPrivate)
         {
             string error = null;
             if(data.Private == null)
             {
-                error = "Private house is not registered in Lifestream.";
+                error = Loc.T("Private house is not registered in Lifestream.");
             }
             else if(data.Private.PathToEntrance.Count == 0)
             {
-                error = "Private house is registered in Lifestream but path to entrance is not set.";
+                error = Loc.T("Private house is registered in Lifestream but path to entrance is not set.");
             }
             ImGui.PushFont(UiBuilder.IconFont);
             ImGuiEx.Text(error == null ? null : ImGuiColors.DalamudGrey3, "\ue1b0");
             ImGui.PopFont();
-            ImGuiEx.Tooltip(error ?? $"Private house is registered in Lifestream and path is set. You will be teleported to Private house for resending Retainers.\nAddress: {Svc.Data.GetExcelSheet<Aetheryte>().GetRowOrDefault((uint)data.Private.ResidentialDistrict)?.Territory.Value.PlaceNameRegion.Value.Name}, ward {data.Private.Ward + 1}, plot {data.Private.Plot + 1}");
+            if(ImGui.IsItemHovered())
+            {
+                hovered = true;
+                ImGuiEx.Tooltip(error ?? string.Format(Loc.T("Private house is registered in Lifestream and path is set. You will be teleported to Private house for resending Retainers.\nAddress: {0}, ward {1}, plot {2}"), Svc.Data.GetExcelSheet<Aetheryte>().GetRowOrDefault((uint)data.Private.ResidentialDistrict)?.Territory.Value.PlaceNameRegion.Value.Name, data.Private.Ward + 1, data.Private.Plot + 1));
+            }
             ImGui.SameLine(0, 3);
         }
+        if(hovered) HousePathHoveredCid = cid;
+        else if(HousePathHoveredCid == cid) HousePathHoveredCid = 0;
+    }
+
+    private static OfflineCharacterData FindOfflineData(ulong cid)
+    {
+        foreach(var x in C.OfflineData)
+        {
+            if(x.CID == cid) return x;
+        }
+        return null;
+    }
+
+    // 只給繪製執行緒用。Lifestream 的回傳型別與我方鏡像不同，每次呼叫 Dalamud 都拿 JSON 整份轉一次（每次約 4～26 KB），
+    // 所以同一個角色 30 秒內只問一次；主視窗打開時全部重問，滑鼠停在某列的圖示上時那一列改成一秒一問。
+    // 代價：在 Lifestream 改了房屋路徑，圖示最多晚 30 秒才變。傳送任務不走這份快取（直接問 LifestreamHousePath）。
+    private const long HousePathRefreshMs = 30_000;
+    private const long HousePathHoverRefreshMs = 1000;
+    private static ulong HousePathHoveredCid;
+    private static readonly Dictionary<ulong, (long FetchedAt, (HousePathData Private, HousePathData FC) Data)> HousePathForUi = [];
+
+    /// <summary>主視窗打開時呼叫：下一次繪製每個角色都重問 Lifestream。只在繪製執行緒呼叫。</summary>
+    internal static void ResetHousePathCache()
+    {
+        HousePathForUi.Clear();
+        HousePathHoveredCid = 0;
+    }
+
+    private static (HousePathData Private, HousePathData FC) GetHousePathForUi(ulong cid, long maxAgeMs)
+    {
+        var now = Environment.TickCount64;
+        if(HousePathForUi.TryGetValue(cid, out var cached) && now - cached.FetchedAt < maxAgeMs) return cached.Data;
+        var data = LifestreamHousePath.Get(cid);
+        HousePathForUi[cid] = (now, data);
+        return data;
+    }
+
+    // 只給繪製執行緒用。掃物件表時每個物件的名字都要解析成新字串，所以畫面上的「附近有沒有傳喚鈴」最多 250 ms 重算一次。
+    // 只存布林，不存物件（原生物件的包裝不可跨幀持有）。
+    private static long ReachableBellNextCheckAt;
+    private static bool ReachableBell;
+
+    internal static bool IsRetainerBellReachableForUi()
+    {
+        var now = Environment.TickCount64;
+        if(now >= ReachableBellNextCheckAt)
+        {
+            ReachableBellNextCheckAt = now + 250;
+            ReachableBell = Utils.GetReachableRetainerBell(false) != null;
+        }
+        return ReachableBell;
     }
 
     public static void DrawOverlayTexts(List<OverlayTextData> overlayTexts, ref float statusTextWidth)
     {
         if(overlayTexts.Count > 0)
         {
-            var maxSizes = new float[overlayTexts[0].Texts.Length];
-            for(var i = 0; i < maxSizes.Length; i++)
+            // Rows can have different column counts (the "C:" counter column is
+            // conditional), so size the array to the longest row and compute
+            // each column's max only over the rows that have that column.
+            // Sizing and indexing everything from row 0 crashed with
+            // IndexOutOfRangeException when lengths differed within one frame.
+            var columns = 0;
+            foreach(var x in overlayTexts)
             {
-                maxSizes[i] = overlayTexts.Select(x => ImGui.CalcTextSize(x.Texts[i].Text).X).Max();
+                if(x.Texts.Length > columns) columns = x.Texts.Length;
+            }
+            var maxSizes = GetOverlayColumnBuffer(columns);
+            for(var i = 0; i < columns; i++)
+            {
+                var found = false;
+                var max = 0f;
+                foreach(var x in overlayTexts)
+                {
+                    if(i >= x.Texts.Length) continue;
+                    var w = ImGui.CalcTextSize(x.Texts[i].Text).X;
+                    // 與 Enumerable.Max(IEnumerable<float>) 同語意：開頭的 NaN 會被後面的值取代。
+                    if(!found || float.IsNaN(max) || w > max) max = w;
+                    found = true;
+                }
+                maxSizes[i] = max;
             }
             foreach(var x in overlayTexts)
             {
                 var cur = ImGui.GetCursorPos();
                 for(var i = x.Texts.Length - 1; i >= 0; i--)
                 {
-                    var width = maxSizes[i..].Sum() + (maxSizes[i..].Length - 1) * ImGui.CalcTextSize("      ").X;
+                    var width = OverlayColumnSpanWidth(maxSizes, columns, i, ImGui.CalcTextSize("      ").X);
                     ImGui.SetCursorPos(new(x.Curpos.X - width, x.Curpos.Y));
                     if(statusTextWidth < width) statusTextWidth = width;
-                    ImGuiEx.Text(x.Texts[i].Warning ? ImGuiColors.DalamudOrange : null, x.Texts[i].Text);
+                    // 三種狀態要分得開：灰＝這個角色從來沒讀到過那個值（不是 0），
+                    // 橘＝該處理了，預設色＝正常。灰色優先於橘色，因為「不知道」不該長得像警告。
+                    var col = x.Texts[i].Unknown ? ImGuiColors.DalamudGrey3
+                        : x.Texts[i].Warning ? ImGuiColors.DalamudOrange : (Vector4?)null;
+                    ImGuiEx.Text(col, x.Texts[i].Text);
+                    // 取樣時間這類「起疑才查」的長文字放 tooltip，不佔列上版面。
+                    if(!x.Texts[i].Tooltip.IsNullOrEmpty()) ImGuiEx.Tooltip(x.Texts[i].Tooltip);
                 }
                 ImGui.SetCursorPos(cur);
             }
         }
     }
 
+    // 只給繪製執行緒用；長度可能大於欄數，讀寫一律以呼叫端的欄數為界。
+    private static float[] OverlayColumnBuffer = [];
+
+    private static float[] GetOverlayColumnBuffer(int columns)
+    {
+        if(OverlayColumnBuffer.Length < columns) OverlayColumnBuffer = new float[columns];
+        return OverlayColumnBuffer;
+    }
+
+    /// <summary>
+    /// 從第 <paramref name="start"/> 欄到最後一欄的總寬，加上欄與欄之間的空白。
+    /// 與 <c>maxSizes[start..].Sum() + (maxSizes[start..].Length - 1) * spaceWidth</c> 逐位元相同：
+    /// Enumerable.Sum 對 float 也是依序以 double 累加、最後才轉回 float。
+    /// </summary>
+    internal static float OverlayColumnSpanWidth(float[] maxSizes, int columns, int start, float spaceWidth)
+    {
+        double sum = 0;
+        for(var j = start; j < columns; j++) sum += maxSizes[j];
+        return (float)sum + (columns - start - 1) * spaceWidth;
+    }
+
+    /// <remarks>
+    /// 把每日／每週配額三欄（理符受理限額 L／籌備委託品 D／限定神典石 T）加到角色列右側的狀態欄。
+    /// 🔴 三態顯示：從沒讀到過一律畫灰色的 <c>?</c>，<b>絕不畫成 0</b>——理符受理限額的 0 與籌備委託品的 0
+    /// 意義相反（一個代表沒得用、一個代表都用完了），把「不知道」畫成 0 會讓使用者直接跳過
+    /// 該做的事。取樣時間屬於「起疑才查」，放 tooltip。
+    /// 每一欄各自可關。<c>default</c>（四個都 false）代表「總開關關著」，所以呼叫端
+    /// 只要拿 <see cref="SnapshotAllowanceColumns"/> 的結果就同時涵蓋了兩層開關。</remarks>
+    public readonly record struct AllowanceColumns(bool Seals, bool Leves, bool CustomDeliveries, bool Tomestones);
+
+    /// <remarks>
+    /// 🔴 一幀只讀一次設定，不要在逐列迴圈裡直接讀 <c>C.*</c>。
+    /// 同檔 <see cref="DrawOverlayTexts"/> 的註解記著那個教訓：設定在繪製途中被改掉會讓同一幀裡
+    /// 不同列拿到不同的欄數，接著 <c>maxSizes</c> 的索引就會 IndexOutOfRangeException。
+    /// 每角色設定彈窗正是在那個迴圈裡繪製的，所以「不可能中途改」不成立。
+    /// </remarks>
+    public static AllowanceColumns SnapshotAllowanceColumns()
+        => C.UIShowAllowances
+            ? new(C.UIShowAllowanceSeals, C.UIShowAllowanceLeves, C.UIShowAllowanceCustomDeliveries, C.UIShowAllowanceTomestones)
+            : default;
+
+    public static void AddAllowanceTexts(List<(bool Warning, string Text, bool Unknown, string Tooltip)> texts, OfflineCharacterData data, AllowanceColumns columns)
+    {
+        if(columns.Seals)
+        {
+            // 軍票放在最前面（最左）：撞上限會中斷繳交，
+            // 這一欄是這組裡最常掃視的。三種狀態都要分得開：
+            //   時間戳 null      -> 灰色 ?  「還沒讀到過」
+            //   上限 0           -> 灰色 -  「這個角色是平民，沒有大國防聯軍」
+            //   其餘             -> n/max，接近上限轉橘
+            var sealsKnown = data.GCSealsUpdatedAt != null && data.GCSealsMax >= 0;
+            var sealsApplicable = sealsKnown && data.GCSealsMax > 0;
+            texts.Add((
+                sealsApplicable && data.GCSeals >= data.GCSealsMax - C.UIWarningGCSealsMargin,
+                sealsApplicable ? $"S: {data.GCSeals}/{data.GCSealsMax}" : sealsKnown ? "S: -" : "S: ?",
+                !sealsApplicable,
+                sealsKnown && !sealsApplicable
+                    ? $"{Loc.T("Grand Company seals")}\n{Loc.T("This character has not joined a Grand Company.")}"
+                    : BuildAllowanceTooltip(Loc.T("Grand Company seals"), data.GCSealsUpdatedAt, sealsApplicable)));
+        }
+        if(columns.Leves)
+        {
+            texts.Add(BuildAllowance("L", data.LevequestAllowances, data.LevequestAllowancesUpdatedAt,
+                data.LevequestAllowances >= C.UIWarningLeveAllowancesNum,
+                Loc.T("Levequest allowances remaining (caps at 100)")));
+        }
+        if(columns.CustomDeliveries)
+        {
+            texts.Add(BuildAllowance("D", data.CustomDeliveryAllowances, data.CustomDeliveryAllowancesUpdatedAt,
+                data.CustomDeliveryAllowances <= C.UIWarningCustomDeliveryNum,
+                Loc.T("Custom delivery allowances left this week")));
+        }
+        if(columns.Tomestones)
+        {
+            var tomeKnown = data.WeeklyTomestoneUpdatedAt != null && data.WeeklyTomestoneCount >= 0 && data.WeeklyTomestoneCap > 0;
+            texts.Add((
+                tomeKnown && data.WeeklyTomestoneCount >= data.WeeklyTomestoneCap - C.UIWarningTomestoneMargin,
+                tomeKnown ? $"T: {data.WeeklyTomestoneCount}/{data.WeeklyTomestoneCap}" : "T: ?",
+                !tomeKnown,
+                BuildAllowanceTooltip(Loc.T("Limited tomestones acquired this week"), data.WeeklyTomestoneUpdatedAt, tomeKnown)));
+        }
+    }
+
+    private static (bool Warning, string Text, bool Unknown, string Tooltip) BuildAllowance(string prefix, int value, DateTime? sampledAt, bool warningWhenKnown, string label)
+    {
+        // 「讀到過」要值與時間戳兩邊都成立：只看值會把 -1 以外的任何殘留當成真值，
+        // 只看時間戳則在欄位語意日後改變時失準。
+        var known = sampledAt != null && value >= 0;
+        return (known && warningWhenKnown, $"{prefix}: {(known ? value.ToString() : "?")}", !known,
+            BuildAllowanceTooltip(label, sampledAt, known));
+    }
+
+    private static string BuildAllowanceTooltip(string label, DateTime? sampledAt, bool known)
+    {
+        if(!known) return $"{label}\n{Loc.T("Never read on this character yet. AutoRetainer fills this in automatically shortly after logging in.")}";
+        return $"{label}\n{Loc.T("Sampled at")}: {sampledAt.Value:yyyy-MM-dd HH:mm}";
+    }
+
     public static float CollapsingHeaderSpacingsWidth => ImGui.GetStyle().FramePadding.X * 2f + ImGui.GetStyle().ItemSpacing.X * 2 + ImGui.CalcTextSize("▲...").X;
 
-    public static string GetCutCharaString(this OfflineCharacterData data, float statusTextWidth)
+    // 只給繪製執行緒用。角色名稱每幀都要畫，名字、伺服器與匿名化設定都沒變就沿用同一個字串。
+    private static readonly Dictionary<ulong, (string Name, string World, bool NoNames, string Seed, string Text)> CensoredNames = [];
+
+    /// <summary>與 <c>Censor.Character(data.Name, data.World)</c> 相同的結果，輸入沒變時不重新配置字串。</summary>
+    internal static string CensoredCharacter(OfflineCharacterData data)
     {
-        var chstr = Censor.Character(data.Name, data.World);
-        var mod = false;
-        while(ImGui.CalcTextSize(chstr).X > ImGui.GetContentRegionAvail().X - statusTextWidth - UIUtils.CollapsingHeaderSpacingsWidth && chstr.Length > 5)
+        if(CensoredNames.TryGetValue(data.CID, out var e)
+            && e.Name == data.Name && e.World == data.World && e.NoNames == C.NoNames && e.Seed == C.CensorSeed)
         {
-            mod = true;
+            return e.Text;
+        }
+        var text = Censor.Character(data.Name, data.World);
+        CensoredNames[data.CID] = (data.Name, data.World, C.NoNames, C.CensorSeed, text);
+        return text;
+    }
+
+    // 只給繪製執行緒用。名字放不下時要一個字一個字截短；整段名字、可用寬度與字型都沒變就沿用上一次截好的字串。
+    // 字型指標只拿來比對是不是同一個，不解參。
+    private static readonly Dictionary<ulong, (string Full, float FullWidth, float Limit, nint Font, float FontSize, string Cut)> CutNames = [];
+
+    public static unsafe string GetCutCharaString(this OfflineCharacterData data, float statusTextWidth)
+    {
+        var chstr = CensoredCharacter(data);
+        var limit = ImGui.GetContentRegionAvail().X - statusTextWidth - UIUtils.CollapsingHeaderSpacingsWidth;
+        var fullWidth = ImGui.CalcTextSize(chstr).X;
+        if(!(fullWidth > limit && chstr.Length > 5)) return chstr;
+        var font = (nint)ImGui.GetFont().Handle;
+        var fontSize = ImGui.GetFontSize();
+        if(CutNames.TryGetValue(data.CID, out var e)
+            && ReferenceEquals(e.Full, chstr) && e.FullWidth == fullWidth && e.Limit == limit && e.Font == font && e.FontSize == fontSize)
+        {
+            return e.Cut;
+        }
+        var full = chstr;
+        do
+        {
             chstr = chstr[0..^1];
         }
-        if(mod) chstr += "...";
+        while(ImGui.CalcTextSize(chstr).X > limit && chstr.Length > 5);
+        chstr += "...";
+        CutNames[data.CID] = (full, fullWidth, limit, font, fontSize, chstr);
         return chstr;
     }
 
@@ -176,7 +397,7 @@ internal static class UIUtils
         {
             fps = GetFPSFromMSPT(frameTime);
         }
-        ImGuiEx.SliderInt(name, ref fps, min, 60, fps == 60 ? "Unlimited" : null, ImGuiSliderFlags.AlwaysClamp);
+        ImGuiEx.SliderInt(name, ref fps, min, 60, fps == 60 ? Loc.T("Unlimited") : null, ImGuiSliderFlags.AlwaysClamp);
         frameTime = fps == 60 ? 0 : (int)(1000f / fps);
     }
 
@@ -185,6 +406,32 @@ internal static class UIUtils
         return frameTime == 0 ? 60 : (int)(1000f / frameTime);
     }
 
+    /// <summary>
+    /// 判斷「按住修飾鍵」型的快捷鍵目前是否成立。
+    /// 修飾鍵<b>不分左右</b>：選到左側修飾鍵時右側同樣算數（預設值就是左側，慣用右側 Shift 的人不會失去功能）。
+    /// IsKeyPressed 走的是 GetAsyncKeyState，<b>連別的程式裡按的鍵都讀得到</b>，所以必須自己補上 WindowInactive 閘門。
+    /// LimitedKeys.None ＝ 停用該動作，不是「不按任何鍵就觸發」。
+    /// </summary>
+    internal static unsafe bool IsHotkeyHeld(LimitedKeys key)
+    {
+        if(key == LimitedKeys.None) return false;
+        var framework = CSFramework.Instance();
+        if(framework == null || framework->WindowInactive) return false;
+        return key switch
+        {
+            LimitedKeys.LeftShiftKey => IsKeyPressed(LimitedKeys.LeftShiftKey) || IsKeyPressed(LimitedKeys.RightShiftKey),
+            LimitedKeys.LeftControlKey => IsKeyPressed(LimitedKeys.LeftControlKey) || IsKeyPressed(LimitedKeys.RightControlKey),
+            LimitedKeys.LeftAltKey => IsKeyPressed(LimitedKeys.LeftAltKey) || IsKeyPressed(LimitedKeys.RightAltKey),
+            _ => IsKeyPressed(key),
+        };
+    }
+
+    /// <summary>
+    /// 快捷鍵在提示文字裡的顯示名稱。未綁定時要在列上看得見「這個動作是停用的」，
+    /// 不能只是把提示變灰——變灰看起來像「現在沒按著」。
+    /// </summary>
+    internal static string HotkeyName(LimitedKeys key) => key == LimitedKeys.None ? Loc.T("(unbound - disabled)") : key.ToString();
+
     internal static void QRA(string text, ref LimitedKeys key)
     {
         if(DrawKeybind(text, ref key))
@@ -192,7 +439,7 @@ internal static class UIUtils
             P.quickSellItems.Toggle();
         }
         ImGui.SameLine();
-        ImGuiEx.Text("+ right click");
+        ImGuiEx.Text(Loc.T("+ right click"));
     }
 
     private static string KeyInputActive = null;
@@ -208,7 +455,7 @@ internal static class UIUtils
         {
             if(text == KeyInputActive)
             {
-                ImGuiEx.Text(ImGuiColors.DalamudYellow, $"Now press new key...");
+                ImGuiEx.Text(ImGuiColors.DalamudYellow, Loc.T("Now press new key..."));
                 foreach(var x in Enum.GetValues<LimitedKeys>())
                 {
                     if(IsKeyPressed(x))
@@ -222,11 +469,11 @@ internal static class UIUtils
             }
             else
             {
-                if(ImGui.Selectable("Auto-detect new key", false, ImGuiSelectableFlags.DontClosePopups))
+                if(ImGui.Selectable(Loc.T("Auto-detect new key"), false, ImGuiSelectableFlags.DontClosePopups))
                 {
                     KeyInputActive = text;
                 }
-                ImGuiEx.Text($"Select key manually:");
+                ImGuiEx.Text(Loc.T("Select key manually:"));
                 ImGuiEx.SetNextItemFullWidth();
                 ImGuiEx.EnumCombo("##selkeyman", ref key);
             }

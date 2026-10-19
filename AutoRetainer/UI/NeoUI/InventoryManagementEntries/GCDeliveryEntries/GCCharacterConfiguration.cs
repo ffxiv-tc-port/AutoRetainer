@@ -1,4 +1,5 @@
-﻿using System;
+﻿using AutoRetainerAPI.Configuration;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -7,16 +8,16 @@ using System.Threading.Tasks;
 namespace AutoRetainer.UI.NeoUI.InventoryManagementEntries.GCDeliveryEntries;
 public sealed unsafe class GCCharacterConfiguration : InventoryManagemenrBase
 {
-    public override string Name { get; } = "Grand Company Delivery/Character Configuration";
+    public override string Name { get; } = Loc.T("Grand Company Delivery/Character Configuration");
 
     public override int DisplayPriority => -10;
 
     public override void Draw()
     {
-        ImGuiEx.TextWrapped($"Here you can assign preconfigured exchange lists to your registered characters, as well as select delivery mode.");
+        ImGuiEx.TextWrapped(Loc.T("Here you can assign preconfigured exchange lists to your registered characters, as well as select delivery mode."));
         ImGuiEx.SetNextItemFullWidth();
-        ImGuiEx.FilteringInputTextWithHint("##search", "Search...", out var filter);
-        if(ImGuiEx.BeginDefaultTable(["~Character", "Plan", "Delivery mode"]))
+        ImGuiEx.FilteringInputTextWithHint("##search", Loc.T("Search..."), out var filter);
+        if(ImGuiEx.BeginDefaultTable(["~Character", Loc.T("Plan"), Loc.T("Delivery mode")]))
         {
             foreach(var characterData in C.OfflineData)
             {
@@ -28,9 +29,9 @@ public sealed unsafe class GCCharacterConfiguration : InventoryManagemenrBase
                 ImGui.TableNextColumn();
                 var plan = characterData.ExchangePlan == Guid.Empty ? null : C.AdditionalGCExchangePlans.FirstOrDefault(p => p.GUID == characterData.ExchangePlan);
                 ImGui.SetNextItemWidth(200f);
-                if(ImGui.BeginCombo("##chPlan", plan?.DisplayName ?? "Default Plan", ImGuiComboFlags.HeightLarge))
+                if(ImGui.BeginCombo("##chPlan", plan?.DisplayName ?? Loc.T("Default Plan"), ImGuiComboFlags.HeightLarge))
                 {
-                    if(ImGui.Selectable("Default Plan", plan == null)) characterData.ExchangePlan = Guid.Empty;
+                    if(ImGui.Selectable(Loc.T("Default Plan"), plan == null)) characterData.ExchangePlan = Guid.Empty;
                     ImGui.Separator();
                     foreach(var exchangePlan in C.AdditionalGCExchangePlans)
                     {
@@ -43,12 +44,12 @@ public sealed unsafe class GCCharacterConfiguration : InventoryManagemenrBase
                     }
                     ImGui.EndCombo();
                 }
-                ImGuiEx.DragDropRepopulate("Plan", plan?.GUID ?? Guid.Empty, ref characterData.ExchangePlan);
+                ImGuiEx.DragDropRepopulate(Loc.T("Plan"), plan?.GUID ?? Guid.Empty, ref characterData.ExchangePlan);
 
                 ImGui.TableNextColumn();
                 ImGui.SetNextItemWidth(150f);
-                ImGuiEx.EnumCombo("##deliveryMode", ref characterData.GCDeliveryType);
-                ImGuiEx.DragDropRepopulate("Mode", characterData.GCDeliveryType, ref characterData.GCDeliveryType);
+                ImGuiEx.EnumCombo("##deliveryMode", ref characterData.GCDeliveryType, Loc.EnumNames<GCDeliveryType>());
+                ImGuiEx.DragDropRepopulate(Loc.T("Mode"), characterData.GCDeliveryType, ref characterData.GCDeliveryType);
 
                 ImGui.PopID();
             }

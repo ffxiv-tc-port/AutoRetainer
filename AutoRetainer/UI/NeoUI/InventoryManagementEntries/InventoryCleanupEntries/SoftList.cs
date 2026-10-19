@@ -1,17 +1,13 @@
 ﻿namespace AutoRetainer.UI.NeoUI.InventoryManagementEntries.InventoryCleanupEntries;
 public class SoftList : InventoryManagemenrBase
 {
-    public override string Name => "Inventory Cleanup/Quick Venture Sell List";
+    public override string Name => Loc.T("Inventory Cleanup/Quick Venture Sell List");
     private SoftList()
     {
-        var s = InventoryCleanupCommon.SelectedPlan;
+        // 這一頁只建一次，選中的計畫之後會換：清單每幀現取，不在這裡抓住。
         Builder = InventoryCleanupCommon.CreateCleanupHeaderBuilder()
             .Section(Name)
-            .TextWrapped("These items, when obtained from Quick Venture will be sold unless they have stacked with the same item.")
-            .Widget(() => InventoryManagementCommon.DrawListNew(s.IMAutoVendorSoft))
-            .Widget(() =>
-            {
-                InventoryManagementCommon.ImportFromArDiscard(s.IMAutoVendorSoft);
-            });
+            .TextWrapped(Loc.T("These items, when obtained from Quick Venture will be sold unless they have stacked with the same item."))
+            .Widget(() => InventoryManagementCommon.DrawListNew(InventoryCleanupCommon.SelectedPlan.IMAutoVendorSoft));
     }
 }

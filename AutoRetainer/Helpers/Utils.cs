@@ -2,6 +2,7 @@
 using AutoRetainer.Modules.Voyage;
 using AutoRetainer.Scheduler.Handlers;
 using AutoRetainer.Scheduler.Tasks;
+using AutoRetainer.Services;
 using AutoRetainerAPI.Configuration;
 using Dalamud.Game;
 using Dalamud.Game.ClientState.Conditions;
@@ -13,6 +14,7 @@ using ECommons.Events;
 using ECommons.ExcelServices;
 using ECommons.ExcelServices.TerritoryEnumeration;
 using ECommons.GameHelpers;
+using ECommons.IPC;
 using ECommons.MathHelpers;
 using ECommons.Reflection;
 using ECommons.Throttlers;
@@ -33,9 +35,116 @@ namespace AutoRetainer.Helpers;
 
 public static unsafe class Utils
 {
+    /// <summary>
+    /// 安全地讀取按鈕的啟用狀態，無法判定時回傳 null。
+    /// 🔴 ClientStructs 的 <c>AtkComponentButton.IsEnabled</c> 實作是對 <c>OwnerNode</c> <b>零 null 檢查</b>。
+    /// ⚠️ 所以檢查 <c>AtkResNode</c> <b>不算守衛</b>。
+    /// </summary>
+    public static bool? GetButtonEnabled(AtkComponentButton* button)
+    {
+        if(button == null) return null;
+        if(button->AtkComponentBase.OwnerNode == null) return null;
+        return button->IsEnabled;
+    }
+
+    /// <summary>
+    /// <see cref="GetButtonEnabled"/> 的自動化用版本：按鈕還沒準備好時一律視為「不可按」，
+    /// 讓呼叫端走既有的等待／重試路徑，而不是中止整條任務佇列。
+    /// </summary>
+    public static bool IsButtonEnabled(AtkComponentButton* button) => GetButtonEnabled(button) == true;
+
+    /// <summary>
+    /// 從 <paramref name="uld"/> 的 <c>NodeList</c> 取第 <paramref name="index"/> 個節點；取不到回 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>NodeList</c> 要驗的是<b>兩件事</b>：清單本身不是 null、索引在 NodeListCount 之內。只對取出的元素判空擋不住超界（讀到的是相鄰記憶體）。
+    /// </remarks>
+    public static AtkResNode* GetNodeSafe(AtkUldManager* uld, int index)
+    {
+        if(uld == null || uld->NodeList == null) return null;
+        if(index < 0 || index >= uld->NodeListCount) return null;
+        return uld->NodeList[index];
+    }
+
+    /// <summary>
+    /// 「<c>NodeList[index]</c> 這個節點現在可見嗎」的安全版本；節點取不到時一律回
+    /// <see langword="false"/>（＝視為「不可見」）。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>AtkResNode.IsVisible()</c> 是 <c>[MemberFunction]</c>：對 null 節點呼叫＝把 <c>this</c> = 0 交給遊戲原生碼，那種 AVE <c>try/catch</c> 攔不到。
+    /// 🔑 失敗方向刻意選「不可見」而不是「可見」。
+    /// </remarks>
+    public static bool IsNodeVisible(AtkUldManager* uld, int index)
+    {
+        var node = GetNodeSafe(uld, index);
+        return node != null && node->IsVisible();
+    }
+
+    /// <summary>
+    /// 安全地讀取一個節點的文字內容。取得到回 <see langword="true"/>；
+    /// 鏈上任何一節取不到就回 <see langword="false"/>，<paramref name="text"/> 為空字串。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 擋的是<b>兩種不同的爆法</b>：節點是 null、節點不是文字節點（GetAsAtkTextNode() 回 null 後再取欄位位址）；兩種都攔不住。
+    /// 🔑 回傳 <c>bool</c> 而不是「取不到就回空字串」，是為了讓呼叫端分得出「讀到空文字」與「根本沒讀到」。
+    /// </remarks>
+    public static bool TryGetNodeText(AtkResNode* node, out string text)
+    {
+        text = "";
+        if(node == null) return false;
+        var textNode = node->GetAsAtkTextNode();
+        if(textNode == null) return false;
+        text = GenericHelpers.ReadSeString(&textNode->NodeText).GetText();
+        return true;
+    }
+
+    /// <inheritdoc cref="TryGetNodeText(AtkResNode*, out string)"/>
+    public static bool TryGetNodeText(AtkUldManager* uld, int index, out string text)
+        => TryGetNodeText(GetNodeSafe(uld, index), out text);
+
+    /// <summary>
+    /// 依 <paramref name="nodeId"/> 取出 <paramref name="addon"/> 裡的單選按鈕元件；
+    /// 鏈上任何一節取不到就回 <see langword="false"/>，<paramref name="button"/> 為 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>addon-&gt;GetNodeById(id)-&gt;GetAsAtkComponentRadioButton()</c> 這條鏈有 <b>兩個各自獨立的 null 路徑</b>。
+    /// <c>GetNodeById</c> 是 <c>[MemberFunction]</c>，<b>找不到該 id 就合法回 <c>null</c></b>。
+    /// </remarks>
+    public static bool TryGetRadioButtonById(AtkUnitBase* addon, uint nodeId, out AtkComponentRadioButton* button)
+    {
+        button = null;
+        if(addon == null) return false;
+        var node = addon->GetNodeById(nodeId);
+        if(node == null) return false;
+        button = node->GetAsAtkComponentRadioButton();
+        return button != null;
+    }
+
     public static int FrameDelay => 10 + C.ExtraFrameDelay;
-    public static bool IsCN => Svc.ClientState.ClientLanguage == (ClientLanguage)4;
-    public static int FCPoints => *(int*)((nint)AgentModule.Instance()->GetAgentByInternalId(AgentId.FreeCompanyCreditShop) + 256);
+    /// <summary>
+    /// 部隊點數。⚠️ 取不到時回 <c>0</c> —— 0 同時代表「真的沒有點數」與「讀不到」,
+    /// 這與呼叫端既有語意一致(<c>OfflineDataManager</c> 本來就用 <c>!= 0</c> 當「有資料才寫入」的閘門)。
+    /// 要區分兩者請改用 <see cref="TryGetFCPoints"/>。
+    /// </summary>
+    public static int FCPoints => TryGetFCPoints(out var points) ? points : 0;
+
+    /// <summary>
+    /// 讀部隊點數,並回報「這次到底有沒有讀到」。
+    /// </summary>
+    /// <remarks>
+    /// 兩層都有真實的 null 路徑（AgentModule.Instance()、GetAgentByInternalId），少了判空的失敗形式是攔不到的 AccessViolationException。
+    /// ⚠️ <c>+256</c> 是未文件化的原生偏移；偏移錯的失敗形式是「數字不對」,不是崩潰。
+    /// </remarks>
+    public static bool TryGetFCPoints(out int points)
+    {
+        points = 0;
+        var agentModule = AgentModule.Instance();
+        if(agentModule == null) return false;
+        var agent = agentModule->GetAgentByInternalId(AgentId.FreeCompanyCreditShop);
+        if(agent == null) return false;
+        points = *(int*)((nint)agent + 256);
+        return true;
+    }
     public static float AnimationLock => Player.AnimationLock;
 
     public static uint[] WeaponsUICategories
@@ -65,6 +174,22 @@ public static unsafe class Utils
         }
     } = null;
 
+    /// <summary>防具＋武器的 ItemUICategory 合集,快取一份。
+    ///
+    /// <para>內容與現場串接 <c>[.. ArmorsUICategories, .. WeaponsUICategories]</c> 完全相同 ——
+    /// 兩個來源集合不相交,而且所有使用點都只做「有沒有在裡面」的成員判定,順序無關。</para>
+    ///
+    /// <para>存在的理由是那個現場串接**每呼叫一次就配一個新陣列**,而存放流程一輪要對背包裡
+    /// 每一件道具問一次。</para></summary>
+    public static uint[] GearUICategories
+    {
+        get
+        {
+            field ??= [.. ArmorsUICategories, .. WeaponsUICategories];
+            return field;
+        }
+    } = null;
+
     extension(OfflineCharacterData data)
     {
         public string NameWithWorld => $"{data.Name}@{data.World}";
@@ -78,6 +203,9 @@ public static unsafe class Utils
                 RetainersVisualOrder.Region_NA => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.NA,
                 RetainersVisualOrder.Region_EU => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.EU,
                 RetainersVisualOrder.Region_OC => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.OC,
+                // 台服(陸行鳥)。ExcelWorldHelper.Region 列舉沒有具名的 TW 值(公開 API 不能隨便加成員,
+                // 見 ECommons ExcelWorldHelper.cs 的說明),所以直接轉型比對,做法與 GetRegionDisplayName() 一致。
+                RetainersVisualOrder.Region_TW => ExcelWorldHelper.Get(data.World)?.GetRegion() != (ExcelWorldHelper.Region)8,
                 RetainersVisualOrder.DataCenter => ExcelWorldHelper.Get(data.World)?.DataCenter.RowId ?? 0,
                 RetainersVisualOrder.Inventory_Slots => (int)data.InventorySpace,
                 RetainersVisualOrder.Ventures => (int)data.Ventures,
@@ -95,6 +223,9 @@ public static unsafe class Utils
                 DeployablesVisualOrder.Region_NA => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.NA,
                 DeployablesVisualOrder.Region_EU => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.EU,
                 DeployablesVisualOrder.Region_OC => ExcelWorldHelper.Get(data.World)?.GetRegion() != ExcelWorldHelper.Region.OC,
+                // 台服(陸行鳥)。ExcelWorldHelper.Region 列舉沒有具名的 TW 值(公開 API 不能隨便加成員,
+                // 見 ECommons ExcelWorldHelper.cs 的說明),所以直接轉型比對,做法與 GetRegionDisplayName() 一致。
+                DeployablesVisualOrder.Region_TW => ExcelWorldHelper.Get(data.World)?.GetRegion() != (ExcelWorldHelper.Region)8,
                 DeployablesVisualOrder.DataCenter => ExcelWorldHelper.Get(data.World)?.DataCenter.RowId ?? 0,
                 DeployablesVisualOrder.Inventory_Slots => (int)data.InventorySpace,
                 DeployablesVisualOrder.Ceruleum => (int)data.Ceruleum,
@@ -107,10 +238,12 @@ public static unsafe class Utils
 
         public bool IsLockedOut()
         {
+            var now = DateTimeOffset.Now.ToUnixTimeSeconds();
+            if(!AnyLockoutActive(now)) return false;
             var world = ExcelWorldHelper.Get(data.WorldOverride ?? data.World);
             if(world != null)
             {
-                return DateTimeOffset.Now.ToUnixTimeSeconds() < C.LockoutTime.SafeSelect(world.Value.GetRegion(), 0);
+                return now < C.LockoutTime.SafeSelect(GetRegionCached(world.Value), 0);
             }
             return false;
         }
@@ -215,12 +348,44 @@ public static unsafe class Utils
         }
     }
 
+    // 多角模式每幀對每個角色問好幾次 IsLockedOut。沒有尚未到期的鎖區時它必回 false（SafeSelect 缺鍵回 0），
+    // 所以先看這個、不查世界與地區。到期條目不會自動刪除，只看 Count 不夠。
+    private static bool AnyLockoutActive(long now)
+    {
+        var lockouts = C.LockoutTime;
+        if(lockouts == null) return false;
+        foreach(var x in lockouts)
+        {
+            if(now < x.Value) return true;
+        }
+        return false;
+    }
+
+    private static Lumina.Excel.ExcelSheet<WorldDCGroupType> WorldDCGroupSheet;
+
+    /// <summary>
+    /// 與 <c>world.GetRegion()</c> 結果相同，不每次新建表。
+    /// 資料中心不在表裡時交回原實作（回 0，每個世界只寫一次 Error）。
+    /// </summary>
+    private static ExcelWorldHelper.Region GetRegionCached(World world)
+    {
+        var sheet = WorldDCGroupSheet ??= Svc.Data.GetExcelSheet<WorldDCGroupType>();
+        if(sheet.TryGetRow(world.DataCenter.RowId, out var dcg)) return (ExcelWorldHelper.Region)dcg.Region;
+        return world.GetRegion();
+    }
+
+    /// <remarks>
+    /// 讀不到的容器一律跳過、繼續累加。唯一的呼叫端 <c>AutoGCHandin</c> 把結果當**排序鍵**用
+    /// （<c>ThenByDescending</c>），少算一個容器只會換到另一個一樣合法的順序。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     public static int CountItemsInInventory(uint id, bool? hq, IEnumerable<InventoryType> inventories)
     {
         var ret = 0;
         foreach(var inventory in inventories)
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(inventory);
+            if(inv == null || inv->Items == null) continue;
             for(var i = 0; i < inv->Size; i++)
             {
                 var slot = inv->Items[i];
@@ -344,8 +509,20 @@ public static unsafe class Utils
             MainCities.Limsa_Lominsa_Upper_Decks => GrandCompany.Maelstrom,
             _ => throw new InvalidOperationException("Could not determite accessed grand company")
         };
-        return SharedGCExchangeListings.Where(x => x.Value.Companies.Contains(gc)).ToDictionary();
+        if(!AvailableSharedExchangeListings.TryGetValue(gc, out var listings))
+        {
+            listings = BuildAvailableSharedExchangeListings(gc);
+            AvailableSharedExchangeListings[gc] = listings;
+        }
+        return listings;
     }
+
+    // 只給框架執行緒用。內容只取決於遊戲表（SharedGCExchangeListings 建一次後不再改），所以每個軍團建一次就好；
+    // 呼叫端只讀，不可修改回傳的字典。lambda 放在另一個方法裡，快取命中時不配置閉包。
+    private static readonly Dictionary<GrandCompany, Dictionary<uint, GCExchangeListingMetadata>> AvailableSharedExchangeListings = [];
+
+    private static Dictionary<uint, GCExchangeListingMetadata> BuildAvailableSharedExchangeListings(GrandCompany gc)
+        => SharedGCExchangeListings.Where(x => x.Value.Companies.Contains(gc)).ToDictionary();
 
     public static Dictionary<uint, GCExchangeListingMetadata> SharedGCExchangeListings
     {
@@ -472,9 +649,10 @@ public static unsafe class Utils
 
     public static void EnqueueVendorItemsByRetainer()
     {
-        for(var i = 0; i < GameRetainerManager.Count; i++)
+        var retainers = GameRetainerManager.Retainers;
+        for(var i = 0; i < retainers.Count; i++)
         {
-            var ret = GameRetainerManager.Retainers[i];
+            var ret = retainers[i];
             if(ret.Available)
             {
                 P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(ret.Name.ToString()));
@@ -515,15 +693,25 @@ public static unsafe class Utils
         return plan.AllowEntrustFromArmory ? [.. PlayerInvetoriesWithCrystals, .. PlayerArmory] : PlayerInvetoriesWithCrystals;
     }
 
+    /// <summary>
+    /// Snapshots the contents of the given inventories. Counterpart of
+    /// <see cref="MatchesCapturedInventoryState"/>, which must walk the containers in the same order.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 拿不到的容器／格位一律「跳過」，不是中止整個快照。
+    /// 兩次都跳過同樣的容器，比對結果仍然相等。
+    /// </remarks>
     public static List<(uint ID, uint Quantity)> GetCapturedInventoryState(IEnumerable<InventoryType> inventoryTypes)
     {
         var ret = new List<(uint ID, uint Quantity)>();
         foreach(var type in inventoryTypes)
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) continue;
             for(var i = 0; i < inv->Size; i++)
             {
                 var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                if(item == null) continue;
                 ret.Add((item->ItemId, (uint)item->Quantity));
             }
         }
@@ -531,19 +719,53 @@ public static unsafe class Utils
     }
 
     /// <summary>
+    /// Whether the given inventories still hold exactly what <see cref="GetCapturedInventoryState"/>
+    /// recorded. Equivalent to <c>GetCapturedInventoryState(types).SequenceEqual(captured)</c> but walks
+    /// the containers in place and bails at the first difference, so it allocates nothing. The callers
+    /// that poll this run once per frame, where a fresh ~200 element list every frame is pure waste.
+    /// </summary>
+    public static bool MatchesCapturedInventoryState(IEnumerable<InventoryType> inventoryTypes, List<(uint ID, uint Quantity)> captured)
+    {
+        if(captured == null) return false;
+        var index = 0;
+        foreach(var type in inventoryTypes)
+        {
+            var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) return false;
+            for(var i = 0; i < inv->Size; i++)
+            {
+                if(index < 0 || index >= captured.Count) return false;
+                var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                if(item == null) return false;
+                var recorded = captured[index];
+                if(recorded.ID != item->ItemId || recorded.Quantity != (uint)item->Quantity) return false;
+                index++;
+            }
+        }
+        return index == captured.Count;
+    }
+
+    /// <summary>
     /// Request all unique items from select inventories
     /// </summary>
     /// <param name="inventoryTypes"></param>
     /// <returns></returns>
+    /// <remarks>
+    /// 讀不到的容器／格位一律跳過。唯一的呼叫端 <c>TaskEntrustDuplicates</c> 拿這份集合決定「這輪要存入哪些道具」，
+    /// 少一個 ID 只代表那件道具這輪不處理（下輪重掃會補回來），不會做出多餘的動作。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     public static HashSet<uint> GetItemsInInventory(IEnumerable<InventoryType> inventoryTypes)
     {
         var ret = new HashSet<uint>();
         foreach(var type in inventoryTypes)
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) continue;
             for(var i = 0; i < inv->Size; i++)
             {
                 var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                if(item == null) continue;
                 if(item->ItemId != 0)
                 {
                     ret.Add(item->ItemId);
@@ -559,15 +781,23 @@ public static unsafe class Utils
     /// <param name="inventoryTypes"></param>
     /// <param name="itemId"></param>
     /// <returns></returns>
+    /// <remarks>
+    /// 讀不到的容器／格位一律跳過、繼續累加，也就是**只可能少算不可能多算**。三個呼叫端全部是拿結果去
+    /// 跟門檻比大小後才「做事」（<c>SchedulerMain</c> 的 <c>&gt; toKeep</c> 決定要不要排訪問、
+    /// <c>RetainerRetrieve</c> 兩處的 <c>&gt; 0</c> 決定要不要跳過獨占道具），少算一律讓判斷倒向「不做事」。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     public static int GetItemCount(IEnumerable<InventoryType> inventoryTypes, uint itemId)
     {
         var ret = 0;
         foreach(var type in inventoryTypes)
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+            if(inv == null) continue;
             for(var i = 0; i < inv->Size; i++)
             {
                 var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                if(item == null) continue;
                 if(item->ItemId == itemId)
                 {
                     ret += (int)item->Quantity;
@@ -577,10 +807,30 @@ public static unsafe class Utils
         return ret;
     }
 
+    /// <summary>
+    /// Whether the given container can be walked at all right now. A container that is not currently
+    /// loaded (retainer pages while no retainer is open, say) comes back as a null pointer, or as a
+    /// container whose backing item array has not been allocated.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 這是「能不能讀」不是「有沒有東西」。呼叫端如果需要**證明某件道具不存在**，光看
+    /// <see cref="ContainsItem"/> 回 false 是不夠的——讀不到的容器也會回 false。要先用本方法確認讀得到。
+    /// </remarks>
+    public static bool IsInventoryReadable(this InventoryType type)
+    {
+        var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+        return inv != null && inv->Items != null;
+    }
+
+    /// <remarks>
+    /// ⚠️ 讀不到的容器回 <c>false</c>——語意是「在**讀得到的格位裡**沒找到」，**不是**「這件道具不存在」。
+    /// 需要後者的呼叫端請先過 <see cref="IsInventoryReadable"/>。
+    /// </remarks>
     public static bool ContainsItem(this InventoryType type, uint item, bool? isHq = null)
     {
         var im = InventoryManager.Instance();
         var inv = im->GetInventoryContainer(type);
+        if(inv == null || inv->Items == null) return false;
         for(var i = 0; i < inv->Size; i++)
         {
             var slot = inv->Items[i];
@@ -593,27 +843,59 @@ public static unsafe class Utils
     }
 
     /// <summary>
-    /// Gets amount of items that can fit into inventories
+    /// Gets amount of items that can fit into inventories.
+    /// </summary>
+    /// <remarks>
+    /// Use this overload unless you are actually going to show the diagnostics to someone. The
+    /// <c>debugData</c> overload builds one interpolated string per scanned slot - up to ~175 for a
+    /// retainer's item pages, several of them with an Excel name lookup - which is a large amount of
+    /// garbage for a method that gets called inside per-item scan loops.
+    /// </remarks>
+    public static uint GetAmountThatCanFit(IEnumerable<InventoryType> inventoryTypes, uint itemId, bool isHq)
+    {
+        return GetAmountThatCanFitInternal(inventoryTypes, itemId, isHq, null);
+    }
+
+    /// <summary>
+    /// Gets amount of items that can fit into inventories, along with a per-slot explanation of how the
+    /// number was reached. Only call this when the explanation is going to be read - see the remarks on
+    /// the three-argument overload.
     /// </summary>
     /// <param name="inventoryTypes"></param>
     /// <param name="itemId"></param>
     /// <param name="isHq"></param>
+    /// <param name="debugData"></param>
     /// <returns></returns>
     public static uint GetAmountThatCanFit(IEnumerable<InventoryType> inventoryTypes, uint itemId, bool isHq, out List<string> debugData)
     {
+        debugData = [];
+        return GetAmountThatCanFitInternal(inventoryTypes, itemId, isHq, debugData);
+    }
+
+    /// <param name="debugData">Null to skip building the per-slot explanation entirely. Every use below is
+    /// through <c>?.</c>, which short-circuits argument evaluation, so a null collector means the
+    /// interpolated strings are never built in the first place.</param>
+    /// <remarks>
+    /// 🔴 本函式讀不到容器時一律 <c>return 0</c>，**不是** <c>continue</c>。
+    /// 理由是這裡「跳過一個容器」會讓結果**偏高**，而不是偏低。
+    /// 回 0 是保守失敗（這輪不動作），而且兩個呼叫端都是輪詢重跑的，容器一旦載入下一輪就自動恢復，不會卡死。
+    /// </remarks>
+    private static uint GetAmountThatCanFitInternal(IEnumerable<InventoryType> inventoryTypes, uint itemId, bool isHq, List<string> debugData)
+    {
         uint ret = 0;
         var data = ExcelItemHelper.Get(itemId);
-        debugData = [];
         if(data == null) return 0;
         if(data.Value.IsUnique)
         {
+            // 讀不到的容器不能用來證明「身上沒有這件獨占道具」（ContainsItem 對讀不到的容器也是回 false），
+            // 所以讀不到就當作「可能已經有了」→ 回 0。
             if(inventoryTypes.ContainsAny(Utils.PlayerEntireInventory))
             {
-                if(Utils.PlayerEntireInventory.Any(i => i.ContainsItem(itemId, null))) return 0;
+                if(Utils.PlayerEntireInventory.Any(i => !i.IsInventoryReadable() || i.ContainsItem(itemId, null))) return 0;
             }
             if(inventoryTypes.ContainsAny(Utils.RetainerEntireInventory))
             {
-                if(Utils.RetainerEntireInventory.Any(i => i.ContainsItem(itemId, null))) return 0;
+                if(Utils.RetainerEntireInventory.Any(i => !i.IsInventoryReadable() || i.ContainsItem(itemId, null))) return 0;
             }
         }
         if(data.Value.ItemUICategory.RowId == 59)//crystal special handling
@@ -621,13 +903,15 @@ public static unsafe class Utils
             foreach(var type in inventoryTypes)
             {
                 var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+                if(inv == null) return 0;
                 for(var i = 0; i < inv->Size; i++)
                 {
                     var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                    if(item == null) return 0;
                     if(item->ItemId == itemId)
                     {
                         ret += (uint)(data.Value.StackSize - item->Quantity);
-                        debugData.Add($"[TED] [CrystalDebugData] in {type} slot {i} found incomplete stack: {ExcelItemHelper.GetName(itemId, true)} q={item->Quantity} canFit={ret}");
+                        debugData?.Add($"[TED] [CrystalDebugData] in {type} slot {i} found incomplete stack: {ExcelItemHelper.GetName(itemId, true)} q={item->Quantity} canFit={ret}");
                         return ret;
                     }
                 }
@@ -640,18 +924,20 @@ public static unsafe class Utils
             {
                 if(type.EqualsAny(InventoryType.Crystals, InventoryType.RetainerCrystals)) continue;
                 var inv = InventoryManager.Instance()->GetInventoryContainer(type);
+                if(inv == null) return 0;
                 for(var i = 0; i < inv->Size; i++)
                 {
                     var item = InventoryManager.Instance()->GetInventorySlot(type, i);
+                    if(item == null) return 0;
                     if(item->ItemId == itemId && item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality) == isHq && !item->Flags.HasFlag(InventoryItem.ItemFlags.Collectable))
                     {
                         if(data.Value.IsUnique) return 0;
-                        debugData.Add($"[TED] [DebugData] in {type} slot {i} found incomplete stack: {ExcelItemHelper.GetName(itemId, true)} q={item->Quantity} canFit={ret}");
+                        debugData?.Add($"[TED] [DebugData] in {type} slot {i} found incomplete stack: {ExcelItemHelper.GetName(itemId, true)} q={item->Quantity} canFit={ret}");
                         ret += (uint)(data.Value.StackSize - item->Quantity);
                     }
                     else if(item->ItemId == 0)
                     {
-                        debugData.Add($"[TED] [DebugData] in {type} slot {i} is empty, canFit={data.Value.StackSize}");
+                        debugData?.Add($"[TED] [DebugData] in {type} slot {i} is empty, canFit={data.Value.StackSize}");
                         ret += data.Value.StackSize;
                     }
                 }
@@ -681,7 +967,8 @@ public static unsafe class Utils
 
     internal static void ExtraLog(string s)
     {
-        if(C.ExtraDebug) PluginLog.Debug(s);
+        // 要使用者回報的診斷:開了「額外記錄」就是想看到這些訊息,所以寫 Information 不寫 Debug。
+        if(C.ExtraDebug) PluginLog.Information(s);
     }
 
     internal static bool ContainsAllItems<T>(this IEnumerable<T> a, IEnumerable<T> b)
@@ -697,7 +984,7 @@ public static unsafe class Utils
     }
 
     internal static bool MultiModeOrArtisan => MultiMode.Active || (SchedulerMain.PluginEnabled && SchedulerMain.Reason == PluginEnableReason.Artisan);
-    internal static bool IsBusy => P.TaskManager.IsBusy || AutoGCHandin.Operation || S.LifestreamIPC.IsBusy();
+    internal static bool IsBusy => P.TaskManager.IsBusy || AutoGCHandin.Operation || ECommonsIPC.Lifestream.IsBusy();
     internal static AtkValue ZeroAtkValue = new() { Type = 0, Int = 0 };
 
     internal static IEnumerable<string> GetEObjNames(params uint[] values)
@@ -744,12 +1031,27 @@ public static unsafe class Utils
             }
         }*/
         var agent = AgentLobby.Instance();
+        // AgentLobby.Instance() 是 AgentGetterGenerator 產出的兩層可空取得器
+        // （agentModule == null ? null : GetAgentByInternalId(...)），合法回 null。
+        // 拿不到就回空清單：呼叫端 TryGetCharacterIndex 會得到 index < 0 ＝「找不到角色」，
+        // 與「代理人不活躍」走同一條路徑，不會謊報有角色。
+        if(agent == null) return ret;
         if(agent->AgentInterface.IsAgentActive())
         {
             var charaSpan = agent->LobbyData.CharaSelectEntries.AsSpan();
             for(var i = 0; i < charaSpan.Length; i++)
             {
                 var s = charaSpan[i];
+                // 🔴 元素本身是可為 null 的指標（項目還沒填完就是 null），
+                // 直接 s.Value->Name.Read() 是 AccessViolation（try/catch 攔不到）。
+                // 🔴 但不能用 continue 跳過：本清單的「索引」就是 TryGetCharacterIndex 回傳的
+                // 角色選擇索引，少一項會讓後面每個角色往前位移一格 ⇒ 選到錯的角色。
+                // 填一個永遠不會被 IndexOf 命中的佔位項（空名字＋世界 0）保住位置對齊。
+                if(s.Value == null)
+                {
+                    ret.Add(("", (ushort)0));
+                    continue;
+                }
                 ret.Add(($"{s.Value->Name.Read()}", s.Value->HomeWorldId));
             }
         }
@@ -761,9 +1063,12 @@ public static unsafe class Utils
         return n.ToString().ReplaceByChar(Lang.Digits.Normal, Lang.Digits.GameFont);
     }
 
+    // 本 pin 的 GetExcelSheet 每次 new 一個 ExcelSheet；多角模式排序時對每個僱員都會呼叫。
+    private static Lumina.Excel.ExcelSheet<ClassJob> ClassJobSheet;
+
     internal static int GetJobLevel(this OfflineCharacterData data, uint job)
     {
-        var d = Svc.Data.GetExcelSheet<ClassJob>().GetRowOrDefault(job);
+        var d = (ClassJobSheet ??= Svc.Data.GetExcelSheet<ClassJob>()).GetRowOrDefault(job);
         if(d != null)
         {
             try
@@ -794,11 +1099,15 @@ public static unsafe class Utils
 
     internal static bool IsTitleScreenReady()
     {
-        return TryGetAddonByName<AtkUnitBase>("_TitleMenu", out var title)
-            && IsAddonReady(title)
-            && title->UldManager.NodeListCount > 3
-            && title->UldManager.NodeList[7]->IsVisible()
-            && title->UldManager.NodeList[3]->Color.A == 0xFF
+        if(!TryGetAddonByName<AtkUnitBase>("_TitleMenu", out var title) || !IsAddonReady(title)) return false;
+        // 兩個索引都走 GetNodeSafe（上界與元素都驗）：節點數不到 8 時 NodeList[7] 讀到的是相鄰記憶體，
+        // 拿它呼叫 IsVisible() 是 try/catch 攔不到的 AVE。取不到＝還沒就緒，呼叫端下一幀再問。
+        var node7 = GetNodeSafe(&title->UldManager, 7);
+        var node3 = GetNodeSafe(&title->UldManager, 3);
+        if(node7 == null || node3 == null) return false;
+
+        return node7->IsVisible()
+            && node3->Color.A == 0xFF
             && !TryGetAddonByName<AtkUnitBase>("TitleDCWorldMap", out _)
             && !TryGetAddonByName<AtkUnitBase>("TitleConnect", out _);
     }
@@ -858,9 +1167,29 @@ public static unsafe class Utils
         return data.VenturePlanIndex >= data.VenturePlan.ListUnwrapped.Count;
     }
 
+    /// <remarks>ListUnwrapped 每次存取都會建一份新清單；它的長度大於 0 ⇔ 至少一項 Num 大於 0。
+    /// 刻意走完整份而不提早回傳：與原本建完整份清單一樣，碰到 null 項目照樣擲例外。</remarks>
     internal static bool IsVenturePlannerActive(this AdditionalRetainerData data)
     {
-        return data.EnablePlanner && data.VenturePlan.ListUnwrapped.Count > 0;
+        if(!data.EnablePlanner) return false;
+        var any = false;
+        foreach(var v in data.VenturePlan.List)
+        {
+            if(v.Num > 0) any = true;
+        }
+        return any;
+    }
+
+    /// <summary>等於 <c>plan.ListUnwrapped.Count</c>，但不建出清單：給每幀都要看長度的地方用。</summary>
+    /// <remarks>null 項目照樣擲例外；總數超出 int 時擲 OverflowException（建整份清單在那之前就會失敗），不靜默回錯值。</remarks>
+    internal static int GetUnwrappedCount(this VenturePlan plan)
+    {
+        var count = 0;
+        foreach(var v in plan.List)
+        {
+            if(v.Num > 0) count = checked(count + v.Num);
+        }
+        return count;
     }
 
     internal static DateTime DateFromTimeStamp(uint timeStamp)
@@ -874,7 +1203,7 @@ public static unsafe class Utils
     internal static bool IsAnyRetainersCompletedVenture()
     {
         if(!ProperOnLogin.PlayerPresent) return false;
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var data))
         {
             var selectedRetainers = data.GetEnabledRetainers().Where(z => z.HasVenture);
             return selectedRetainers.Any(z => z.GetVentureSecondsRemaining() <= 10);
@@ -884,7 +1213,7 @@ public static unsafe class Utils
 
     internal static bool IsAllCurrentCharacterRetainersHaveMoreThan5Mins()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var data))
         {
             foreach(var z in data.GetEnabledRetainers())
             {
@@ -925,9 +1254,9 @@ public static unsafe class Utils
         IGameObject currentObject = null;
         foreach(var x in Svc.Objects)
         {
-            if(x.IsTargetable && (x.ObjectKind == ObjectKind.Housing || x.ObjectKind == ObjectKind.EventObj) && x.Name.ToString().EqualsIgnoreCaseAny(Lang.BellName))
+            if(x.IsTargetable && (x.ObjectKind == ObjectKind.Housing || x.ObjectKind == ObjectKind.EventObj) && ObjectNameEqualsAny(x, Lang.BellName))
             {
-                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
                 if(distance < currentDistance)
                 {
                     currentDistance = distance;
@@ -945,10 +1274,50 @@ public static unsafe class Utils
 
         foreach(var x in Svc.Objects)
         {
-            if((x.ObjectKind == ObjectKind.Housing || x.ObjectKind == ObjectKind.EventObj) && x.Name.ToString().EqualsIgnoreCaseAny(Lang.BellName))
+            if((x.ObjectKind == ObjectKind.Housing || x.ObjectKind == ObjectKind.EventObj) && ObjectNameEqualsAny(x, Lang.BellName))
             {
                 var distance = extend && VoyageUtils.Workshops.Contains(Svc.ClientState.TerritoryType) ? 20f : GetValidInteractionDistance(x);
-                if(Vector3.Distance(x.Position, Svc.ClientState.LocalPlayer.Position) < distance && x.IsTargetable)
+                if(Vector3.Distance(x.Position, Svc.Objects.LocalPlayer.Position) < distance && x.IsTargetable)
+                {
+                    return x;
+                }
+            }
+        }
+        return null;
+    }
+
+    // Finds the Company Workshop's "adventurer doll" NPC, used to reach the
+    // Free Company Credit Shop. Matched by name substring since it carries a
+    // per-instance numeric suffix (e.g. "冒險人偶014號") that rules out an
+    // exact-name match like the bell/panel use.
+    internal static IGameObject GetNearestAdventurerDoll(out float Distance)
+    {
+        var currentDistance = float.MaxValue;
+        IGameObject currentObject = null;
+        foreach(var x in Svc.Objects)
+        {
+            if(x.IsTargetable && x.Name.ToString().ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.AdventurerDollNamePart))
+            {
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
+                if(distance < currentDistance)
+                {
+                    currentDistance = distance;
+                    currentObject = x;
+                }
+            }
+        }
+        Distance = currentDistance;
+        return currentObject;
+    }
+
+    internal static IGameObject GetReachableAdventurerDoll()
+    {
+        if(Player.Object is null) return null;
+        foreach(var x in Svc.Objects)
+        {
+            if(x.Name.ToString().ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.AdventurerDollNamePart))
+            {
+                if(Vector3.Distance(x.Position, Svc.Objects.LocalPlayer.Position) < GetValidInteractionDistance(x) && x.IsTargetable)
                 {
                     return x;
                 }
@@ -961,7 +1330,7 @@ public static unsafe class Utils
 
     internal static bool AnyRetainersAvailableCurrentChara()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var data))
         {
             return data.GetEnabledRetainers().Any(z => z.GetVentureSecondsRemaining() <= C.UnsyncCompensation);
         }
@@ -1008,6 +1377,8 @@ public static unsafe class Utils
     }
 
     internal static bool GenericThrottle => FrameThrottler.Throttle("AutoRetainerGenericThrottle", Utils.FrameDelay);
+    /// <summary>此刻呼叫 <see cref="GenericThrottle"/> 會不會放行；只看、不消耗。</summary>
+    internal static bool GenericThrottleOpen => FrameThrottler.Check("AutoRetainerGenericThrottle");
     internal static void RethrottleGeneric(int num)
     {
         FrameThrottler.Throttle("AutoRetainerGenericThrottle", num, true);
@@ -1019,12 +1390,12 @@ public static unsafe class Utils
 
     internal static bool TrySelectSpecificEntry(string text, Func<bool> Throttler = null)
     {
-        return TrySelectSpecificEntry(new string[] { text }, Throttler);
+        return TrySelectSpecificEntryCore(EntryMatch.Single, text, null, null, Throttler);
     }
 
     internal static bool TrySelectSpecificEntry(IEnumerable<string> text, Func<bool> Throttler = null)
     {
-        return TrySelectSpecificEntry((x) => x.StartsWithAny(text), Throttler);
+        return TrySelectSpecificEntryCore(EntryMatch.Many, null, text, null, Throttler);
         /*if (TryGetAddonByName<AddonSelectString>("SelectString", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
             var entry = GetEntries(addon).FirstOrDefault(x => x.EqualsAny(text));
@@ -1048,16 +1419,42 @@ public static unsafe class Utils
 
     internal static bool TrySelectSpecificEntry(Func<string, bool> inputTextTest, Func<bool> Throttler = null)
     {
+        return TrySelectSpecificEntryCore(EntryMatch.Predicate, null, null, inputTextTest, Throttler);
+    }
+
+    private enum EntryMatch { Single, Many, Predicate }
+
+    /// <remarks>
+    /// 與 <c>new AddonMaster.SelectString(addon).Entries.TryGetFirst(x =&gt; !TextIsUnstable(x.Text) &amp;&amp; 比對(x.Text))</c>
+    /// 選同一項、送同一個 callback（<c>Entry.Select()</c>＝<c>Callback.Fire(addon, true, 索引)</c>）。
+    /// 比對照舊：單一字串＝<c>StartsWith(Ordinal)</c>、多個＝ECommons <c>StartsWithAny</c>（預設 Ordinal）。
+    /// 任務每幀輪詢這支：每項文字只讀一次，不建 AddonMaster、陣列與閉包。
+    /// </remarks>
+    private static bool TrySelectSpecificEntryCore(EntryMatch mode, string single, IEnumerable<string> many, Func<string, bool> inputTextTest, Func<bool> Throttler)
+    {
         if(TryGetAddonByName<AddonSelectString>("SelectString", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
-            if(new AddonMaster.SelectString(addon).Entries.TryGetFirst(x => inputTextTest(x.Text), out var entry))
+            // 讀到 U+FFFD 的選項這一幀不碰(窗記憶體正在變動);選項按下即關窗,所以整扇 SelectString 一把 key。
+            // 🔑 這支是全外掛 SelectString 選項按下的唯一咽喉,在這裡接守衛就罩住全部呼叫端。
+            var count = addon->PopupMenu.PopupMenu.EntryCount;
+            for(var i = 0; i < count; i++)
             {
-                if((Throttler?.Invoke() ?? GenericThrottle))
+                var text = GetSelectStringEntryText(addon, i);
+                if(DialogGuards.TextIsUnstable(text)) continue;
+                var match = mode switch
                 {
-                    entry.Select();
-                    DebugLog($"TrySelectSpecificEntry: selecting {entry}");
+                    EntryMatch.Single => text.StartsWith(single, StringComparison.Ordinal),
+                    EntryMatch.Many => StartsWithAnyOrdinal(text, many),
+                    _ => inputTextTest(text),
+                };
+                if(!match) continue;
+                if((Throttler?.Invoke() ?? GenericThrottle) && DialogGuards.TryPressOnce("SelectString", (nint)addon, "TrySelectSpecificEntry"))
+                {
+                    Callback.Fire((AtkUnitBase*)addon, true, i);
+                    DebugLog($"TrySelectSpecificEntry: selecting AddonMaster.SelectString.Entry [Text=\"{text}\", Index={i}]");
                     return true;
                 }
+                return false;
             }
         }
         else
@@ -1065,6 +1462,43 @@ public static unsafe class Utils
             RethrottleGeneric();
         }
         return false;
+    }
+
+    /// <summary>等同 ECommons <c>text.StartsWithAny(values)</c>（Ordinal）；陣列直接走訪，不配列舉器。</summary>
+    private static bool StartsWithAnyOrdinal(string text, IEnumerable<string> values)
+    {
+        if(values is not string[] arr) return text.StartsWithAny(values);
+        foreach(var x in arr)
+        {
+            if(text.StartsWith(x, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    // 只給框架執行緒用（TrySelectSpecificEntry 的呼叫端都是任務回呼）：第 i 項上一次讀到的位元組與解出的文字。
+    private static byte[][] SelectStringEntryBytes = [];
+    private static string[] SelectStringEntryTexts = [];
+
+    /// <summary>等同 <c>AddonMaster.SelectString.Entry.Text</c>；該項位元組與上次相同就沿用上次的字串（文字只由這段位元組決定）。</summary>
+    internal static string GetSelectStringEntryText(AddonSelectString* addon, int index)
+    {
+        var menu = &addon->PopupMenu.PopupMenu;
+        // 讀不到時與 TryGetPopupMenuEntryName 回 false 同一個結果：空字串。
+        if(menu->EntryNames == null || index < 0 || index >= menu->EntryCount) return string.Empty;
+        var p = menu->EntryNames[index].Value;
+        if(p == null) return string.Empty;
+        var raw = MemoryMarshal.CreateReadOnlySpanFromNullTerminated(p);
+        if(index >= SelectStringEntryTexts.Length)
+        {
+            Array.Resize(ref SelectStringEntryBytes, index + 1);
+            Array.Resize(ref SelectStringEntryTexts, index + 1);
+        }
+        var cached = SelectStringEntryTexts[index];
+        if(cached != null && raw.SequenceEqual(SelectStringEntryBytes[index])) return cached;
+        var text = (GenericHelpers.GetPopupMenuEntryName(menu, index) ?? (Dalamud.Game.Text.SeStringHandling.SeString)string.Empty).GetText();
+        SelectStringEntryBytes[index] = raw.ToArray();
+        SelectStringEntryTexts[index] = text;
+        return text;
     }
 
     internal static List<string> GetEntries(AddonSelectString* addon)
@@ -1106,12 +1540,12 @@ public static unsafe class Utils
 
     internal static float GetAngleTo(Vector2 pos)
     {
-        return (MathHelper.GetRelativeAngle(Svc.ClientState.LocalPlayer.Position.ToVector2(), pos) + Svc.ClientState.LocalPlayer.Rotation.RadToDeg()) % 360;
+        return (MathHelper.GetRelativeAngle(Svc.Objects.LocalPlayer.Position.ToVector2(), pos) + Svc.Objects.LocalPlayer.Rotation.RadToDeg()) % 360;
     }
 
     internal static bool IsApartmentEntrance(this IGameObject obj)
     {
-        return obj.Name.ToString().EqualsIgnoreCase(Lang.ApartmentEntrance);
+        return ObjectNameEquals(obj, Lang.ApartmentEntrance);
     }
 
     internal static IGameObject GetNearestEntrance(out float Distance)
@@ -1121,9 +1555,9 @@ public static unsafe class Utils
 
         foreach(var x in Svc.Objects)
         {
-            if(x.IsTargetable && x.Name.ToString().EqualsIgnoreCaseAny([.. Lang.Entrance/*, Lang.ApartmentEntrance*/]))
+            if(x.IsTargetable && ObjectNameEqualsAny(x, Lang.Entrance))
             {
-                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
                 if(distance < currentDistance)
                 {
                     currentDistance = distance;
@@ -1140,7 +1574,7 @@ public static unsafe class Utils
     {
         foreach(var x in Svc.Objects)
         {
-            if(x.IsTargetable && x.Name.ToString().EqualsIgnoreCaseAny(Lang.Entrance))
+            if(x.IsTargetable && ObjectNameEqualsAny(x, Lang.Entrance))
             {
                 var distance = Vector3.Distance(pos, x.Position);
                 if(distance < 1f)
@@ -1158,13 +1592,14 @@ public static unsafe class Utils
         {
             try
             {
-                var addon = (AtkUnitBase*)Svc.GameGui.GetAddonByName("SelectYesno", i);
+                var addon = (AtkUnitBase*)Svc.GameGui.GetAddonByName("SelectYesno", i).Address;
                 if(addon == null) return null;
                 if(IsAddonReady(addon))
                 {
-                    var textNode = addon->UldManager.NodeList[15]->GetAsAtkTextNode();
-                    var text = GenericHelpers.ReadSeString(&textNode->NodeText).GetText();
-                    if(compare(text))
+                    // 取不到節點就當這個 SelectYesno「不是我們要找的那個」繼續往下掃(fail-closed):
+                    // 沒讀到文字時不能讓 compare 拿空字串去判，否則會把「讀不到」誤判成「內容為空的相符」。
+                    // 讀到 U+FFFD ＝ 這扇窗的記憶體正在變動(多半是關閉中),這一幀不碰它、掃下一扇。
+                    if(TryGetNodeText(&addon->UldManager, 15, out var text) && !DialogGuards.TextIsUnstable(text) && compare(text))
                     {
                         PluginLog.Verbose($"SelectYesno {text} addon {i} by predicate");
                         return addon;
@@ -1186,13 +1621,14 @@ public static unsafe class Utils
         {
             try
             {
-                var addon = (AtkUnitBase*)Svc.GameGui.GetAddonByName("SelectYesno", i);
+                var addon = (AtkUnitBase*)Svc.GameGui.GetAddonByName("SelectYesno", i).Address;
                 if(addon == null) return null;
                 if(IsAddonReady(addon))
                 {
-                    var textNode = addon->UldManager.NodeList[15]->GetAsAtkTextNode();
-                    var text = textNode->NodeText.GetText().Cleanup();
-                    if(text.ContainsAny(s.Select(x => x.Cleanup())))
+                    // 讀不到（或讀到 U+FFFD）就跳過這個 addon，不要拿空字串去做包含比對。
+                    if(TryGetNodeText(&addon->UldManager, 15, out var rawText)
+                        && !DialogGuards.TextIsUnstable(rawText)
+                        && rawText.Cleanup().ContainsAny(s.Select(x => x.Cleanup())))
                     {
                         PluginLog.Verbose($"SelectYesno {s.Print()} addon {i}");
                         return addon;
@@ -1225,18 +1661,53 @@ public static unsafe class Utils
 
     internal static bool IsCurrentRetainerEnabled()
     {
-        return TryGetCurrentRetainer(out var ret) && C.SelectedRetainers.TryGetValue(Svc.ClientState.LocalContentId, out var rets) && rets.Contains(ret);
+        return TryGetCurrentRetainer(out var ret) && C.SelectedRetainers.TryGetValue(Svc.PlayerState.ContentId, out var rets) && rets.Contains(ret);
     }
 
+    /// <summary>離玩家最近的僱員 NPC 的名字。</summary>
+    /// <remarks>
+    /// 與 <c>Where(僱員).OrderBy(距離).First()</c> 同一個結果：距離最小的那個，同距離取物件表裡排前面的
+    /// （<see cref="Comparer{T}.Default"/> 的順序，NaN 最小）。只在框架執行緒呼叫；物件包裝只在這次呼叫內使用。
+    /// </remarks>
     internal static bool TryGetCurrentRetainer(out string name)
     {
-        if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && ProperOnLogin.PlayerPresent && Svc.Objects.Where(x => x.ObjectKind == ObjectKind.Retainer).OrderBy(x => Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position)).TryGetFirst(out var obj))
+        if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && ProperOnLogin.PlayerPresent)
         {
-            name = obj.Name.ToString();
-            return true;
+            IGameObject nearest = null;
+            var nearestDistance = 0f;
+            foreach(var x in Svc.Objects)
+            {
+                if(x.ObjectKind != ObjectKind.Retainer) continue;
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
+                if(nearest == null || Comparer<float>.Default.Compare(distance, nearestDistance) < 0)
+                {
+                    nearest = x;
+                    nearestDistance = distance;
+                }
+            }
+            if(nearest != null)
+            {
+                name = GetRetainerObjectName(nearest);
+                return true;
+            }
         }
         name = default;
         return false;
+    }
+
+    private static byte[] RetainerObjectNameBytes = [];
+    private static string RetainerObjectName;
+
+    /// <summary>與 <c>obj.Name.ToString()</c> 相同。Dalamud 的 Name 是原生 GameObject.Name 那段位元組解析出來的，位元組沒變就沿用上一次的字串。</summary>
+    private static string GetRetainerObjectName(IGameObject obj)
+    {
+        var raw = ((FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)obj.Address)->Name;
+        if(RetainerObjectName != null && raw.SequenceEqual(RetainerObjectNameBytes)) return RetainerObjectName;
+        var name = obj.Name.ToString();
+        if(RetainerObjectNameBytes.Length != raw.Length) RetainerObjectNameBytes = new byte[raw.Length];
+        raw.CopyTo(RetainerObjectNameBytes);
+        RetainerObjectName = name;
+        return name;
     }
 
     internal static uint GetVenturesAmount()
@@ -1247,6 +1718,26 @@ public static unsafe class Utils
     internal static bool IsInventoryFree()
     {
         return GetInventoryFreeSlotCount() >= C.MultiMinInventorySlots;
+    }
+
+    /// <summary>Whether the player's own inventory can be read right now at all.
+    /// 🔴 <see cref="GetInventoryFreeSlotCount"/> skips containers it cannot read, so "not loaded yet" and "completely full" both come back as 0.
+    /// The containers are genuinely unreadable while zoning and for a short window after login, both of which the retainer/multi-mode flow hits constantly (it relogs between characters by design).
+    /// ⚠️ Deliberately NOT folded into <see cref="IsInventoryFree"/>: that would answer "yes, free" for an inventory nobody has read.
+    /// </summary>
+    internal static bool IsInventoryStateReadable()
+    {
+        if(!Player.Available) return false;
+        if(Svc.Condition[ConditionFlag.BetweenAreas] || Svc.Condition[ConditionFlag.BetweenAreas51]) return false;
+        var c = InventoryManager.Instance();
+        if(c == null) return false;
+        ReadOnlySpan<InventoryType> types = [InventoryType.Inventory1, InventoryType.Inventory2, InventoryType.Inventory3, InventoryType.Inventory4];
+        foreach(var x in types)
+        {
+            var inv = c->GetInventoryContainer(x);
+            if(inv == null || inv->Items == null || inv->Size <= 0) return false;
+        }
+        return true;
     }
 
     internal static void ResetEscIgnoreByWindows()
@@ -1275,7 +1766,48 @@ public static unsafe class Utils
     {
         return o != null &&
             (o.ObjectKind == ObjectKind.EventObj || o.ObjectKind == ObjectKind.Housing)
-            && o.Name.ToString().EqualsIgnoreCaseAny(Lang.BellName);
+            && ObjectNameEqualsAny(o, Lang.BellName);
+    }
+
+    private const int ObjectNameBytes = 64;
+
+    /// <summary>
+    /// 把物件名字解碼到 <paramref name="buffer"/>；名字裡有 SeString 巨集（0x02）時回 false，呼叫端改走 <c>obj.Name.ToString()</c>。
+    /// 不含 0x02 時 Dalamud 的 <c>Name.ToString()</c> 就是第一個 NUL 之前那段的 UTF-8 解碼，兩者逐字相同。
+    /// </summary>
+    private static bool TryReadPlainObjectName(IGameObject obj, Span<char> buffer, out int length)
+    {
+        var raw = ((FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)obj.Address)->Name;
+        var end = raw.IndexOf((byte)0);
+        ReadOnlySpan<byte> bytes = end >= 0 ? raw[..end] : raw;
+        if(bytes.Length > buffer.Length || bytes.IndexOf((byte)2) >= 0)
+        {
+            length = 0;
+            return false;
+        }
+        length = Encoding.UTF8.GetChars(bytes, buffer);
+        return true;
+    }
+
+    /// <summary>即 <c>obj.Name.ToString().EqualsIgnoreCase(value)</c>，但不建字串。<paramref name="value"/> 不可為 null（呼叫端給的都是讀表字串）。</summary>
+    internal static bool ObjectNameEquals(IGameObject obj, string value)
+    {
+        Span<char> buffer = stackalloc char[ObjectNameBytes];
+        if(!TryReadPlainObjectName(obj, buffer, out var length)) return obj.Name.ToString().EqualsIgnoreCase(value);
+        return value.AsSpan().Equals(buffer[..length], StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>即 <c>obj.Name.ToString().EqualsIgnoreCaseAny(values)</c>（依序比、第一個相符就停），但不建字串。元素不可為 null。</summary>
+    internal static bool ObjectNameEqualsAny(IGameObject obj, string[] values)
+    {
+        Span<char> buffer = stackalloc char[ObjectNameBytes];
+        if(!TryReadPlainObjectName(obj, buffer, out var length)) return obj.Name.ToString().EqualsIgnoreCaseAny(values);
+        var name = buffer[..length];
+        foreach(var v in values)
+        {
+            if(v.AsSpan().Equals(name, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     internal static long GetVentureSecondsRemaining(this GameRetainerManager.Retainer ret, bool allowNegative = true)
@@ -1297,9 +1829,10 @@ public static unsafe class Utils
             retainer = default;
             return false;
         }
-        for(var i = 0; i < GameRetainerManager.Count; i++)
+        var retainers = GameRetainerManager.Retainers;
+        for(var i = 0; i < retainers.Count; i++)
         {
-            var r = GameRetainerManager.Retainers[i];
+            var r = retainers[i];
             if(r.Name.ToString() == name)
             {
                 retainer = r;
@@ -1310,14 +1843,21 @@ public static unsafe class Utils
         return false;
     }
 
+    /// <remarks>
+    /// 讀不到的容器一律跳過、繼續累加，也就是**只可能少算空格不可能多算**。所有呼叫端都是拿結果去跟下限比
+    /// （<c>&gt;= MultiMinInventorySlots</c>、<c>&lt; Max(5, UIWarningRetSlotNum)</c> 等），少算一律讓判斷倒向
+    /// 「背包不夠、先不要動作」。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     internal static int GetInventoryFreeSlotCount()
     {
-        InventoryType[] types = [InventoryType.Inventory1, InventoryType.Inventory2, InventoryType.Inventory3, InventoryType.Inventory4];
+        ReadOnlySpan<InventoryType> types = [InventoryType.Inventory1, InventoryType.Inventory2, InventoryType.Inventory3, InventoryType.Inventory4];
         var c = InventoryManager.Instance();
         var slots = 0;
         foreach(var x in types)
         {
             var inv = c->GetInventoryContainer(x);
+            if(inv == null || inv->Items == null) continue;
             for(var i = 0; i < inv->Size; i++)
             {
                 if(inv->Items[i].ItemId == 0)
@@ -1331,45 +1871,6 @@ public static unsafe class Utils
 
 
 
-    internal static bool TryParseRetainerName(string s, out string retainer)
-    {
-        retainer = default;
-        if(!GameRetainerManager.Ready)
-        {
-            return false;
-        }
-        for(var i = 0; i < GameRetainerManager.Count; i++)
-        {
-            var r = GameRetainerManager.Retainers[i];
-            var rname = r.Name.ToString();
-            if(s.Contains(rname) && (retainer == null || rname.Length > retainer.Length))
-            {
-                retainer = rname;
-            }
-        }
-        return retainer != default;
-    }
-
-    private static bool PopupContains(string source, string name)
-    {
-        if(Svc.Data.Language == ClientLanguage.Japanese)
-        {
-            return source.Contains($"（{name}）");
-        }
-        else if(Svc.Data.Language == ClientLanguage.French)
-        {
-            return source.Contains($"Menu de {name}");
-        }
-        else if(Svc.Data.Language == ClientLanguage.German)
-        {
-            return source.Contains($"Du hast {name}");
-        }
-        else
-        {
-            return source.Contains($"Retainer: {name}");
-        }
-    }
-
     internal static IGameObject GetNearestWorkshopEntrance(out float Distance)
     {
         Utils.ExtraLog($"GetNearestWorkshopEntrance: Begin");
@@ -1378,9 +1879,9 @@ public static unsafe class Utils
         foreach(var x in Svc.Objects)
         {
             Utils.ExtraLog($"GetNearestWorkshopEntrance: Scanning object table: object={x}, targetable={x.IsTargetable}");
-            if(x.IsTargetable && x.Name.ToString().EqualsIgnoreCaseAny(Lang.AdditionalChambersEntrance))
+            if(x.IsTargetable && ObjectNameEqualsAny(x, Lang.AdditionalChambersEntrance))
             {
-                var distance = Vector3.Distance(Svc.ClientState.LocalPlayer.Position, x.Position);
+                var distance = Vector3.Distance(Svc.Objects.LocalPlayer.Position, x.Position);
                 Utils.ExtraLog($"GetNearestWorkshopEntrance: check passed, object={x}, targetable={x.IsTargetable}, distance={distance}");
                 if(distance < currentDistance)
                 {

@@ -10,6 +10,9 @@ internal static unsafe class TaskFinalizeVessel
         VoyageUtils.Log($"Task enqueued: {nameof(TaskFinalizeVessel)} name={name}, type={type}, quit={quit}");
         TaskSelectVesselByName.Enqueue(name, type);
         P.TaskManager.Enqueue(VoyageScheduler.WaitUntilFinalizeDeployAddonExists);
+        // 🔑 結算收穫之前先送歸因提示。飛空艇不送：GilDelta 沒有對應的分類。
+        if(type == VoyageType.Submersible)
+            P.TaskManager.Enqueue(() => { GilDeltaIPC.HintSubmarineReturn(name); return true; }, "GilDeltaHintSubmarineReturn");
         P.TaskManager.Enqueue(VoyageScheduler.FinalizeVessel);
         P.TaskManager.Enqueue(() => TryGetAddonByName<AtkUnitBase>("SelectString", out var addon) && IsAddonReady(addon), "WaitForSelectStringAddon");
         TaskIntelligentRepair.Enqueue(name, type);

@@ -17,44 +17,54 @@ internal static unsafe class VentureUtils
         return GenericHelpers.IsNullOrEmpty(s);
     }
 
+    private const int PreviewBefore = 8;
+    private const int PreviewAfter = 10;
+    // 只在繪製執行緒使用（懸停提示），所以共用一份。
+    private static readonly (Vector4? col, string str)[] PreviewRows = new (Vector4? col, string str)[PreviewBefore + PreviewAfter];
+
     internal static void BuildUnwrappedList(AdditionalRetainerData adata, OfflineCharacterData data, OfflineRetainerData ret)
     {
         try
         {
-            if(adata.VenturePlan.ListUnwrapped.Count > 500)
+            // 懸停時每幀跑：不建展開清單，只替顯示範圍（焦點前 8、後 10 項）組探險名稱。
+            // 刻意不替範圍外的項目組名稱：那裡的名稱若擲例外，因此不會再記 log。
+            var count = adata.VenturePlan.GetUnwrappedCount();
+            if(count > 500)
             {
                 ImGuiEx.Text($"The venture list is too large to show preview.");
-                ImGuiEx.Text($"Progress: {adata.VenturePlanIndex}/{adata.VenturePlan.ListUnwrapped.Count}");
+                ImGuiEx.Text($"Progress: {adata.VenturePlanIndex}/{count}");
                 return;
             }
-            List<(Vector4? col, string str)> strings = [];
-            var focus = 0;
-            for(var j = 0; j < adata.VenturePlan.ListUnwrapped.Count; j++)
+            var focus = adata.VenturePlanIndex >= 1 && adata.VenturePlanIndex - 1 < count ? (int)(adata.VenturePlanIndex - 1) : 0;
+            var min = Math.Max(focus - PreviewBefore, 0);
+            var max = Math.Min(focus + PreviewAfter, count);
+            var filled = 0;
+            var j = 0;
+            foreach(var v in adata.VenturePlan.List)
             {
-                var v = adata.VenturePlan.ListUnwrapped[j];
-                if(j == adata.VenturePlanIndex - 1)
+                if(j >= max) break;
+                for(var k = 0; k < v.Num && j < max; k++, j++)
                 {
-                    focus = j;
-                    strings.Add((ImGuiColors.ParsedGreen, $"{VentureUtils.GetFancyVentureName(v, data, ret, out _)}"));
-                }
-                else if(j == adata.VenturePlanIndex || (j == 0 && adata.VenturePlan.PlanCompleteBehavior == PlanCompleteBehavior.Restart_plan && adata.VenturePlanIndex >= adata.VenturePlan.ListUnwrapped.Count))
-                {
-                    strings.Add((ImGuiColors.DalamudYellow, $"{VentureUtils.GetFancyVentureName(v, data, ret, out _)}"));
-                }
-                else
-                {
-                    strings.Add((null, $"{VentureUtils.GetFancyVentureName(v, data, ret, out _)}"));
+                    if(j < min) continue;
+                    Vector4? col = null;
+                    if(j == adata.VenturePlanIndex - 1)
+                    {
+                        col = ImGuiColors.ParsedGreen;
+                    }
+                    else if(j == adata.VenturePlanIndex || (j == 0 && adata.VenturePlan.PlanCompleteBehavior == PlanCompleteBehavior.Restart_plan && adata.VenturePlanIndex >= count))
+                    {
+                        col = ImGuiColors.DalamudYellow;
+                    }
+                    PreviewRows[filled++] = (col, VentureUtils.GetFancyVentureName(v.ID, data, ret, out _));
                 }
             }
-            var min = Math.Max(focus - 8, 0);
-            var max = Math.Min(focus + 10, strings.Count);
             if(min != 0) ImGuiEx.Text($"... {min} more ...");
-            for(var i = min; i < max; i++)
+            for(var i = 0; i < filled; i++)
             {
-                var s = strings[i];
+                var s = PreviewRows[i];
                 ImGuiEx.Text(s.col, s.str);
             }
-            if(max != strings.Count) ImGuiEx.Text($"... {strings.Count - max} more ...");
+            if(max != count) ImGuiEx.Text($"... {count - max} more ...");
         }
         catch(Exception e)
         {
@@ -73,6 +83,14 @@ internal static unsafe class VentureUtils
                 next = adj;
             }
         }
+        // next 的兩個來源都不可信：①委託計畫存在設定檔裡(可跨版本殘留、可從剪貼簿貼入)
+        // ②IPC 的 SetVenture 讓任何外掛塞進任意 uint。本函式位在 Svc.Framework.Update -> SchedulerMain.Tick 的每幀路徑上，
+        // 查無此列時不能讓 Lumina 擲例外（會每幀洗版並把排程打斷）：在這裡一次擋掉，底下只用 nextTask。
+        if(!Svc.Data.GetExcelSheet<RetainerTask>().TryGetRow(next, out var nextTask))
+        {
+            PluginLog.Information($"[AutoRetainer] 委託 ID {next} 不存在於本地 RetainerTask 資料表，略過本次委託指派。請檢查委託計畫是否來自其他服務版本。");
+            return;
+        }
         DebugLog($"Not completed or restarting");
         if(ret.VentureID != 0)
         {
@@ -86,12 +104,12 @@ internal static unsafe class VentureUtils
             {
                 DebugLog($"Collecting");
                 TaskCollectVenture.Enqueue();
-                if(VentureUtils.GetVentureById(next).IsFieldExploration())
+                if(nextTask.IsFieldExploration())
                 {
                     DebugLog($"Assigning field exploration: {next}");
                     TaskAssignFieldExploration.Enqueue(next);
                 }
-                else if(VentureUtils.GetVentureById(next).IsQuickExploration())
+                else if(nextTask.IsQuickExploration())
                 {
                     DebugLog($"Assigning quick: {next}");
                     TaskAssignQuickVenture.Enqueue();
@@ -106,12 +124,12 @@ internal static unsafe class VentureUtils
         else
         {
             DebugLog($"Venture not assigned");
-            if(VentureUtils.GetVentureById(next).IsFieldExploration())
+            if(nextTask.IsFieldExploration())
             {
                 DebugLog($"Assigning field exploration: {next}");
                 TaskAssignFieldExploration.Enqueue(next);
             }
-            else if(VentureUtils.GetVentureById(next).IsQuickExploration())
+            else if(nextTask.IsQuickExploration())
             {
                 DebugLog($"Assigning quick: {next}");
                 TaskAssignQuickVenture.Enqueue();
@@ -126,7 +144,14 @@ internal static unsafe class VentureUtils
 
     internal static int GetVentureItemAmount(uint Task, OfflineCharacterData data, OfflineRetainerData retainer, out int index)
     {
-        return GetVentureById(Task).GetVentureItemAmount(data, retainer, out index);
+        var task = GetVentureById(Task);
+        if(task == null)
+        {
+            // 委託 ID 不存在於本地資料表：回 0 而不是讓 Lumina 擲例外。
+            index = 0;
+            return 0;
+        }
+        return task.Value.GetVentureItemAmount(data, retainer, out index);
     }
 
     internal static int GetVentureItemAmount(this RetainerTask task, OfflineCharacterData data, OfflineRetainerData retainer, out int index)
@@ -229,7 +254,15 @@ internal static unsafe class VentureUtils
 
     internal static string GetFancyVentureName(uint Task, OfflineCharacterData data, OfflineRetainerData retainer, out bool Available)
     {
-        return GetVentureById(Task).GetFancyVentureName(data, retainer, out Available);
+        var task = GetVentureById(Task);
+        if(task == null)
+        {
+            // 委託計畫存在設定檔裡，可能跨版本殘留或從剪貼簿貼入無效 ID。
+            // 這裡位在 Draw 路徑上，不要擲例外：把不明 ID 直接顯示出來。
+            Available = false;
+            return $"?{Task}";
+        }
+        return task.Value.GetFancyVentureName(data, retainer, out Available);
     }
 
     internal static string GetFancyVentureName(this RetainerTask Task, OfflineCharacterData data, OfflineRetainerData retainer, out bool Available)
@@ -369,20 +402,22 @@ internal static unsafe class VentureUtils
         return 34;
     }
 
+    // 這兩個是 VenturePlanner 的摺疊標題。Lang.HuntingVentureNames 讀的是遊戲表(客戶端語言),
+    // 所以只去掉英文的句點:無條件切掉最後一個字元會把台服的「）」吃掉。
     internal static string GetHuntingVentureName(uint ClassJob)
     {
-        if(ClassJob == (int)Job.BTN) return Lang.HuntingVentureNames[2][..^1];
-        if(ClassJob == (int)Job.MIN) return Lang.HuntingVentureNames[1][..^1];
-        if(ClassJob == (int)Job.FSH) return Lang.HuntingVentureNames[3][..^1];
-        return Lang.HuntingVentureNames[0][..^1];
+        if(ClassJob == (int)Job.BTN) return Lang.HuntingVentureNames[2].TrimEnd('.');
+        if(ClassJob == (int)Job.MIN) return Lang.HuntingVentureNames[1].TrimEnd('.');
+        if(ClassJob == (int)Job.FSH) return Lang.HuntingVentureNames[3].TrimEnd('.');
+        return Lang.HuntingVentureNames[0].TrimEnd('.');
     }
 
     internal static string GetFieldExVentureName(uint ClassJob)
     {
-        if(ClassJob == (int)Job.BTN) return Lang.FieldExplorationNames[2][..^1];
-        if(ClassJob == (int)Job.MIN) return Lang.FieldExplorationNames[1][..^1];
-        if(ClassJob == (int)Job.FSH) return Lang.FieldExplorationNames[3][..^1];
-        return Lang.FieldExplorationNames[0][..^1];
+        if(ClassJob == (int)Job.BTN) return Lang.FieldExplorationNames[2].TrimEnd('.');
+        if(ClassJob == (int)Job.MIN) return Lang.FieldExplorationNames[1].TrimEnd('.');
+        if(ClassJob == (int)Job.FSH) return Lang.FieldExplorationNames[3].TrimEnd('.');
+        return Lang.FieldExplorationNames[0].TrimEnd('.');
     }
 
     internal static bool IsDoL(uint ClassJob)
@@ -398,21 +433,50 @@ internal static unsafe class VentureUtils
         return Svc.Data.GetExcelSheet<GatheringItem>().AsNullable().FirstOrDefault(x => x?.Item.RowId == itemID)?.RowId ?? 0;
     }
 
-    internal static RetainerTask GetVentureById(uint id)
+    /// <summary>
+    /// 委託 ID 的來源(設定檔內的委託計畫、剪貼簿貼入、IPC)都不保證存在於本地資料表，
+    /// 因此一律走 GetRowOrDefault：查無此列時回 null，由呼叫端決定顯示什麼，
+    /// 不要讓 Lumina 在 Draw / 每幀路徑上擲例外。
+    /// </summary>
+    internal static RetainerTask? GetVentureById(uint id)
     {
-        return Svc.Data.GetExcelSheet<RetainerTask>().GetRow(id);
+        return Svc.Data.GetExcelSheet<RetainerTask>().GetRowOrDefault(id);
     }
+
+    // 只從 UI 繪製呼叫（框架執行緒）；表內容在執行期不變，按職業類別各建一次。
+    private static readonly Dictionary<int, RetainerTask[]> FieldExplorationsByCategory = [];
+    private static readonly Dictionary<int, RetainerTask[]> HuntsByCategory = [];
 
     internal static IEnumerable<RetainerTask> GetFieldExplorations(uint ClassJob)
     {
         var cat = GetCategory(ClassJob);
-        return Svc.Data.GetExcelSheet<RetainerTask>().Where(x => x.ClassJobCategory.Value.RowId == cat).Where(x => x.MaxTimemin == 1080 && !x.GetVentureName().IsNullOrEmpty()).OrderBy(x => x.RetainerLevel);
+        if(!FieldExplorationsByCategory.TryGetValue(cat, out var ret))
+        {
+            ret = BuildFieldExplorations(cat);
+            FieldExplorationsByCategory[cat] = ret;
+        }
+        return ret;
+    }
+
+    private static RetainerTask[] BuildFieldExplorations(int cat)
+    {
+        return [.. Svc.Data.GetExcelSheet<RetainerTask>().Where(x => x.ClassJobCategory.Value.RowId == cat).Where(x => x.MaxTimemin == 1080 && !x.GetVentureName().IsNullOrEmpty()).OrderBy(x => x.RetainerLevel)];
     }
 
     internal static IEnumerable<RetainerTask> GetHunts(uint ClassJob)
     {
         var cat = GetCategory(ClassJob);
-        return Svc.Data.GetExcelSheet<RetainerTask>().Where(x => x.ClassJobCategory.Value.RowId == cat).Where(x => x.MaxTimemin == 60 && !x.GetVentureName().IsNullOrEmpty()).OrderBy(x => x.RetainerLevel);
+        if(!HuntsByCategory.TryGetValue(cat, out var ret))
+        {
+            ret = BuildHunts(cat);
+            HuntsByCategory[cat] = ret;
+        }
+        return ret;
+    }
+
+    private static RetainerTask[] BuildHunts(int cat)
+    {
+        return [.. Svc.Data.GetExcelSheet<RetainerTask>().Where(x => x.ClassJobCategory.Value.RowId == cat).Where(x => x.MaxTimemin == 60 && !x.GetVentureName().IsNullOrEmpty()).OrderBy(x => x.RetainerLevel)];
     }
 
     internal static RetainerTask QuickExploration => Svc.Data.GetExcelSheet<RetainerTask>().GetRow(QuickExplorationID);
@@ -434,7 +498,9 @@ internal static unsafe class VentureUtils
 
     internal static string GetVentureName(uint id)
     {
-        return GetVentureName(Svc.Data.GetExcelSheet<RetainerTask>().GetRow(id));
+        // GetRowOrDefault 而非 GetRow：這個多載的呼叫端包含 IPC.SetVenture(任意 uint)，
+        // 裸 GetRow 會在別的外掛呼叫我們的 IPC 時把例外丟回對方。下面的 RetainerTask? 多載會處理 null(回 null)。
+        return GetVentureName(Svc.Data.GetExcelSheet<RetainerTask>().GetRowOrDefault(id));
     }
 
     internal static string GetVentureName(this RetainerTask task)
@@ -478,7 +544,17 @@ internal static unsafe class VentureUtils
     internal static List<string> GetAvailableVentureNames()
     {
         List<string> ret = [];
-        var data = CSFramework.Instance()->UIModule->GetRaptureAtkModule()->AtkModule.GetStringArrayData(97);
+        // 🔴 索引引用出貨 CS 的列舉、不寫死數字：7.2 → 7.3 在 CastBarEnemy 處插入了一項，寫死的 97 會指到沒有名字的空位，
+        //    後果是靜默的（指定探險永遠比對不到 → 走「Can not find venture id」那條路徑）。
+        // ⚠️ 一定要完整命名空間 —— 本檔的 RetainerTask 是 Lumina 的表格型別，會撞名。
+        // 🔴 四層裸鏈：Framework（可能 null）→ UIModule → GetRaptureAtkModule()（可能 null）→ 陣列，任一層 null 就是攔不到的 AVE；
+        //    讀不到就回空清單 —— 呼叫端本來就要處理「找不到探險名字」那條路徑。
+        var framework = CSFramework.Instance();
+        if(framework == null || framework->UIModule == null) return ret;
+        var atkModule = framework->UIModule->GetRaptureAtkModule();
+        if(atkModule == null) return ret;
+        var data = atkModule->AtkModule.GetStringArrayData(
+            (int)FFXIVClientStructs.FFXIV.Component.GUI.StringArrayType.RetainerTask);
         if(data != null)
         {
             for(var i = 0; i < data->AtkArrayData.Size; i++)
@@ -488,7 +564,7 @@ internal static unsafe class VentureUtils
                 var item = data->StringArray[i];
                 if(item != null)
                 {
-                    var str = MemoryHelper.ReadSeStringNullTerminated((nint)item);
+                    var str = MemoryHelper.ReadSeStringNullTerminated((nint)(byte*)item);
                     ret.Add(str.GetText());
                 }
             }

@@ -1,4 +1,6 @@
-﻿using AutoRetainer.UI.Overlays;
+﻿using AutoRetainer.Internal;
+using AutoRetainer.Services;
+using AutoRetainer.UI.Overlays;
 using AutoRetainerAPI.Configuration;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Utility;
@@ -20,7 +22,7 @@ internal static unsafe class AutoGCHandin
 
     internal static bool IsEnabled()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var d))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var d))
         {
             return d.GCDeliveryType != GCDeliveryType.Disabled;
         }
@@ -28,7 +30,7 @@ internal static unsafe class AutoGCHandin
     }
     internal static bool IsArmoryChestEnabled()
     {
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var d))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var d))
         {
             return d.GCDeliveryType.EqualsAny(GCDeliveryType.Hide_Gear_Set_Items, GCDeliveryType.Show_All_Items);
         }
@@ -38,7 +40,7 @@ internal static unsafe class AutoGCHandin
     internal static bool IsAllItemsEnabled()
     {
         Safety.Check();
-        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var d))
+        if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var d))
         {
             return d.GCDeliveryType == GCDeliveryType.Show_All_Items;
         }
@@ -63,14 +65,18 @@ internal static unsafe class AutoGCHandin
         if(Svc.Condition[ConditionFlag.OccupiedInQuestEvent] && IsEnabled())
         {
             Safety.Check();
+            // 使用者從浮層把自動繳交關掉時，狀態機也要跟著歸零。
+            if(!Operation && Phase != HandinPhase.Idle) ResetPhase();
             if(Operation && HandleConfirmation())
             {
-                PluginLog.Debug($"Handle 1");
                 //
             }
             else if(Operation && HandleYesno())
             {
-                PluginLog.Debug($"Handle 2");
+                //
+            }
+            else if(Operation && HandleWaiting())
+            {
                 //
             }
             else
@@ -81,58 +87,419 @@ internal static unsafe class AutoGCHandin
         else
         {
             if(Overlay.Allowed) Overlay.Allowed = false;
-            if(Operation) Operation = false;
+            if(Operation)
+            {
+                Operation = false;
+                LogSessionStats();
+            }
+            if(Phase != HandinPhase.Idle) ResetPhase();
         }
+    }
+
+    // ── 繳交流程狀態機 ────────────────────────────────────────────────────
+    // 每一步的閘門都是「條件成不成立」，沒有任何固定延遲；不成立就下一幀再試。
+    // 按下交付、獎勵視窗一關掉，就主動對 AgentGrandCompanySupply 送出重選分頁事件逼它當場重建清單（GCSupplyRefresh）。
+    // 逾時只是保險絲：任何一步的假設不成立時，退回「等遊戲自己重建」再重新掃描，不會卡死也不會崩。
+    private enum HandinPhase
+    {
+        /// <summary>可以掃描清單並送出下一件。</summary>
+        Idle,
+        /// <summary>已送出繳交，等繳交確認（獎勵）視窗出現。</summary>
+        AwaitingReward,
+        /// <summary>已按下交付，等獎勵視窗關掉後主動刷新清單。</summary>
+        AwaitingRefresh,
+        /// <summary>已送出刷新事件，等清單筆數真的變了才准掃描。</summary>
+        AwaitingList,
+    }
+
+    private static HandinPhase Phase = HandinPhase.Idle;
+    private static long PhaseEnteredAt;
+    private static uint ListCountAtHandin;
+
+    // 逾時只是保險絲，不是節奏來源。
+    // AwaitingList 的閘門是「清單筆數變了」，主動刷新萬一沒作用，這一段自然退回等遊戲自己重建。
+    // ⚠️ 逾時的下限不能拉太低：FindNextHandinItem 有可能挑到剛剛交掉的那一件，「道具不在背包」而中斷整段繳交。
+    private const int RewardTimeoutMs = 3000;
+    // 走到這裡代表獎勵視窗已經關掉（伺服器確認繳交），代理人卻遲遲不能收事件。
+    // 這種情況下退回「等遊戲自己重建」本來就會成功，不需要空等五秒。
+    // ⚠️ 這道保險絲同時是「AddonId != 0 這個閘門萬一在台服不成立」的成本上限。
+    private const int RefreshTimeoutMs = 1000;
+
+    private const int MinListTimeoutMs = 300;
+    private const int MaxListTimeoutMs = 5000;
+    private const int MinRefreshRetryMs = 50;
+    private const int MaxRefreshRetryMs = 1000;
+
+    /// <summary>清單筆數必須在這段時間內改變，否則放棄主動刷新、退回等遊戲自己重建。</summary>
+    private static int ListSettleTimeoutMs => Math.Clamp(C.GCHandinListTimeoutMs, MinListTimeoutMs, MaxListTimeoutMs);
+    /// <summary>送出刷新事件之後，等這麼久清單還是沒動就補送一次。</summary>
+    private static int RefreshRetryMs => Math.Clamp(C.GCHandinRefreshRetryMs, MinRefreshRetryMs, MaxRefreshRetryMs);
+    /// <summary>一件最多送幾次刷新事件（含第一次）。上限的用途是避免補送退化成每幀狂送。</summary>
+    private const int MaxRefreshSends = 3;
+
+    private const string ThrottlerDeliver = "Handin.Deliver";
+    private const string ThrottlerYesno = "Handin.Yesno";
+
+    // 節奏量測：要使用者回報的診斷。
+    // Grep 標記：GCHandin
+    private static long CycleStartedAt;
+    private static long CycleDeliveredAt;
+    private static long CycleRewardGoneAt;
+    private static long CycleRefreshedAt;
+    /// <summary>這一件的刷新事件送出過幾次。</summary>
+    private static int RefreshSendCount;
+    /// <summary>最後一次送出刷新事件的時刻。</summary>
+    private static long RefreshSentAt;
+    /// <summary>第一次送出時 addon 還沒 ready ——「提早送出」成不成立就看這個。</summary>
+    private static bool CycleSentEarly;
+    /// <summary>刷新之後 addon 第一次變成完全就緒的時刻（IsReadyToOperate 的主要成分）。</summary>
+    private static long CycleAddonReadyAt;
+    /// <summary>獎勵視窗剛消失那一刻，各個閘門的快照。</summary>
+    private static string CycleGateAtRewardGone = "";
+
+    // ── 「等刷新閘門」那半秒是誰欠的 ──────────────────────────────────────
+    // 獎勵視窗一消失，清單視窗就**不存在**，代理人的清單陣列與 AddonId 也都是 0：刷新事件在那一刻沒有對象可送。
+    // 底下三個時刻分開記，才分得出「視窗回來」「代理人清單回來」「代理人重新綁定」是同一件事還是三件事。
+    /// <summary>清單視窗第一次重新存在的時刻。</summary>
+    private static long CycleAddonBackAt;
+    /// <summary>代理人的清單陣列第一次重新可用的時刻。</summary>
+    private static long CycleAgentListBackAt;
+    /// <summary>代理人第一次重新綁上視窗（AddonId != 0）的時刻。</summary>
+    private static long CycleAddonBoundAt;
+
+    // 一整輪（一次自動繳交）的統計，用來算提早送出的成功率與淨效益。
+    private static int StatCycles;
+    private static int StatEarlyOk;
+    private static int StatReadyOk;
+    private static int StatResendOk;
+    private static int StatResends;
+    private static int StatFallback;
+
+    /// <summary>
+    /// 這一趟因為軍票已達上限而中斷過幾次。
+    /// 🔑 軍票續購（<c>C.AutoGCContinuation</c>）開著時這是**正常節奏**的一部分。
+    /// 歸零點只有一個：<see cref="GCExpertDeliveryLoop.Start"/>。刻意不在每一輪繳交結束時歸零。
+    /// </summary>
+    internal static int SealCapPauses;
+
+    private static long NowMs => Environment.TickCount64;
+
+    private static void SetPhase(HandinPhase phase)
+    {
+        Phase = phase;
+        PhaseEnteredAt = NowMs;
+    }
+
+    private static void ResetPhase()
+    {
+        SetPhase(HandinPhase.Idle);
+        CycleStartedAt = CycleDeliveredAt = CycleRewardGoneAt = CycleRefreshedAt = 0;
+        RefreshSendCount = 0;
+        RefreshSentAt = 0;
+        CycleSentEarly = false;
+        CycleAddonReadyAt = 0;
+        CycleGateAtRewardGone = "";
+        CycleAddonBackAt = CycleAgentListBackAt = CycleAddonBoundAt = 0;
+    }
+
+    /// <summary>
+    /// 取樣「獎勵視窗關掉之後，清單重建到哪一步了」，每個子條件各記第一次成立的時刻。
+    /// <para/>
+    /// 回傳值與 <see cref="IsSupplyListAddonReady"/> 相同（送出刷新事件前的就緒狀態），
+    /// 順便讓這一幀只查一次視窗而不是兩次。
+    /// <para/>
+    /// 🔴 取得的原生指標只在這一幀內使用，不保存。
+    /// </summary>
+    private static bool SampleRebuildGates()
+    {
+        var now = NowMs;
+        var hasAddon = TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var list);
+        if(hasAddon && CycleAddonBackAt == 0) CycleAddonBackAt = now;
+        GCSupplyRefresh.SampleAgentGates(out var listArrayBack, out var addonBound);
+        if(listArrayBack && CycleAgentListBackAt == 0) CycleAgentListBackAt = now;
+        if(addonBound && CycleAddonBoundAt == 0) CycleAddonBoundAt = now;
+        return hasAddon && IsAddonReady(list);
+    }
+
+    /// <summary>把重建過程的某個時刻換算成「獎勵視窗關掉之後幾毫秒」，量不到時回 -1。</summary>
+    private static long SinceRewardGone(long at)
+        => at == 0 || CycleRewardGoneAt == 0 ? -1 : at - CycleRewardGoneAt;
+
+    /// <summary>
+    /// 軍需品清單 addon 是否處於 IsAddonReady 的「完全就緒」狀態。
+    /// 主動刷新已經不需要它（見 GCSupplyRefresh 的類別註解），但補送與診斷還是要用。
+    /// </summary>
+    private static bool IsSupplyListAddonReady()
+        => TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var list) && IsAddonReady(list);
+
+    /// <summary>
+    /// 診斷字串：把 ECommons 的 IsAddonReady 拆成三個子條件分開報。
+    /// 「等刷新閘門」那段時間到底是哪一項擋的，只有這樣才看得出來。
+    /// </summary>
+    private static string DescribeSupplyListGate()
+    {
+        if(!TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var list)) return "清單視窗=無";
+        var uldLoaded = list->UldManager.LoadedState == AtkLoadState.Loaded;
+        // 順序刻意跟 IsAddonReady 的短路順序一致：ULD 沒載入完就不要去呼叫 IsFullyLoaded。
+        var fullyLoaded = uldLoaded && list->IsFullyLoaded();
+        return $"清單視窗=有 可見={(list->IsVisible ? 1 : 0)} ULD={(uldLoaded ? 1 : 0)} 已載入={(fullyLoaded ? 1 : 0)}";
+    }
+
+    /// <summary>逐件明細那幾行 Verbose 的組字串成本（查印章、查道具名）只在真的收得到 Verbose 時才付。</summary>
+    /// <remarks>🔴 不可以改判 <c>Svc.Log.MinimumLogLevel</c>：ECommons 的 <c>Init</c> 無條件把它設成 Verbose，
+    /// 那個判斷式恆真、等於沒有閘門。這裡與 <c>InternalLog.CaptureLevel</c> 取同一個來源。</remarks>
+    private static bool VerboseWanted
+        => global::Dalamud.EntryPoint.LogLevelSwitch.MinimumLevel <= Serilog.Events.LogEventLevel.Verbose;
+
+    /// <param name="fellBack">true 代表這一件沒等到清單變化，是靠逾時退回舊路徑收尾的。</param>
+    private static void LogCycle(bool fellBack = false)
+    {
+        if(CycleStartedAt == 0) return;
+        var now = NowMs;
+        string outcome;
+        StatCycles++;
+        if(fellBack)
+        {
+            outcome = $"退回等遊戲重建(已送出{RefreshSendCount}次)";
+            StatFallback++;
+        }
+        else if(RefreshSendCount > 1)
+        {
+            outcome = $"補送{RefreshSendCount - 1}次後成功";
+            StatResendOk++;
+        }
+        else if(CycleSentEarly)
+        {
+            outcome = "提早送出即成功";
+            StatEarlyOk++;
+        }
+        else
+        {
+            outcome = "等就緒後送出";
+            StatReadyOk++;
+        }
+        // 逐件明細走 Verbose、本輪統計留 Information：這一行每件一筆，量大到會淹掉同級的其他訊息。
+        if(VerboseWanted) PluginLog.Verbose(
+            $"[GCHandin] 每件 {now - CycleStartedAt}ms | " +
+            $"送出→按交付 {(CycleDeliveredAt == 0 ? -1 : CycleDeliveredAt - CycleStartedAt)}ms | " +
+            $"交付→主動刷新 {(CycleDeliveredAt == 0 || CycleRefreshedAt == 0 ? -1 : CycleRefreshedAt - CycleDeliveredAt)}ms " +
+            // 拆開「交付→主動刷新」的兩段：前段是遊戲自己把獎勵視窗收掉（＝伺服器確認繳交），
+            // 後段才是我們送刷新事件的閘門。前段幾乎等於全部的話那就是下限，不要再往這裡調。
+            $"(等獎勵視窗關閉 {(CycleDeliveredAt == 0 || CycleRewardGoneAt == 0 ? -1 : CycleRewardGoneAt - CycleDeliveredAt)}ms + " +
+            $"等刷新閘門 {(CycleRewardGoneAt == 0 || CycleRefreshedAt == 0 ? -1 : CycleRefreshedAt - CycleRewardGoneAt)}ms) | " +
+            $"刷新→清單更新 {(CycleRefreshedAt == 0 ? -1 : now - CycleRefreshedAt)}ms" +
+            // 以下是為了判斷「提早送出」值不值得而加的：結果分類、末次送出到清單更新的距離
+            // （0~16ms 代表是那次送出造成的；幾百毫秒代表其實是遊戲自己重建完的），
+            // 以及獎勵視窗剛消失那一刻各個閘門的狀態。
+            $" | 結果={outcome} | 刷新送出 {RefreshSendCount} 次 | " +
+            $"末次刷新→清單更新 {(RefreshSentAt == 0 ? -1 : now - RefreshSentAt)}ms | " +
+            // 下一件的掃描被 IsReadyToOperate 擋著，所以這一項才是「提早送出有沒有真的省到」的答案：
+            // 它接近 0 代表刷新事件本身讓視窗提早就緒（真的有省）；它仍是一兩百毫秒代表視窗就緒
+            // 是獨立於刷新的過程，提早送出只是把等待換了個位置。
+            $"刷新→視窗就緒 {(CycleRefreshedAt == 0 || CycleAddonReadyAt == 0 ? -1 : CycleAddonReadyAt - CycleRefreshedAt)}ms | " +
+            // 「等刷新閘門」那段時間的拆解：三者都相對於獎勵視窗消失那一刻。
+            // 若三個數字幾乎相同，代表遊戲是一口氣把視窗與代理人一起帶回來的，
+            // 那段等待就是遊戲自己的下限；若「視窗回來」明顯早於「重新綁定」，
+            // 差額才是還有機會省下來的部分。
+            $"重建(相對視窗關閉) 視窗回來 {SinceRewardGone(CycleAddonBackAt)}ms / " +
+            $"代理人清單 {SinceRewardGone(CycleAgentListBackAt)}ms / " +
+            $"重新綁定 {SinceRewardGone(CycleAddonBoundAt)}ms | " +
+            $"閘門@視窗關閉 {CycleGateAtRewardGone}");
+        CycleStartedAt = CycleDeliveredAt = CycleRewardGoneAt = CycleRefreshedAt = 0;
+    }
+
+    /// <summary>一輪繳交結束時把統計倒出來，用來算提早送出的成功率。</summary>
+    /// <remarks>全部一次成功的輪次只寫 Verbose；有補送或退回等遊戲重建的輪次仍寫 Information。</remarks>
+    private static void LogSessionStats()
+    {
+        if(StatCycles == 0) return;
+        var anomalous = StatResendOk > 0 || StatFallback > 0 || StatResends > 0;
+        if(anomalous || VerboseWanted)
+        {
+            var line = $"[GCHandin] 本輪統計 共 {StatCycles} 件 | 提早送出即成功 {StatEarlyOk} | 等就緒後送出 {StatReadyOk} | " +
+                $"補送後成功 {StatResendOk} | 退回等遊戲重建 {StatFallback} | 補送總次數 {StatResends}";
+            if(anomalous) PluginLog.Information(line);
+            else PluginLog.Verbose(line);
+        }
+        StatCycles = StatEarlyOk = StatReadyOk = StatResendOk = StatResends = StatFallback = 0;
     }
 
     private static bool HandleConfirmation()
     {
-        const string Throttler = "Handin.HandleConfirmation";
         if(TryGetAddonByName<AddonGrandCompanySupplyReward>("GrandCompanySupplyReward", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
-            if(addon->DeliverButton->IsEnabled && FrameThrottler.Throttle(Throttler, 10))
+            var deliverButton = addon->DeliverButton;
+            // 節流器的名字刻意獨立（ThrottlerDeliver）：與別的閘門共用名字會讓對方的節流連帶把「按交付」延後。
+            // 🔴 獎勵窗按「交付」即關;下一幀 Tick 仍會先進到這裡(HandleConfirmation 在 Phase 判斷之前),
+            //    關閉中的窗 IsAddonReady 三關全過、按鈕若仍啟用,10 幀節流一到就會對同一扇再按一次。
+            //    同一扇獎勵窗只按一次,窗消失後 DialogGuards.Tick 才解除。
+            if(Utils.IsButtonEnabled(deliverButton) && FrameThrottler.Throttle(ThrottlerDeliver, 10)
+                && DialogGuards.TryPressOnce("GrandCompanySupplyReward", (nint)addon, "GCDeliver"))
             {
                 new AddonMaster.GrandCompanySupplyReward(addon).Deliver();
-                DebugLog($"Delivering Item");
+                if(VerboseWanted) PluginLog.Verbose($"Delivering Item");
+                CycleDeliveredAt = NowMs;
+                SetPhase(HandinPhase.AwaitingRefresh);
                 return true;
             }
-        }
-        else
-        {
-            //FrameThrottler.Throttle(Throttler, 4, true);
         }
         return false;
     }
 
+    // 🔴 這支由 Tick 的狀態機每幀驅動，而窗被按下之後有「正在關閉中」的幾幀：GetAddonByName 仍拿得到實例、
+    // IsAddonReady 三關也全過，此時再按一次就是攔不到的原生 AccessViolation；10 幀的 FrameThrottler 不是防護。
+    // 「按過了」的記號集中在 Helpers/DialogGuards.cs（以窗名為 key：這扇 102434 的確認框 MiniTA 也會比中，
+    // 兩邊共用同一把 key 才不會 A 按過、B 再按一次），解除點在 DialogGuards.Tick。
+    // ⚠️ Utils.IsButtonEnabled(addon->YesButton) 也不是防護：AddonMaster.SelectYesno.Yes() 會強制啟用停用的「是」鈕。
     private static bool HandleYesno()
     {
-        const string Throttler = "Handin.Yesno";
         if(TryGetAddonByName<AddonSelectYesno>("SelectYesno", out var addon) && IsAddonReady(&addon->AtkUnitBase) && Operation)
         {
-            if(addon->YesButton->IsEnabled)
+            // 🔴 PromptText 是偏移 0x238 的指標欄位,開窗途中/版面未建好時為 null。
+            //    NodeText 在 AtkTextNode 偏移 0xC0,而 GetText(this Utf8String) 的參數是**傳值**的 ——
+            //    複製動作發生在呼叫端,等於直接去讀位址 0xC0,炸在這一行(不是在 GetText 裡面)。
+            //    讀不到提示文字就不按「是」(fail-closed:比對不成立就不動作,下一輪重試)。
+            var promptText = addon->PromptText;
+            if(promptText != null && Utils.IsButtonEnabled(addon->YesButton))
             {
-                var str = addon->PromptText->NodeText.GetText().Cleanup();
+                var str = GenericHelpers.ReadSeString(&promptText->NodeText).GetText().Cleanup();
                 DebugLog($"SelectYesno encountered: {str}");
                 //102434	Do you really want to trade a high-quality item?
-                if(str.Equals(GenericHelpers.GetText(Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(102434).Text).Cleanup()))
+                // 讀到 U+FFFD ＝ 窗的記憶體正在變動(多半是關閉中),這一幀不碰。
+                if(!DialogGuards.TextIsUnstable(str) && str.Equals(GenericHelpers.GetText(Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(102434).Text).Cleanup()))
                 {
-                    if(FrameThrottler.Throttle(Throttler, 10))
+                    if(FrameThrottler.Throttle(ThrottlerYesno, 10)
+                        && DialogGuards.TryPressOnce("SelectYesno", (nint)addon, ThrottlerYesno))
                     {
                         new AddonMaster.SelectYesno((IntPtr)addon).Yes();
                         DebugLog($"Selecting yes");
                     }
                 }
             }
-            else
-            {
-                //FrameThrottler.Throttle(Throttler, 4, true);
-            }
-        }
-        else
-        {
-            //FrameThrottler.Throttle(Throttler, 4, true);
         }
         return false;
+    }
+
+    /// <summary>
+    /// 送出繳交之後的等待與主動刷新。回傳 true 代表這一幀已經被這裡吃掉，不要再去掃清單。
+    ///
+    /// 這裡的閘門刻意比 <see cref="IsReadyToOperate"/> 寬鬆：主動刷新要在「獎勵視窗一關掉」
+    /// 就送出去，而不是等清單自己回到完全可操作的狀態 —— 那正是我們想省掉的那半秒。
+    /// </summary>
+    private static bool HandleWaiting()
+    {
+        switch(Phase)
+        {
+            case HandinPhase.Idle:
+                return false;
+
+            case HandinPhase.AwaitingReward:
+                // 高品質道具的確認視窗會插在中間，它在畫面上的期間不要讓逾時計時器繼續跑。
+                if(TryGetAddonByName<AtkUnitBase>("SelectYesno", out var yesno) && yesno != null)
+                {
+                    PhaseEnteredAt = NowMs;
+                    return true;
+                }
+                // 獎勵視窗由 HandleConfirmation 處理，這裡只負責在它一直不出現時解套。
+                if(NowMs - PhaseEnteredAt < RewardTimeoutMs) return true;
+                PluginLog.Information($"[GCHandin] 等不到繳交確認視窗（{NowMs - PhaseEnteredAt}ms），重新掃描清單");
+                ResetPhase();
+                return false;
+
+            case HandinPhase.AwaitingRefresh:
+                {
+                    // 獎勵視窗還在＝伺服器還沒確認繳交。這一關保留：它是繳交真的成立的證據，
+                    // 也是我們能送刷新事件的最早時刻。
+                    if(TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyReward", out var reward) && reward != null) return true;
+                    // 第一次看到獎勵視窗不見的時刻，順便把各閘門的狀態拍下來當診斷。
+                    if(CycleRewardGoneAt == 0)
+                    {
+                        CycleRewardGoneAt = NowMs;
+                        CycleGateAtRewardGone = $"{DescribeSupplyListGate()} {GCSupplyRefresh.DescribeGate()}";
+                    }
+                    // 🔑 這裡刻意不等 addon 變成 ready：AgentGrandCompanySupply::ReceiveEvent 這條路徑只寫代理人自己的欄位、
+                    // 再交給 RefreshAddon(agent->AddonId, ...) 去找 addon，全程不讀 addon 的可見旗標／ULD 狀態／節點清單（同 GCSupplyRefresh 的類別註解）。
+                    // ⚠️ 必須在送出「之前」取樣：RefreshAddon 是同步的，送完再問就可能問到被這次刷新改過的狀態，
+                    // 把「提早送出」誤記成「等就緒後送出」。
+                    var addonReadyBeforeSend = SampleRebuildGates();
+                    if(GCSupplyRefresh.RequestExpertDeliveryRefresh())
+                    {
+                        CycleSentEarly = !addonReadyBeforeSend;
+                        CycleRefreshedAt = NowMs;
+                        RefreshSentAt = NowMs;
+                        RefreshSendCount = 1;
+                        SetPhase(HandinPhase.AwaitingList);
+                        return true;
+                    }
+                    if(NowMs - PhaseEnteredAt < RefreshTimeoutMs) return true;
+                    PluginLog.Information($"[GCHandin] 無法主動刷新清單（{NowMs - PhaseEnteredAt}ms，{DescribeSupplyListGate()} {GCSupplyRefresh.DescribeGate()}），退回等遊戲自己重建");
+                    StatCycles++;
+                    StatFallback++;
+                    ResetPhase();
+                    return false;
+                }
+
+            case HandinPhase.AwaitingList:
+                {
+                    // addon 第一次變成「完全就緒」的時刻。這是判斷提早送出有沒有真的省到時間的
+                    // 關鍵量測：下一件的掃描本來就被 IsReadyToOperate 擋著，所以只有當刷新事件
+                    // 本身讓 addon 更早就緒，提早送出才會反映在每件耗時上。
+                    if(CycleAddonReadyAt == 0 && IsSupplyListAddonReady()) CycleAddonReadyAt = NowMs;
+                    // 等清單筆數真的變了才准掃描。少了這一步，可能讀到還沒刷新的舊清單、
+                    // 挑到剛交掉的那件，然後被 HasInInventory 判成「道具不在背包」而中斷整段繳交。
+                    var count = GetListedItemCount();
+                    if(count >= 0 && (uint)count != ListCountAtHandin)
+                    {
+                        LogCycle();
+                        ResetPhase();
+                        return false;
+                    }
+                    // 便宜的重試。提早送出的假設萬一不成立，代價要是「多送一次代理人事件」，
+                    // 而不是吃滿逾時 —— 一次逾時是秒級的，只要少數幾件踩到就把省下來的全賠光。
+                    // 補送刻意等到 addon 真的 ready 才送：最壞情況只是回到「等就緒才送」的時間點。次數上限擋住每幀狂送。
+                    if(RefreshSendCount > 0
+                        && RefreshSendCount < MaxRefreshSends
+                        && NowMs - RefreshSentAt >= RefreshRetryMs
+                        && IsSupplyListAddonReady()
+                        && GCSupplyRefresh.RequestExpertDeliveryRefresh())
+                    {
+                        RefreshSentAt = NowMs;
+                        RefreshSendCount++;
+                        StatResends++;
+                    }
+                    if(NowMs - PhaseEnteredAt < ListSettleTimeoutMs) return true;
+                    PluginLog.Information($"[GCHandin] 刷新後清單筆數沒有變化（{NowMs - PhaseEnteredAt}ms，已送出 {RefreshSendCount} 次），退回等遊戲自己重建");
+                    LogCycle(true);
+                    ResetPhase();
+                    return false;
+                }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 目前清單上的筆數（AtkValues[6]）。取不到時回傳 -1；
+    /// AtkReader 在索引越界／型別不符時會丟例外，這裡一律吞掉當成「還沒好」。
+    /// 🔑 這裡刻意不用 IsAddonReady 當前提：代理人是用 RefreshAddon 把整組 AtkValue 推回 addon 的，
+    /// 那條路徑跟 addon 的可見旗標無關；連「讀」都要等 addon ready 的話，提早送出刷新事件就看不到效果。
+    /// 改成直接驗真正該驗的東西：AtkValue 陣列存不存在、長度夠不夠。
+    /// </summary>
+    private static int GetListedItemCount()
+    {
+        try
+        {
+            if(TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon)
+                && addon->AtkValues != null
+                && addon->AtkValuesCount > 6)
+            {
+                return (int)new ReaderGrandCompanySupplyList(addon).NumItems;
+            }
+        }
+        catch(Exception)
+        {
+            //
+        }
+        return -1;
     }
 
     private static void HandleGCList()
@@ -150,6 +517,8 @@ internal static unsafe class AutoGCHandin
                         Utils.TryNotify(s);
                     }
                     Operation = false;
+                    ResetPhase();
+                    LogSessionStats();
                     GCContinuation.EnqueueDeliveryClose();
                     if(Utils.GetGCExchangePlanWithOverrides().FinalizeByPurchasing)
                     {
@@ -159,64 +528,96 @@ internal static unsafe class AutoGCHandin
                 else
                 {
                     Overlay.Allowed = true;
-                    if(FrameThrottler.Check("Handin.HandleConfirmation"))
+                    // 只有 Idle 才掃描：FindNextHandinItem 會對每個候選掃遍所有背包，不能每幀重跑；用狀態機擋而不是固定延遲。
+                    if(Phase != HandinPhase.Idle) return;
+                    try
                     {
-                        try
-                        {
-                            var reader = new ReaderGrandCompanySupplyList(addon);
+                        var reader = new ReaderGrandCompanySupplyList(addon);
 
-                            var nextItem = FindNextHandinItem();
-                            if(reader.NumItems == GetHandinItems().Count)
+                        var nextItem = FindNextHandinItem();
+                        if(reader.NumItems == GetHandinItems().Count)
+                        {
+                            if(nextItem != null)
                             {
-                                if(nextItem != null)
+                                var has = AutoGCHandin.HasInInventory(nextItem.Value.ItemID);
+                                var itemName = ExcelItemHelper.GetName(nextItem.Value.ItemID);
+                                if(VerboseWanted) PluginLog.Verbose($"Seals: {GetSeals()}/{GetMaxSeals()}, for item {nextItem.Value.Seals} | {ExcelItemHelper.GetName(nextItem.Value.ItemID)}: {has}");
+                                if(!has)
                                 {
-                                    var has = AutoGCHandin.HasInInventory(nextItem.Value.ItemID);
-                                    var itemName = ExcelItemHelper.GetName(nextItem.Value.ItemID);
-                                    DebugLog($"Seals: {GetSeals()}/{GetMaxSeals()}, for item {nextItem.Value.Seals} | {ExcelItemHelper.GetName(nextItem.Value.ItemID)}: {has}");
-                                    if(!has)
-                                    {
-                                        throw new GCHandinInterruptedException($"Item {itemName} was not found in inventory");
-                                    }
-                                    DebugLog($"Handing in item {itemName} for {nextItem.Value.Seals} seals (index={nextItem.Value.Index})");
-                                    InvokeHandin(addon, nextItem.Value.Index);
+                                    throw new GCHandinInterruptedException($"Item {itemName} was not found in inventory");
+                                }
+                                // 🔴 這道檢查是承重牆，不是防禦性裝飾，**不要拿掉也不要降成 assert**。
+                                // 遊戲那端（AgentGrandCompanySupply 的選列路徑）對稀有品 vector 的長度完全沒有上界檢查。越界＝AccessViolation，那是 corrupted-state exception，try/catch 攔不到。
+                                // reader.NumItems 正好是正確的界。
+                                if(nextItem.Value.Index < 0 || nextItem.Value.Index >= reader.NumItems)
+                                {
+                                    throw new GCHandinInterruptedException($"Item index {nextItem.Value.Index} out of range (0..{reader.NumItems})");
+                                }
+                                if(VerboseWanted) PluginLog.Verbose($"Handing in item {itemName} for {nextItem.Value.Seals} seals (index={nextItem.Value.Index})");
+                                if(InvokeHandin(addon, nextItem.Value.Index))
+                                {
+                                    ListCountAtHandin = reader.NumItems;
+                                    CycleStartedAt = NowMs;
+                                    CycleDeliveredAt = 0;
+                                    CycleRewardGoneAt = 0;
+                                    CycleRefreshedAt = 0;
+                                    SetPhase(HandinPhase.AwaitingReward);
+                                }
+                            }
+                            else
+                            {
+                                if(FindNextHandinItem(false) == null)
+                                {
+                                    GCContinuation.EnqueueDeliveryClose();
+                                    throw new GCHandinInterruptedException("Auto GC handin completed");
                                 }
                                 else
                                 {
-                                    if(FindNextHandinItem(false) == null)
+                                    GCContinuation.EnqueueDeliveryClose();
+                                    SealCapPauses++;
+                                    if(C.AutoGCContinuation)
                                     {
-                                        GCContinuation.EnqueueDeliveryClose();
-                                        throw new GCHandinInterruptedException("Auto GC handin completed");
+                                        GCContinuation.EnqueueInitiation(true);
                                     }
-                                    else
-                                    {
-                                        GCContinuation.EnqueueDeliveryClose();
-                                        if(C.AutoGCContinuation)
-                                        {
-                                            GCContinuation.EnqueueInitiation(true);
-                                        }
-                                        throw new GCHandinInterruptedException("Too many seals, please spend them");
-                                    }
+                                    // 🔑 軍票續購開著時這不是故障：GCContinuation.EnqueueInitiation 會自己去把軍票花掉再回來繼續繳交
+                                    //    ⇒ 只寫記錄檔，不洗使用者的聊天視窗。
+                                    // 🔴 但軍票續購**關掉**時上面那個 if 一個任務都沒排：繳交真的就停在這裡，而這則訊息是使用者唯一會收到的通知
+                                    //    （托盤通知也只在關掉時才送）⇒ 那種情況一定要留在聊天視窗，不可以一律降噪。
+                                    throw new GCHandinInterruptedException("Too many seals, please spend them", quietInChat: C.AutoGCContinuation);
                                 }
                             }
                         }
-                        catch(FormatException e)
+                    }
+                    catch(FormatException e)
+                    {
+                        PluginLog.Verbose($"{e.Message}");
+                    }
+                    catch(GCHandinInterruptedException e)
+                    {
+                        Operation = false;
+                        ResetPhase();
+                        LogSessionStats();
+                        if(e.QuietInChat)
                         {
-                            PluginLog.Verbose($"{e.Message}");
+                            // Grep 標記：GCHandin。要使用者回報的診斷。
+                            // 訊息本文照原樣保留，既有的「Too many seals」grep 仍然命中得到。
+                            PluginLog.Information($"[GCHandin] {e.Message} (本趟第 {SealCapPauses} 次；軍票續購開著，會自己去買完再回來繼續)");
                         }
-                        catch(GCHandinInterruptedException e)
+                        else
                         {
-                            Operation = false;
                             DuoLog.Information($"{e.Message}");
-                            if(C.GCHandinNotify && !C.AutoGCContinuation)
-                            {
-                                Utils.TryNotify(e.Message);
-                            }
                         }
-                        catch(Exception e)
+                        if(C.GCHandinNotify && !C.AutoGCContinuation)
                         {
-                            Operation = false;
-                            e.Log();
+                            Utils.TryNotify(e.Message);
                         }
+                    }
+                    catch(Exception e)
+                    {
+                        Operation = false;
+                        ResetPhase();
+                        LogSessionStats();
+                        e.Log();
                     }
                 }
             }
@@ -235,12 +636,14 @@ internal static unsafe class AutoGCHandin
     {
         try
         {
-            return
-                GCSupplyListAddon != null
-                && IsAddonReady(GCSupplyListAddon)
-                && GCSupplyListAddon->UldManager.NodeListCount > 20
-                && GCSupplyListAddon->UldManager.NodeList[5]->IsVisible()
-                && IsSelectedFilterValid(GCSupplyListAddon);
+            // ⚠️ 這個 try/catch 對下面的問題完全無效:AVE 在 .NET Core 是 corrupted-state exception,
+            //    攔不到。上界(NodeListCount > 20)與**元素判空**是兩件事,只做上界時元素為 null 照樣穿過去,
+            //    所以取節點一律走 Utils.GetNodeSafe。
+            if(GCSupplyListAddon == null || !IsAddonReady(GCSupplyListAddon)) return false;
+            if(GCSupplyListAddon->UldManager.NodeListCount <= 20) return false;
+            var node = Utils.GetNodeSafe(&GCSupplyListAddon->UldManager, 5);
+            if(node == null) return false;
+            return node->IsVisible() && IsSelectedFilterValid(GCSupplyListAddon);
         }
         catch(Exception)
         {
@@ -249,14 +652,29 @@ internal static unsafe class AutoGCHandin
     }
     internal static bool IsDone(AtkUnitBase* addon)
     {
-        return addon->UldManager.NodeList[20]->IsVisible();
+        // 上界由呼叫端的 IsReadyToOperate(NodeListCount > 20)保證,但元素本身仍可為 null。
+        // 讀不到就回 false ＝「還沒完成」,維持既有的繼續操作路徑(不會謊報完成而提前收工)。
+        if(addon == null) return false;
+        var node = Utils.GetNodeSafe(&addon->UldManager, 20);
+        return node != null && node->IsVisible();
     }
     internal static bool IsSelectedFilterValid(AtkUnitBase* addon)
     {
-        var step1 = addon->UldManager.NodeList[14];
-        var step2 = step1->GetAsAtkComponentNode()->Component->UldManager.NodeList[1];
-        var step3 = step2->GetAsAtkComponentNode()->Component->UldManager.NodeList[2];
-        var text = GenericHelpers.ReadSeString(&step3->GetAsAtkTextNode()->NodeText).GetText();
+        if(addon == null) return false;
+        // 🔴 六跳鏈的每一跳都有獨立的 null 路徑,而且兩種爆法都攔不到:GetAsAtkComponentNode()／GetAsAtkTextNode()
+        //    是 [MemberFunction],對 null this 呼叫＝當場 AVE;最後那個 &...->NodeText 則是靜默的毒指標 0xC0,
+        //    連 ReadSeString 內部的判空都騙得過去。NodeList 索引的上界與元素判空由 Utils.GetNodeSafe 一起做掉。
+        //    取不到就回 false ＝「篩選條件尚未確認有效」,呼叫端會繼續等/重試,不會誤判成可以開始繳交。
+        var step1 = Utils.GetNodeSafe(&addon->UldManager, 14);
+        var comp1 = step1 == null ? null : step1->GetAsAtkComponentNode();
+        if(comp1 == null || comp1->Component == null) return false;
+
+        var step2 = Utils.GetNodeSafe(&comp1->Component->UldManager, 1);
+        var comp2 = step2 == null ? null : step2->GetAsAtkComponentNode();
+        if(comp2 == null || comp2->Component == null) return false;
+
+        var step3 = Utils.GetNodeSafe(&comp2->Component->UldManager, 2);
+        if(!Utils.TryGetNodeText(step3, out var text)) return false;
         //4619	Hide Armoury Chest Items
         //4618	Hide Gear Set Items
         //4617	Show All Items
@@ -269,7 +687,7 @@ internal static unsafe class AutoGCHandin
         }
         else
         {
-            if(C.OfflineData.TryGetFirst(x => x.CID == Svc.ClientState.LocalContentId, out var data))
+            if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var data))
             {
                 if(text.EqualsAny(hideGearSet))
                 {
@@ -284,9 +702,19 @@ internal static unsafe class AutoGCHandin
         return false;
     }
 
-    internal static void InvokeHandin(AtkUnitBase* addon, int which)
+    /// <summary>
+    /// 送出「繳交第 which 列」。真的送出去才回傳 true —— 呼叫端要靠這個決定狀態機能不能前進。
+    /// 節流只是防手滑重送的保險，流程本身已經由狀態機擋住重入。
+    /// </summary>
+    internal static bool InvokeHandin(AtkUnitBase* addon, int which)
     {
-        if(FrameThrottler.Throttle("AutoGCHandinCallback", 10)) Callback.Fire(addon, true, 1, which, Callback.ZeroAtkValue);
+        if(addon == null || which < 0) return false;
+        if(!FrameThrottler.Throttle("AutoGCHandinCallback", 2)) return false;
+        // 清單窗按下不會關(開出獎勵窗),所以帶參數組:同一扇清單對不同列各准按一次;同一列在 15 幀內
+        // 不重送(狀態機一輪本來就遠超過 15 幀,這只擋清單因他因關閉中被重進的那幾幀)。
+        if(!DialogGuards.TryPressOnce("GrandCompanySupplyList", (nint)addon, "AutoGCHandin.Handin", $"Handin{which}", escapeIsRoutine: true)) return false;
+        Callback.Fire(addon, true, 1, which, Callback.ZeroAtkValue);
+        return true;
     }
 
     internal static bool HasInInventory(uint itemID)
@@ -335,8 +763,15 @@ internal static unsafe class AutoGCHandin
             var reader = new ReaderGrandCompanySupplyList(addon);
             if(IsListReady())
             {
-                var ptr = (GCExpectEntry*)*(nint*)((nint)(addon) + 648);
-                for(var i = 0; i < reader.NumItems; i++)
+                // AddonGrandCompanySupplyList 自己的項目陣列（未具名欄位，偏移由 NativeLayout 從遊戲碼推導）。
+                // 🔴 清單重建期間這個指標可能是 null，解參考前一定要檢查 —— AVE 是
+                // corrupted-state exception，try/catch 攔不到。
+                var ptr = NativeLayout.GetSupplyListEntries(addon);
+                if(ptr == null) return ret;
+                var count = reader.NumItems;
+                // 明顯不合理的筆數視為讀到垃圾，寧可不做也不要照著走出去。
+                if(count > 1000) return ret;
+                for(var i = 0; i < count; i++)
                 {
                     var entry = ptr[i];
                     ret.Add((entry.ItemID, entry.Seals));

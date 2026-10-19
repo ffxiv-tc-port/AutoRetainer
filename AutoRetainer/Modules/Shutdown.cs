@@ -29,7 +29,7 @@ internal static unsafe class Shutdown
                 {
                     if(MultiMode.Enabled)
                     {
-                        MultiMode.Enabled = false;
+                        MultiMode.SetEnabled(false, "排程關機時間到", MultiModeChangeCause.AutoRetainer);
                     }
 
                     if(!VoyageScheduler.Enabled && !SchedulerMain.PluginEnabled && !P.TaskManager.IsBusy)
@@ -43,20 +43,21 @@ internal static unsafe class Shutdown
                                 return true;
                             }
                             return false;
-                        });
+                        }, "Shutdown.SendShutdownCommand");
                         P.TaskManager.Enqueue(() =>
                         {
                             var yesno = Utils.GetSpecificYesno(Lang.LogOutAndExitGame);
                             if(yesno != null)
                             {
-                                if(EzThrottler.Throttle("ClickExit"))
+                                // 同一扇登出確認框只按一次(關閉中的窗三關全過,節流不是防護)。
+                                if(EzThrottler.Throttle("ClickExit") && DialogGuards.TryPressOnce("SelectYesno", (nint)yesno, "ClickExit"))
                                 {
                                     new AddonMaster.SelectYesno((nint)yesno).Yes();
                                     return true;
                                 }
                             }
                             return false;
-                        });
+                        }, "Shutdown.ConfirmLogOutAndExit");
                     }
 
                     if(ForceShutdownAt != 0)

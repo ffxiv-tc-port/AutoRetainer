@@ -36,6 +36,9 @@ public static class SubmarineSheetUtils
 
     public static string FancyDestination(this SubmarineExploration Row)
     {
-        return $"[{Svc.Data.GetExcelSheet<SubmarineExploration>(ClientLanguage.Japanese).GetRow(Row.RowId).Location}] " + Utils.UpperCaseStr(Row.Destination);
+        // Location 欄是扇區代號字母(A/B/.../AC),各語言版本一致(非空的 Location 全數符合 [A-Z]{1,2})。
+        // 刻意不指定取表語言:本艦隊的 Lumina fork 在 ExcelModule.GetRawSheetCore() 開頭無條件執行 language = Language,
+        // 語言參數是死參數,寫了只會讓讀碼的人誤以為真的取到了日文表。
+        return $"[{Svc.Data.GetExcelSheet<SubmarineExploration>().GetRow(Row.RowId).Location}] " + Utils.UpperCaseStr(Row.Destination);
     }
 }

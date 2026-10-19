@@ -6,17 +6,17 @@ public static unsafe class RetainerConfig
 {
     public static void Draw(OfflineRetainerData ret, OfflineCharacterData data, AdditionalRetainerData adata)
     {
-        ImGui.CollapsingHeader($"{Censor.Retainer(ret.Name)} - {Censor.Character(data.Name)} Configuration  ##conf", ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
-        ImGuiEx.Text($"Additional Post-venture Tasks:");
+        ImGui.CollapsingHeader($"{Censor.Retainer(ret.Name)} - {Censor.Character(data.Name)} {Loc.T("Configuration")}  ##conf", ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Bullet | ImGuiTreeNodeFlags.OpenOnArrow);
+        ImGuiEx.Text(Loc.T("Additional Post-venture Tasks:"));
         //ImGui.Checkbox($"Entrust Duplicates", ref adata.EntrustDuplicates);
         var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan);
-        ImGuiEx.TextV($"Entrust Items:");
-        if(!C.EnableEntrustManager) ImGuiEx.HelpMarker("Globally disabled in settings", EColor.RedBright, FontAwesomeIcon.ExclamationTriangle.ToIconString());
+        ImGuiEx.TextV(Loc.T("Entrust Items:"));
+        if(!C.EnableEntrustManager) ImGuiEx.HelpMarker(Loc.T("Globally disabled in settings"), EColor.RedBright, FontAwesomeIcon.ExclamationTriangle.ToIconString());
         ImGui.SameLine();
         ImGui.SetNextItemWidth(150f);
-        if(ImGui.BeginCombo($"##select", selectedPlan?.Name ?? "Disabled", ImGuiComboFlags.HeightLarge))
+        if(ImGui.BeginCombo($"##select", selectedPlan?.Name ?? Loc.T("Disabled"), ImGuiComboFlags.HeightLarge))
         {
-            if(ImGui.Selectable("Disabled")) adata.EntrustPlan = Guid.Empty;
+            if(ImGui.Selectable(Loc.T("Disabled"))) adata.EntrustPlan = Guid.Empty;
             for(var i = 0; i < C.EntrustPlans.Count; i++)
             {
                 var plan = C.EntrustPlans[i];
@@ -29,13 +29,13 @@ public static unsafe class RetainerConfig
             }
             ImGui.EndCombo();
         }
-        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Copy, "Copy entrust plan to..."))
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Copy, Loc.T("Copy entrust plan to...")))
         {
             ImGui.OpenPopup($"CopyEntrustPlanTo");
         }
         if(ImGui.BeginPopup("CopyEntrustPlanTo"))
         {
-            if(ImGui.Selectable("To all other retainers of this character"))
+            if(ImGui.Selectable(Loc.T("To all other retainers of this character")))
             {
                 var cnt = 0;
                 foreach(var x in data.RetainerData)
@@ -43,22 +43,28 @@ public static unsafe class RetainerConfig
                     cnt++;
                     Utils.GetAdditionalData(data.CID, x.Name).EntrustPlan = adata.EntrustPlan;
                 }
-                Notify.Info($"Changed {cnt} retainers");
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
             }
-            if(ImGui.Selectable("To all other retainers without entrust plan of this character"))
+            if(ImGui.Selectable(Loc.T("To all other retainers without entrust plan of this character")))
             {
+                // 🔴 計數器與通知都要在迴圈外：放在迴圈內的話 cnt 每圈重設，
+                // 而且每個僱員各彈一次「已變更 1 位僱員」。
+                var cnt = 0;
                 foreach(var x in data.RetainerData)
                 {
-                    var cnt = 0;
-                    if(!C.EntrustPlans.Any(s => s.Guid == adata.EntrustPlan))
+                    // 🔴 「沒有存入計畫」判斷的是**目標**僱員，不是來源僱員（adata.EntrustPlan 在整個迴圈裡是常數，
+                    // 比它會退化成「全部套用」或「一個都不套用」）：先取目標的 additional data，
+                    // 再看它指到的計畫還存不存在（Guid.Empty 或指向已刪除的計畫都算「沒有計畫」）。
+                    var a = Utils.GetAdditionalData(data.CID, x.Name);
+                    if(!C.EntrustPlans.Any(s => s.Guid == a.EntrustPlan))
                     {
-                        Utils.GetAdditionalData(data.CID, x.Name).EntrustPlan = adata.EntrustPlan;
+                        a.EntrustPlan = adata.EntrustPlan;
                         cnt++;
                     }
-                    Notify.Info($"Changed {cnt} retainers");
                 }
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
             }
-            if(ImGui.Selectable("To all other retainers of ALL characters"))
+            if(ImGui.Selectable(Loc.T("To all other retainers of ALL characters")))
             {
                 var cnt = 0;
                 foreach(var offlineData in C.OfflineData)
@@ -69,16 +75,19 @@ public static unsafe class RetainerConfig
                         cnt++;
                     }
                 }
-                Notify.Info($"Changed {cnt} retainers");
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
             }
-            if(ImGui.Selectable("To all other retainers without entrust plan of ALL characters"))
+            if(ImGui.Selectable(Loc.T("To all other retainers without entrust plan of ALL characters")))
             {
                 var cnt = 0;
                 foreach(var offlineData in C.OfflineData)
                 {
                     foreach(var x in offlineData.RetainerData)
                     {
-                        var a = Utils.GetAdditionalData(data.CID, x.Name);
+                        // 🔴 這裡的 CID 必須跟著外圈的 offlineData 走：用 data.CID（目前這個角色）的話，
+                        // 等於拿「別的角色的僱員名字」去查／建目前角色的 additional data，
+                        // 判斷與寫入都落在錯的角色上。
+                        var a = Utils.GetAdditionalData(offlineData.CID, x.Name);
                         if(!C.EntrustPlans.Any(s => s.Guid == a.EntrustPlan))
                         {
                             a.EntrustPlan = adata.EntrustPlan;
@@ -86,27 +95,67 @@ public static unsafe class RetainerConfig
                         }
                     }
                 }
-                Notify.Info($"Changed {cnt} retainers");
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
             }
             ImGui.EndPopup();
         }
-        ImGui.Checkbox($"Withdraw/Deposit Gil", ref adata.WithdrawGil);
+        ImGui.Checkbox(Loc.T("Withdraw/Deposit Gil"), ref adata.WithdrawGil);
         if(adata.WithdrawGil)
         {
-            if(ImGui.RadioButton("Withdraw", !adata.Deposit)) adata.Deposit = false;
-            if(ImGui.RadioButton("Deposit", adata.Deposit)) adata.Deposit = true;
+            if(ImGui.RadioButton(Loc.T("Withdraw"), !adata.Deposit)) adata.Deposit = false;
+            if(ImGui.RadioButton(Loc.T("Deposit"), adata.Deposit)) adata.Deposit = true;
             ImGuiEx.SetNextItemWidthScaled(200f);
-            ImGui.InputInt($"Amount, %", ref adata.WithdrawGilPercent.ValidateRange(1, 100), 1, 10);
+            ImGui.InputInt(Loc.T("Amount, %"), ref adata.WithdrawGilPercent.ValidateRange(1, 100), 1, 10);
+        }
+        // 📌 批量套用存取 Gil：照上面「複製委託計畫到...」的先例，把**目前這位**的三個欄位（開關／提取或存入／百分比）
+        //    複製到本角色或所有角色的全部僱員。要「全開」＝先把這一位設成想要的樣子再按套用。
+        if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.Copy, Loc.T("Copy Gil settings to...")))
+        {
+            ImGui.OpenPopup($"CopyGilSettingsTo");
+        }
+        if(ImGui.BeginPopup("CopyGilSettingsTo"))
+        {
+            if(ImGui.Selectable(Loc.T("To all other retainers of this character")))
+            {
+                var cnt = 0;
+                foreach(var x in data.RetainerData)
+                {
+                    var a = Utils.GetAdditionalData(data.CID, x.Name);
+                    a.WithdrawGil = adata.WithdrawGil;
+                    a.Deposit = adata.Deposit;
+                    a.WithdrawGilPercent = adata.WithdrawGilPercent;
+                    cnt++;
+                }
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
+            }
+            if(ImGui.Selectable(Loc.T("To all other retainers of ALL characters")))
+            {
+                var cnt = 0;
+                foreach(var offlineData in C.OfflineData)
+                {
+                    foreach(var x in offlineData.RetainerData)
+                    {
+                        // 🔴 CID 跟著外圈 offlineData 走（理由同上面委託計畫那一段）。
+                        var a = Utils.GetAdditionalData(offlineData.CID, x.Name);
+                        a.WithdrawGil = adata.WithdrawGil;
+                        a.Deposit = adata.Deposit;
+                        a.WithdrawGilPercent = adata.WithdrawGilPercent;
+                        cnt++;
+                    }
+                }
+                Notify.Info(string.Format(Loc.T("Changed {0} retainers"), cnt));
+            }
+            ImGui.EndPopup();
         }
         ImGui.Separator();
-        Svc.PluginInterface.GetIpcProvider<ulong, string, object>(ApiConsts.OnRetainerSettingsDraw).SendMessage(data.CID, ret.Name);
+        DrawEventProviders.RetainerSettingsDraw.GetIfSubscribed()?.SendMessage(data.CID, ret.Name);
         if(C.Verbose)
         {
-            if(ImGui.Button("Fake ready"))
+            if(ImGui.Button(Loc.T("Fake ready")))
             {
                 ret.VentureEndsAt = 1;
             }
-            if(ImGui.Button("Fake unready"))
+            if(ImGui.Button(Loc.T("Fake unready")))
             {
                 ret.VentureEndsAt = P.Time + 60 * 60;
             }

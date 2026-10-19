@@ -29,6 +29,17 @@ internal unsafe class DebugReader : DebugSectionBase
                 }
 
                 if(ImGui.Button("Run task")) TaskRecursivelyBuyFuel.Enqueue();
+
+                if(ImGui.CollapsingHeader("Dump nodes"))
+                {
+                    var dump = new System.Text.StringBuilder();
+                    DumpNodeList(&a->UldManager, 0, dump);
+                    if(ImGui.Button("Copy to clipboard"))
+                    {
+                        Copy(dump.ToString());
+                    }
+                    ImGuiEx.Text(dump.ToString());
+                }
             }
         }
 
@@ -83,6 +94,35 @@ internal unsafe class DebugReader : DebugSectionBase
                 {
                     ImGuiEx.Text($"{r.Text}");
                 }
+            }
+        }
+    }
+
+    private static void DumpNodeList(AtkUldManager* uld, int depth, System.Text.StringBuilder sb)
+    {
+        // 🔴 迴圈本身已經有上界與元素判空,但少了最外面那一層:NodeList 這個**指標欄位**
+        //    在版面建立完成前是 null,而 NodeListCount 可能已經先寫上去了 ——
+        //    那時 NodeList[i] 讀的是位址 i*8,不是 null,元素判空擋不住。
+        if(uld == null || uld->NodeList == null) return;
+        var indent = new string(' ', depth * 2);
+        for(var i = 0; i < uld->NodeListCount; i++)
+        {
+            var node = uld->NodeList[i];
+            if(node == null) continue;
+            var comp = node->GetComponent();
+            string extra = "";
+            if(comp != null)
+            {
+                extra += $" component@{(nint)comp:X}";
+            }
+            if(node->GetAsAtkTextNode() != null)
+            {
+                extra += $" text=\"{node->GetAsAtkTextNode()->NodeText.GetText()}\"";
+            }
+            sb.AppendLine($"{indent}[{i}] type={node->Type} id={node->NodeId} visible={node->IsVisible()}{extra}");
+            if(depth < 3 && node->GetAsAtkComponentNode() != null && node->GetAsAtkComponentNode()->Component != null)
+            {
+                DumpNodeList(&node->GetAsAtkComponentNode()->Component->UldManager, depth + 1, sb);
             }
         }
     }

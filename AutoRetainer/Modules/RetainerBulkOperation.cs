@@ -1,0 +1,121 @@
+using AutoRetainer.Scheduler.Handlers;
+using ECommons.Automation.NeoTaskManager;
+using FFXIVClientStructs.FFXIV.Client.System.Framework;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using FFXIVClientStructs.FFXIV.Component.GUI;
+
+namespace AutoRetainer.Modules;
+
+/// <summary>
+/// Failure containment for the "do this for every retainer" buttons on the retainer list overlay (Quick Entrust, Quick Withdraw Gil, and the custom-task button other plugins add through IPC).
+/// This class does not change how the batch runs. It appends a sentinel step that can only execute if the whole batch survived.
+/// Deliberately NOT done here: relaxing abortOnTimeout on the batch steps themselves - skipping a failed step would let the next retainer's work run against whichever retainer is still open.
+/// </summary>
+internal static unsafe class RetainerBulkOperation
+{
+    private static bool Active = false;
+    private static string Description = "";
+
+    /// <summary><c>Environment.TickCount64</c> of the moment the queue was first observed empty while
+    /// a batch was still marked in flight. <c>long.MaxValue</c> means we are not in that state.</summary>
+    private static long StaleSince = long.MaxValue;
+
+    /// <summary>
+    /// Runs <paramref name="enqueueBatch"/> and tracks the resulting batch.
+    /// </summary>
+    internal static void Enqueue(string description, Action enqueueBatch)
+    {
+        Active = false;
+        StaleSince = long.MaxValue;
+        Description = description;
+        enqueueBatch();
+        // The overlay only draws these buttons when the queue is idle, so anything queued now came
+        // from the batch. If the loop matched no retainers there is nothing to watch.
+        if(!P.TaskManager.IsBusy) return;
+        P.TaskManager.Enqueue(Finish, "RetainerBulkOperation.Finish");
+        Active = true;
+    }
+
+    private static void Finish()
+    {
+        Active = false;
+        StaleSince = long.MaxValue;
+    }
+
+    internal static void Tick()
+    {
+        if(!Active) return;
+
+        if(P.TaskManager.IsBusy)
+        {
+            StaleSince = long.MaxValue;
+            return;
+        }
+
+        if(StaleSince == long.MaxValue)
+        {
+            StaleSince = Environment.TickCount64;
+            return;
+        }
+
+        // Same floor as the voyage panel watchdog: a user who set BailoutTimeout very low must not be
+        // able to make this fire while they are legitimately clicking around themselves.
+        if(Environment.TickCount64 - StaleSince < Math.Max(C.BailoutTimeout, 5) * 1000) return;
+
+        Active = false;
+        StaleSince = long.MaxValue;
+
+        DuoLog.Warning(string.Format(Loc.T("\"{0}\" stopped before it finished - any remaining retainers were skipped."), Description));
+
+        if(!C.EnableBailout) return;
+
+        // Best effort, in the order the windows stack: dismiss the modal first, then unwind out of
+        // the retainer back to the retainer list. Every step is a no-op returning true when its
+        // window is not present, so an already-clean screen costs a handful of frames rather than
+        // one timeout per step.
+        TaskManagerConfiguration conf = new(abortOnTimeout: false, timeLimitMS: 5000);
+        P.TaskManager.Enqueue(DismissBuybackIfPresent, "BulkRecovery.DismissBuyback", conf);
+        P.TaskManager.Enqueue(CancelBankIfOpen, "BulkRecovery.CancelBank", conf);
+        P.TaskManager.Enqueue(CloseRetainerAgentIfOpen, "BulkRecovery.CloseRetainerAgent", conf);
+        P.TaskManager.Enqueue(QuitRetainerIfOpen, "BulkRecovery.QuitRetainer", conf);
+        P.TaskManager.Enqueue(DismissBuybackIfPresent, "BulkRecovery.DismissBuybackAfterQuit", conf);
+    }
+
+    private static bool? DismissBuybackIfPresent()
+    {
+        if(Utils.GetSpecificYesno(Lang.WillBeUnableToProcessBuyback) == null) return true;
+        return RetainerHandlers.ConfirmCantBuyback();
+    }
+
+    private static bool? CancelBankIfOpen()
+    {
+        if(!TryGetAddonByName<AtkUnitBase>("Bank", out var addon) || !IsAddonReady(addon)) return true;
+        // forceCancel: this is a recovery path, never complete a half-configured gil transfer.
+        return RetainerHandlers.ProcessBankOrCancel(true);
+    }
+
+    private static bool? CloseRetainerAgentIfOpen()
+    {
+        // 🔴 Framework.Instance() 是 isPointer:true 的靜態位址，未建立單例時回 null；
+        //    Framework.UIModule 是 +0x2B68 的裸欄位，同樣可能是 null。
+        //    兩層都要擋，裸解參考的是攔不到的 AVE 而不是 NRE。
+        //    這支的語意是「開著就關掉」，讀不到＝沒開著＝這一步已完成，與下面 agent == null 同路徑。
+        var framework = Framework.Instance();
+        if(framework == null || framework->UIModule == null) return true;
+        var agentModule = framework->UIModule->GetAgentModule();
+        if(agentModule == null) return true;
+        var agent = agentModule->GetAgentByInternalId(AgentId.Retainer);
+        if(agent == null || !agent->IsAgentActive()) return true;
+        return RetainerHandlers.CloseAgentRetainer();
+    }
+
+    private static bool? QuitRetainerIfOpen()
+    {
+        // Back at the retainer list already - nothing left to unwind.
+        if(TryGetAddonByName<AtkUnitBase>("RetainerList", out var list) && IsAddonReady(list)) return true;
+        var hasSupply = TryGetAddonByName<AtkUnitBase>("RetainerTaskSupply", out _);
+        var hasMenu = TryGetAddonByName<AtkUnitBase>("SelectString", out var menu) && IsAddonReady(menu);
+        if(!hasSupply && !hasMenu) return true;
+        return RetainerHandlers.SelectQuit();
+    }
+}

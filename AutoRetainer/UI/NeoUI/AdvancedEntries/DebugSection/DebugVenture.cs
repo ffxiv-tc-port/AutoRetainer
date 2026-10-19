@@ -12,17 +12,11 @@ internal unsafe class DebugVenture : DebugSectionBase
     internal string VentureName = "";
     public override void Draw()
     {
-        {
-            var agent = AgentModule.Instance()->GetAgentByInternalId((AgentId)140);
-            if(agent != null && agent->IsAgentActive())
-            {
-                ImGuiEx.TextCopy($"{(nint)agent:X16}");
-                ImGuiEx.Text($"{*(ushort*)((uint)agent + 456)}");
-            }
-        }
+        // 刻意不再顯示代理人 140 的 +456：現行版本那是 CursorRect（只配置 0x98 bytes），讀到的是別的物件。
         if(TryGetAddonByName<AddonRetainerTaskAsk>("RetainerTaskAsk", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
-            ImGuiEx.Text($"Enabled: {addon->AssignButton->IsEnabled}");
+            // 按鈕還沒建構完成時畫「?」而不是「False」——後者會讓人以為已經確認過按鈕是停用的。
+            ImGuiEx.Text($"Enabled: {Utils.GetButtonEnabled(addon->AssignButton)?.ToString() ?? "?"}");
         }
 
         foreach(var x in C.OfflineData)
@@ -50,9 +44,20 @@ internal unsafe class DebugVenture : DebugSectionBase
         {
             RetainerHandlers.SelectSpecificVenture((uint)VentureID);
         }
-        if(ImGui.CollapsingHeader("Ventures"))
+        if(ImGui.CollapsingHeader(Loc.T("Ventures")))
         {
-            var data = CSFramework.Instance()->UIModule->GetRaptureAtkModule()->AtkModule.GetStringArrayData(95);
+            // 這個傾印是給 VentureUtils.GetAvailableVentureNames() 當對照用的，兩邊必須讀同一個陣列 = StringArrayType.RetainerTask。
+            // 🔴 用具名列舉而不是魔術數字：下次陣列再位移時它會自己跟著動。
+            // ⚠️ 寫完整命名空間：補 using 會讓裸寫的 RetainerTask 在別處有撞名風險（VentureUtils 就撞過 Lumina 的同名表格型別）。
+            // 🔴 四層裸鏈：任一層 null 都是攔不到的 AVE，逐層判。
+            var framework = CSFramework.Instance();
+            var atkModule = framework == null || framework->UIModule == null
+                ? null
+                : framework->UIModule->GetRaptureAtkModule();
+            var data = atkModule == null
+                ? null
+                : atkModule->AtkModule.GetStringArrayData(
+                    (int)FFXIVClientStructs.FFXIV.Component.GUI.StringArrayType.RetainerTask);
             if(data != null)
             {
                 for(var i = 0; i < data->AtkArrayData.Size; i++)
@@ -60,7 +65,7 @@ internal unsafe class DebugVenture : DebugSectionBase
                     var item = data->StringArray[i];
                     if(item != null)
                     {
-                        var str = MemoryHelper.ReadSeStringNullTerminated((nint)item);
+                        var str = MemoryHelper.ReadSeStringNullTerminated((nint)(byte*)item);
                         ImGuiEx.Text($"{i}: {str.GetText()}");
                     }
                     else

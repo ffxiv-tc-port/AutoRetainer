@@ -136,7 +136,7 @@ public sealed class VenturePlanner : Window
                 ImGui.NextColumn();
 
 
-                if(ImGui.Checkbox("Enable planner", ref adata.EnablePlanner))
+                if(ImGui.Checkbox(Loc.T("Enable planner"), ref adata.EnablePlanner))
                 {
                     if(adata.EnablePlanner)
                     {
@@ -147,7 +147,7 @@ public sealed class VenturePlanner : Window
                 if(C.SavedPlans.Count > 0)
                 {
                     ImGuiEx.SetNextItemFullWidth();
-                    if(ImGui.BeginCombo("##load", "Load saved plan...", ImGuiComboFlags.HeightLarge))
+                    if(ImGui.BeginCombo("##load", Loc.T("Load saved plan..."), ImGuiComboFlags.HeightLarge))
                     {
                         int? toRem = null;
                         for(var i = 0; i < C.SavedPlans.Count; i++)
@@ -165,7 +165,7 @@ public sealed class VenturePlanner : Window
                             }
                             if(ImGui.BeginPopup($"Context"))
                             {
-                                if(ImGui.Selectable("Delete plan"))
+                                if(ImGui.Selectable(Loc.T("Delete plan")))
                                 {
                                     toRem = i;
                                 }
@@ -186,16 +186,16 @@ public sealed class VenturePlanner : Window
                 if(adata.VenturePlan.List.Count > 0)
                 {
                     //ImGui.Separator();
-                    ImGuiEx.TextV("On plan completion:");
+                    ImGuiEx.TextV(Loc.T("On plan completion:"));
                     ImGui.SameLine();
                     ImGuiEx.SetNextItemFullWidth();
-                    ImGuiEx.EnumCombo("##cBeh", ref adata.VenturePlan.PlanCompleteBehavior);
+                    ImGuiEx.EnumCombo("##cBeh", ref adata.VenturePlan.PlanCompleteBehavior, Loc.EnumNames<PlanCompleteBehavior>());
                     //ImGui.Separator();
                     var overwrite = C.SavedPlans.Any(x => x.Name == adata.VenturePlan.Name);
-                    ImGuiEx.InputWithRightButtonsArea("SavePlan", delegate
+                    ImGuiEx.InputWithRightButtonsArea(Loc.T("SavePlan"), delegate
                     {
                         if(overwrite) ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.DalamudYellow);
-                        ImGui.InputTextWithHint("##name", "Enter plan name...", ref adata.VenturePlan.Name, 50);
+                        ImGui.InputTextWithHint("##name", Loc.T("Enter plan name..."), ref adata.VenturePlan.Name, 50);
                         if(overwrite) ImGui.PopStyleColor();
                     }, delegate
                     {
@@ -206,18 +206,18 @@ public sealed class VenturePlanner : Window
                                 C.SavedPlans.RemoveAll(x => x.Name == adata.VenturePlan.Name);
                             }
                             C.SavedPlans.Add(adata.VenturePlan.JSONClone());
-                            Notify.Success($"Plan {adata.VenturePlan.Name} saved!");
+                            Notify.Success(string.Format(Loc.T("Plan {0} saved!"), adata.VenturePlan.Name));
                         }
-                        ImGuiEx.Tooltip(overwrite ? "Overwrite Existing Venture Plan" : $"Save Venture Plan");
+                        ImGuiEx.Tooltip(overwrite ? Loc.T("Overwrite Existing Venture Plan") : Loc.T("Save Venture Plan"));
                     });
                 }
 
                 ImGuiEx.SetNextItemFullWidth();
-                if(ImGui.BeginCombo("##addVenture", "Add venture...", ImGuiComboFlags.HeightLarge))
+                if(ImGui.BeginCombo("##addVenture", Loc.T("Add venture..."), ImGuiComboFlags.HeightLarge))
                 {
                     ImGuiEx.SetNextItemFullWidth();
-                    ImGui.InputTextWithHint("##search", "Filter...", ref search, 100);
-                    ImGuiEx.TextV($"Level range:");
+                    ImGui.InputTextWithHint("##search", Loc.T("Filter..."), ref search, 100);
+                    ImGuiEx.TextV(Loc.T("Level range:"));
                     ImGui.SameLine();
                     ImGuiEx.SetNextItemWidthScaled(50f);
                     ImGui.DragInt("##minL", ref minLevel, 1, 1, Player.MaxLevel);
@@ -226,10 +226,10 @@ public sealed class VenturePlanner : Window
                     ImGui.SameLine();
                     ImGuiEx.SetNextItemWidthScaled(50f);
                     ImGui.DragInt("##maxL", ref maxLevel, 1, 1, Player.MaxLevel);
-                    ImGuiEx.TextV($"Unavailable ventures:");
+                    ImGuiEx.TextV(Loc.T("Unavailable ventures:"));
                     ImGui.SameLine();
                     ImGuiEx.SetNextItemFullWidth();
-                    ImGuiEx.EnumCombo("##unavail", ref C.UnavailableVentureDisplay);
+                    ImGuiEx.EnumCombo("##unavail", ref C.UnavailableVentureDisplay, Loc.EnumNames<UnavailableVentureDisplay>());
                     if(ImGui.BeginChild("##ventureCh", new(ImGui.GetContentRegionAvail().X, ImGuiHelpers.MainViewport.Size.Y / 3)))
                     {
                         if(ImGui.CollapsingHeader(VentureUtils.GetHuntingVentureName(SelectedRetainer.Job)))
@@ -283,7 +283,7 @@ public sealed class VenturePlanner : Window
                             }
                         }
                         ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, Vector2.Zero);
-                        if(ImGui.Button($"{Lang.CharDice}    Quick Exploration", ImGuiHelpers.GetButtonSize("A") with { X = ImGui.GetContentRegionAvail().X }))
+                        if(ImGui.Button($"{Lang.CharDice}    {Loc.T("Quick Exploration")}", ImGuiHelpers.GetButtonSize("A") with { X = ImGui.GetContentRegionAvail().X }))
                         {
                             adata.VenturePlan.List.Add(new(VentureUtils.QuickExplorationID));
                             adata.VenturePlanIndex = 0;
@@ -298,24 +298,25 @@ public sealed class VenturePlanner : Window
                     Cache.Clear();
                 }
 
-                if(adata.EnablePlanner && adata.VenturePlan.ListUnwrapped.Count > 0)
+                var unwrappedCount = adata.EnablePlanner ? adata.VenturePlan.GetUnwrappedCount() : 0;
+                if(unwrappedCount > 0)
                 {
-                    var pct = adata.VenturePlanIndex / (float)adata.VenturePlan.ListUnwrapped.Count;
+                    var pct = adata.VenturePlanIndex / (float)unwrappedCount;
 
                     if(ImGuiEx.IconButton(Lang.IconRefresh))
                     {
                         adata.VenturePlanIndex = 0;
                     }
                     ImGui.SameLine();
-                    ImGuiEx.Tooltip("Cancels remaining ventures from this plan and starts from the beginning");
+                    ImGuiEx.Tooltip(Loc.T("Cancels remaining ventures from this plan and starts from the beginning"));
                     ImGui.ProgressBar(pct, new Vector2(ImGui.GetContentRegionAvail().X, ImGuiHelpers.GetButtonSize("X").Y));
                 }
 
                 if(C.Verbose)
                 {
-                    if(ImGui.CollapsingHeader("Debug"))
+                    if(ImGui.CollapsingHeader(Loc.T("Debug")))
                     {
-                        ImGuiEx.InputUint("Index", ref adata.VenturePlanIndex);
+                        ImGuiEx.InputUint(Loc.T("Index"), ref adata.VenturePlanIndex);
                     }
                 }
 
@@ -323,7 +324,7 @@ public sealed class VenturePlanner : Window
             }
             else
             {
-                ImGuiEx.TextWrapped($"This retainer's venture plan is shared with different retainer's venture plan.");
+                ImGuiEx.TextWrapped(Loc.T("This retainer's venture plan is shared with different retainer's venture plan."));
             }
         }
 

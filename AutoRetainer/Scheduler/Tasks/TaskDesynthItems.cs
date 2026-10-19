@@ -57,15 +57,23 @@ public static unsafe class TaskDesynthItems
         return false;
     }
 
+    /// <remarks>
+    /// 讀不到的容器／格位一律跳過，也就是**只可能少列不可能多列**。呼叫端拿空清單會
+    /// <c>return true</c>（＝這個 task 結束），少列＝這輪少分解幾件，下次進到這個 task 會重掃補回；
+    /// 多列才有代價（分解到不該分解的東西），而跳過永遠不會造成多列。
+    /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
+    /// </remarks>
     private static List<Pointer<InventoryItem>> GetEligibleItems()
     {
         List<Pointer<InventoryItem>> items = [];
         foreach(var inv in DesynthableInventories)
         {
             var cont = InventoryManager.Instance()->GetInventoryContainer(inv);
+            if(cont == null) continue;
             for(var i = 0; i < cont->Size; ++i)
             {
                 var item = cont->GetInventorySlot(i);
+                if(item == null) continue;
                 if(IsOnIMList(item->ItemId) && DesynthEligible(item->ItemId))
                     items.Add(item);
             }
@@ -87,13 +95,24 @@ public static unsafe class TaskDesynthItems
 
     private static void DesynthItem(InventoryItem* item)
     {
+        // AgentSalvage.Instance() 是 AgentGetterGenerator 產出的兩層可空取得器，合法回 null。
+        // 🔴 取一次用到底：分解與後面那個「確認」事件必須送到同一個代理人，
+        //    分兩次取有可能一次拿到、一次拿不到，變成「送了分解沒送確認」。
+        //    拿不到就整個不做 —— 這輪不分解，下一輪重試，不會有半套操作。
+        var salvage = AgentSalvage.Instance();
+        if(salvage == null)
+        {
+            // 要使用者回報的診斷（「該做的事沒做」）。這裡不是每幀路徑。
+            Svc.Log.Information("AgentSalvage 尚未就緒，這一輪不分解。");
+            return;
+        }
         Svc.Log.Info($"Desynthing {ExcelItemHelper.GetName(ExcelItemHelper.Get(item->ItemId), true)} [Container={item->Container},Slot={item->Slot}]");
-        AgentSalvage.Instance()->SalvageItem(item);
+        salvage->SalvageItem(item);
         var retval = new AtkValue();
         Span<AtkValue> param = [
             new AtkValue { Type = ValueType.Int, Int = 0 },
             new AtkValue { Type = ValueType.Bool, Byte = 1 }
         ];
-        AgentSalvage.Instance()->AgentInterface.ReceiveEvent(&retval, param.GetPointer(0), 2, 1);
+        salvage->AgentInterface.ReceiveEvent(&retval, param.GetPointer(0), 2, 1);
     }
 }

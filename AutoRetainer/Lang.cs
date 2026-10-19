@@ -1,5 +1,7 @@
 ﻿using AutoRetainerAPI.Configuration;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Utility;
+using ECommons.ExcelServices.Sheets;
 using Lumina.Excel.Sheets;
 using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
@@ -35,91 +37,112 @@ internal static class Lang
     internal const string IconPath = "\uf55b";
     internal const string IconFire = "\uf06d";
 
-    internal static string LogOutAndExitGame => Svc.Data.GetExcelSheet<Addon>().GetRow(116).Text.GetText(true).Cleanup();
+    // 下面幾個讀表的字串都只在第一次存取時算：表在插件存活期間不變，取表語言也固定是客戶端語言，所以快取不分語言。
+    internal static string LogOutAndExitGame => field ??= Svc.Data.GetExcelSheet<Addon>().GetRow(116).Text.GetText(true).Cleanup();
 
-    internal static readonly ReadOnlyDictionary<UnlockMode, string> UnlockModeNames = new(new Dictionary<UnlockMode, string>()
+    // Display text for UnlockMode. These are descriptions rather than bare member names on purpose.
+    // Every unlock-mode combo reads its labels from here.
+    // Built once on first use and reused for the rest of the session.
+    internal static IDictionary<UnlockMode, string> UnlockModeNames => UnlockModeNameCache.Value;
+
+    private static class UnlockModeNameCache
     {
-        { UnlockMode.MultiSelect, "Pick max amount of destinations" },
-        { UnlockMode.SpamOne, "Spam one destination" },
-        { UnlockMode.WhileLevelling, "Include one unlock destination while levelling" },
-    });
+        internal static readonly IDictionary<UnlockMode, string> Value =
+            new ReadOnlyDictionary<UnlockMode, string>(new Dictionary<UnlockMode, string>()
+            {
+                { UnlockMode.MultiSelect, Loc.T("Pick max amount of destinations") },
+                { UnlockMode.SpamOne, Loc.T("Spam one destination") },
+                { UnlockMode.WhileLevelling, Loc.T("Include one unlock destination while levelling") },
+            });
+    }
 
     internal static readonly (string Normal, string GameFont) Digits = ("0123456789", "");
 
-    internal static readonly string[] FieldExplorationNames =
+    // 傳喚鈴選單自己的文字表:客戶端跑哪個語言就讀到哪個語言。
+    private const string RetainerBellDialogue = "custom/000/CmnDefRetainerCall_00010";
+
+    // 🔴 讀不到/讀到空值時一律回 fallback,**絕不回空字串**:
+    //    這些字串的消費端是 StartsWithAny / ContainsAny,而
+    //    "任何字串".StartsWith("") 與 "任何字串".Contains("") 恆為 true ——
+    //    一個空錨會讓「選單的第一項」或「任何一個 SelectYesno」被誤判成命中然後按下去。
+    // ⚠️ Lumina 的 GetSheet 在表不存在時是**擲例外**不是回 null,所以 ?. 擋不住,要 try/catch。
+    private static string BellText(uint row, string fallback)
+    {
+        try
+        {
+            var text = Svc.Data.GetExcelSheet<QuestDialogueText>(name: RetainerBellDialogue).GetRowOrDefault(row)?.Value.GetText();
+            if(!string.IsNullOrEmpty(text)) return text;
+            PluginLog.Information($"[Lang] {RetainerBellDialogue} row {row} is empty; falling back to the built-in literal.");
+        }
+        catch(Exception e)
+        {
+            PluginLog.Information($"[Lang] Could not read {RetainerBellDialogue} row {row} ({e.GetType().Name}: {e.Message}); falling back to the built-in literal.");
+        }
+        return fallback;
+    }
+
+    //Everything a log message says before its first macro, which is fixed text in any language.
+    // 🔴 解析不出開頭的固定文字時回 fallback,不回空字串(空前綴會讓每一則訊息都命中)。
+    internal static string LogMessageOpening(uint row, string fallback)
+    {
+        try
+        {
+            var text = Svc.Data.GetExcelSheet<LogMessage>().GetRowOrDefault(row)?.Text.ToDalamudString();
+            if(text != null)
+            {
+                var opening = "";
+                foreach(var payload in text.Payloads)
+                {
+                    if(payload is not TextPayload literal) break;
+                    opening += literal.Text;
+                }
+                opening = opening.Trim();
+                if(!string.IsNullOrEmpty(opening)) return opening;
+            }
+            PluginLog.Information($"[Lang] LogMessage row {row} has no leading literal text; falling back to the built-in literal.");
+        }
+        catch(Exception e)
+        {
+            PluginLog.Information($"[Lang] Could not read LogMessage row {row} ({e.GetType().Name}: {e.Message}); falling back to the built-in literal.");
+        }
+        return fallback;
+    }
+
+    // 只取第一行當比對錨:確認框那幾條原文是兩行的,而 addon 端的斷行位置未必與表裡一致。
+    private static string FirstLine(string s)
+    {
+        var i = s.IndexOf('\n');
+        return (i < 0 ? s : s[..i]).TrimEnd('\r');
+    }
+
+    //196	TASK_CATEGORY_TREASURE	Field Exploration.
+    //198	TASK_CATEGORY_MINER_2	Highland Exploration.
+    //200	TASK_CATEGORY_BOTANIST_2	Woodland Exploration.
+    //202	TASK_CATEGORY_FISHER_2	Waterside Exploration.
+    // 🔴 這四格的**順序有語意**(平地/山岳/森林/水岸):VentureUtils.GetFieldExVentureName 拿 [0]~[3] 當位置索引,不可調換或插入;字面值只是讀表失敗時的備援。
+    internal static string[] FieldExplorationNames => field ??=
     [
-        "Field Exploration.",
-        "Highland Exploration.",
-        "Woodland Exploration.",
-        "Waterside Exploration.",
-        "探索依頼：平地　　（必要ベンチャースクリップ：2枚）",
-        "探索依頼：山岳　　（必要ベンチャースクリップ：2枚）",
-        "探索依頼：森林　　（必要ベンチャースクリップ：2枚）",
-        "探索依頼：水辺　　（必要ベンチャースクリップ：2枚）",
-        "Felderkundung (2 Wertmarken)",
-        "Hochlanderkundung (2 Wertmarken)",
-        "Forsterkundung (2 Wertmarken)",
-        "Gewässererkundung (2 Wertmarken)",
-        "Exploration en plaine (2 jetons)",
-        "Exploration en montagne (2 jetons)",
-        "Exploration en forêt (2 jetons)",
-        "Exploration en rivage (2 jetons)",
-        "平地探索委托（需要2枚探险币）",
-        "山岳探索委托（需要2枚探险币）",
-        "森林探索委托（需要2枚探险币）",
-        "水岸探索委托（需要2枚探险币）",
-        "平地探索委託（需要2枚探險幣）",
-        "山岳探索委託（需要2枚探險幣）",
-        "森林探索委託（需要2枚探險幣）",
-        "水岸探索委託（需要2枚探險幣）",
-        "탐색수행: 평지 (필요한 집사 급료: 2개)",
-        "탐색수행: 산악 (필요한 집사 급료: 2개)",
-        "탐색수행: 삼림 (필요한 집사 급료: 2개)",
-        "탐색수행: 물가 (필요한 집사 급료: 2개)",
+        BellText(196, "平地探索委託（需要2枚探險幣）"),
+        BellText(198, "山岳探索委託（需要2枚探險幣）"),
+        BellText(200, "森林探索委託（需要2枚探險幣）"),
+        BellText(202, "水岸探索委託（需要2枚探險幣）"),
     ];
 
-    internal static readonly string[] HuntingVentureNames =
+    //195	TASK_CATEGORY_NORMAL	Hunting.
+    //197	TASK_CATEGORY_MINER_1	Mining.
+    //199	TASK_CATEGORY_BOTANIST_1	Botany.
+    //201	TASK_CATEGORY_FISHER_1	Fishing.
+    // 🔴 同上:[0]~[3] 被 VentureUtils.GetHuntingVentureName 當位置索引用(狩獵/採礦/採伐/捕魚)。
+    internal static string[] HuntingVentureNames => field ??=
     [
-        "Hunting.",
-        "Mining.",
-        "Botany.",
-        "Fishing.",
-        "調達依頼：渉猟　　（必要ベンチャースクリップ：1枚）",
-        "調達依頼：採掘　　（必要ベンチャースクリップ：1枚）",
-        "調達依頼：園芸　　（必要ベンチャースクリップ：1枚）",
-        "調達依頼：漁猟　　（必要ベンチャースクリップ：1枚）",
-        "Beutezug (1 Wertmarke)",
-        "Mineraliensuche (1 Wertmarke)",
-        "Ernteausflug (1 Wertmarke)",
-        "Fischzug (1 Wertmarke)",
-        "Travail de chasse (1 jeton)",
-        "Travail de mineur (1 jeton)",
-        "Travail de botaniste (1 jeton)",
-        "Travail de pêche (1 jeton)",
-        "狩猎筹集委托（需要1枚探险币）",
-        "采矿筹集委托（需要1枚探险币）",
-        "采伐筹集委托（需要1枚探险币）",
-        "捕鱼筹集委托（需要1枚探险币）",
-        "狩獵籌集委託（需要1枚探險幣）",
-        "採礦籌集委託（需要1枚探險幣）",
-        "採伐籌集委託（需要1枚探險幣）",
-        "捕魚籌集委託（需要1枚探險幣）",
-        "조달수행: 사냥 (필요한 집사 급료: 1개)",
-        "조달수행: 광부 (필요한 집사 급료: 1개)",
-        "조달수행: 원예가 (필요한 집사 급료: 1개)",
-        "조달수행: 어부 (필요한 집사 급료: 1개)",
+        BellText(195, "狩獵籌集委託（需要1枚探險幣）"),
+        BellText(197, "採礦籌集委託（需要1枚探險幣）"),
+        BellText(199, "採伐籌集委託（需要1枚探險幣）"),
+        BellText(201, "捕魚籌集委託（需要1枚探險幣）"),
     ];
 
-    internal static readonly string[] QuickExploration =
-    [
-        "Quick Exploration.",
-        "ほりだしもの依頼　（必要ベンチャースクリップ：2枚）",
-        "Schneller Streifzug (2 Wertmarken)",
-        "Tâche improvisée (2 jetons)",
-        "自由探索委托（需要2枚探险币）",
-        "自由探索委託（需要2枚探險幣）",
-        "발굴수행 (필요한 집사 급료: 2개)",
-    ];
+    //402	TASK_CATEGORY_FORTUNE	Quick Exploration.
+    internal static string[] QuickExploration => field ??= [BellText(402, "自由尋寶委託（需要2枚探險幣）")];
 
     internal static readonly string[] Entrance =
     [
@@ -132,7 +155,7 @@ internal static class Lang
         "주택으로 들어가기",
     ];
 
-    internal static string ApartmentEntrance => Svc.Data.GetExcelSheet<EObjName>().GetRow(2007402).Singular.ToString();
+    internal static string ApartmentEntrance => field ??= Svc.Data.GetExcelSheet<EObjName>().GetRow(2007402).Singular.ToString();
 
     internal static readonly string[] ConfirmHouseEntrance =
     [
@@ -145,18 +168,11 @@ internal static class Lang
         "'주택'으로 들어가시겠습니까?",
     ];
 
-    internal static readonly string[] RetainerAskCategoryText =
-    [
-        "依頼するリテイナーベンチャーを選んでください",
-        "请选择要委托的探险",
-        "請選擇要委託的探險",
-        "Wähle eine Unternehmung, auf die du den Gehilfen schicken möchtest.",
-        "Choisissez un type de tâche :",
-        "Select a category.",
-        "집사 수행의 종류를 선택하십시오.",
-    ];
+    //194	ASK_CATEGORY	Select a category.
+    internal static string[] RetainerAskCategoryText => field ??= [BellText(194, "請選擇要委託的探險")];
 
-    internal static string[] BellName => [Svc.Data.GetExcelSheet<EObjName>().GetRow(2000401).Singular.GetText(), "リテイナーベル"];
+    // 掃物件表找傳喚鈴時每個物件都取一次；內容在插件存活期間固定。回傳的是共用陣列，呼叫端只讀不改。
+    internal static string[] BellName => field ??= [Svc.Data.GetExcelSheet<EObjName>().GetRow(2000401).Singular.GetText(), "リテイナーベル"];
 
     //0	TEXT_HOUFIXMANSIONENTRANCE_00359_HOUSINGAREA_MENU_ENTER_MYROOM	Go to your apartment
     //0	TEXT_HOUFIXMANSIONENTRANCE_00359_HOUSINGAREA_MENU_ENTER_MYROOM	自分の部屋に移動する
@@ -188,7 +204,7 @@ internal static class Lang
     //11	TEXT_CMNDEFHOUSINGPERSONALROOMENTRANCE_00178_GOTO_WORKSHOP	地下工房に移動する
     //11	TEXT_CMNDEFHOUSINGPERSONALROOMENTRANCE_00178_GOTO_WORKSHOP	Die Ge<SoftHyphen/>sell<SoftHyphen/>schaftswerkstätte betreten
     //11	TEXT_CMNDEFHOUSINGPERSONALROOMENTRANCE_00178_GOTO_WORKSHOP	Aller dans l'atelier de compagnie
-    internal static readonly string[] EnterWorkshop = ["Move to the company workshop", "地下工房に移動する", "移动到部队工房", "移動到部隊工房", "Die Gesellschaftswerkstätte betreten", "Aller dans l'atelier de compagnie", "지하공방으로 이동"];
+    internal static readonly string[] EnterWorkshop = ["Move to the company workshop", "地下工房に移動する", "移动到部队工房", "移動到部隊工房", "移動到公會工坊", "Die Gesellschaftswerkstätte betreten", "Aller dans l'atelier de compagnie", "지하공방으로 이동"];
 
     internal static readonly string[] AirshipManagement = ["Airship Management", "飛空艇の管理", "管理飞空艇", "管理飛空艇", "Luftschiff verwalten", "Contrôle aérien", "비공정 관리"];
     internal static readonly string[] SubmarineManagement = ["Submersible Management", "潜水艦の管理", "管理潜水艇", "管理潛水艇", "Tauchboot verwalten", "Contrôle sous-marin", "잠수함 관리"];
@@ -196,27 +212,43 @@ internal static class Lang
     internal static readonly string[] NothingVoyage = ["Nothing.", "やめる", "取消", "Nichts", "Annuler", "그만두기"];
     internal static readonly string[] DeployOnSubaquaticVoyage = ["Deploy submersible on subaquatic voyage", "ボイジャー出港", "出发", "出發", "Auf Erkundung gehen", "Expédier le sous-marin", "탐사 출항"];
     internal static readonly string[] ViewPrevVoyageLog = ["View previous voyage log", "前回のボイジャー報告", "上次的远航报告", "上次的遠航報告", "Bericht der letzten Erkundung", "Consulter le journal de la précédente expédition", "이전 탐사 보고서"];
-    internal static readonly string[] VoyageQuitEntry = ["Quit", "やめる", "取消", "Beenden", "Annuler", "그만두기"];
-    internal static readonly string[] ChangeSubmersibleComponents = ["Change submersible components", "パーツの変更", "Bauteile austauschen", "Changer les éléments", "부품 변경"]; // Missing Chinese
-    internal static readonly string[] RegisterSub = ["Outfit and register a submersible.", "潜水艦の新規登録", "Registrierung eines neuen Tauchboots", "Enregistrement d'un sous-marin", "새 잠수함 등록"]; // Missing Chinese
+    // TC's per-vessel menu (the 7-entry variant shown after collecting a report) closes with "退出";
+    // "取消" only appears on the vessel-selector list and repair-reopened variants, so both are needed.
+    internal static readonly string[] VoyageQuitEntry = ["Quit", "やめる", "取消", "退出", "Beenden", "Annuler", "그만두기"];
+    internal static readonly string[] ChangeSubmersibleComponents = ["Change submersible components", "パーツの変更", "Bauteile austauschen", "Changer les éléments", "부품 변경", "更换配件", "更換配件"];
+    internal static readonly string[] RegisterSub = ["Outfit and register a submersible.", "潜水艦の新規登録", "Registrierung eines neuen Tauchboots", "Enregistrement d'un sous-marin", "새 잠수함 등록", "登记新的潜水艇", "登記新的潛水艇"];
+
+    // Company Workshop's "adventurer doll" NPC name carries a per-instance
+    // numeric suffix (e.g. "冒險人偶014號"), so this is matched with Contains
+    // rather than Equals. TC/CN confirmed via screenshot; other locales unverified.
+    internal static readonly string[] AdventurerDollNamePart = ["冒險人偶", "冒险人偶"]; // English/JP/etc not yet confirmed
+    // SelectString entry to open the Free Company Credit Shop from the doll's menu.
+    internal static readonly string[] FreeCompanyCreditShopMenu = ["Free Company Credit Shop", "公會戰績交易", "公会战绩交易"]; // JP/DE/FR/KR not yet confirmed
+    // Yes/No confirm when exchanging seals/points for an item at that shop; "青磷水" (Ceruleum) is stable across TC/CN.
+    internal static readonly string[] WorkshopBuyFuelConfirm = ["ceruleum", "青磷水"];
 
     internal static readonly string[] PanelAirship = ["Select an airship.", "飛空艇を選択してください。", "请选择飞空艇。", "請選擇飛空艇。", "Wähle ein Luftschiff.", "Choisissez un aéronef.", "비공정을 선택하십시오."];
     internal static readonly string[] PanelSubmersible = ["Select a submersible.", "潜水艦を選択してください。", "请选择潜水艇。", "請選擇潛水艇。", "Wähle ein Tauchboot.", "Choisissez un sous-marin.", "잠수함을 선택하십시오."];
 
     //2004353	entrance to additional chambers	0	entrances to additional chambers	0	1	1	0	0
-    internal static string[] AdditionalChambersEntrance =>
+    // 掃物件表時每個物件都取一次。回傳的是共用陣列，呼叫端只讀不改。
+    internal static string[] AdditionalChambersEntrance => field ??=
     [
         Svc.Data.GetExcelSheet<EObjName>().GetRow(2004353).Singular.GetText(),
         Regex.Replace(Svc.Data.GetExcelSheet<EObjName>().GetRow(2004353).Singular.GetText(), @"\[.*?\]", "")
     ];
 
     //2005274	voyage control panel	0	voyage control panels	0	0	1	0	0
-    internal static string PanelName => Svc.Data.GetExcelSheet<EObjName>().GetRow(2005274).Singular.GetText();
+    internal static string PanelName => field ??= Svc.Data.GetExcelSheet<EObjName>().GetRow(2005274).Singular.GetText();
 
     //4160	60	9	0	False	Unable to retrieve extracted items. Insufficient inventory/crystal inventory space.
-    internal static string VoyageInventoryError => Svc.Data.GetExcelSheet<LogMessage>().GetRow(4160).Text.ToDalamudString().GetText();
+    internal static string VoyageInventoryError => field ??= Svc.Data.GetExcelSheet<LogMessage>().GetRow(4160).Text.ToDalamudString().GetText();
 
-    internal static string[] UnableToVisitWorld = ["Unable to execute command. Character is currently visiting the", "他のデータセンター", "无法进行该操作，其他玩家正在操作该潜水艇。", "無法進行該操作，其他玩家正在操作該潛水艇。", "Der Vorgang kann nicht ausgeführt werden, da der Charakter gerade das Datenzentrum", "Impossible d'exécuter cette commande. Le personnage se trouve dans un autre centre de traitement de données", "다른 데이터 센터"];
+    // LogMessage 5800 = 跨資料中心造訪中，無法操作。
+    // 台服真值：「由於正前往<DC>遊玩，無法操作。」（DC 名是參數，所以只能比對前綴）。
+    // ⚠️ 不要拿 LogMessage 6050（「其他玩家正在操作該潛水艇」）的文字當錨：那是另一則真實存在的訊息，
+    // 會讓中文用戶在無關情境下被誤判而關掉 MultiMode。
+    internal static string[] UnableToVisitWorld = ["Unable to execute command. Character is currently visiting the", "他のデータセンター", "角色正在", "由於正前往", "Der Vorgang kann nicht ausgeführt werden, da der Charakter gerade das Datenzentrum", "Impossible d'exécuter cette commande. Le personnage se trouve dans un autre centre de traitement de données", "다른 데이터 센터"];
 
     //4169	60	9	0	False	Unable to repair vessel component without the required <SheetEn(Item,3,IntegerParameter(1),1,1)/>.
     //4272	60	9	0	False Unable to repair vessel.Insufficient<SheetEn(Item,3,IntegerParameter(1),3,1)/>.
@@ -271,6 +303,7 @@ internal static class Lang
             "要修理下列部件吗",
             "要修理下列部件嗎",
             "要修理下列元件嗎",
+            "要修理下列組件嗎",
             "수리하시겠습니까?",
         ];
 
@@ -291,23 +324,18 @@ internal static class Lang
             "Das Tauchboot mit den gewählten Bauteilen registrieren",
             "pour équiper et enregistrer le sous-marin",
             "잠수함을 등록하시겠습니까",
-            //"",
-            //""    Missing chinese and korean (Addonsheet - 6886)
+            // 6886 台服繁中原文：確定要使用選中的配件與<數量>張下列道具登記新的潛水艇嗎？
+            // 數量在中間，所以錨點取數字之後的穩定尾段（MiniTA 走 ContainsAny 子字串比對）。
+            "张下列道具登记新的潜水艇吗",
+            "張下列道具登記新的潛水艇嗎",
+            //""    Missing Korean-variant placeholder (Addonsheet - 6886)
     ];
 
     //Your retainer will be unable to process item buyback requests once recalled. Are you sure you wish to proceed?
-    //215	TEXT_CMNDEFRETAINERCALL_00010_ASK_RETURN_WITH_BUYBACK	Wenn du deinen Gehilfen wegschickst, kannst du die von ihm verkauften Gegenstände nicht mehr zurückkaufen. Möchtest du trotzdem fortfahren?
-    //215	TEXT_CMNDEFRETAINERCALL_00010_ASK_RETURN_WITH_BUYBACK	Renvoyer le servant effacera la liste de rachat. Confirmer<Indent/>?
-
-    internal static readonly string[] WillBeUnableToProcessBuyback = [
-        "Your retainer will be unable to process item buyback requests once recalled. Are you sure you wish to proceed?",
-        "リテイナーを帰すと売却依頼アイテムの買い戻しができなくなりますが、よろしいですか？",
-        "Renvoyer le servant effacera la liste de rachat. Confirmer",
-        "Wenn du deinen Gehilfen wegschickst, kannst du die von ihm verkauften Gegenstände nicht mehr zurückkaufen. Möchtest du trotzdem fortfahren",
-        "让雇员返回后将无法购回委托卖掉的道具",
-        "讓僱員返回後將無法購回委託賣掉的道具",
-        "집사를 돌려보내면 판매 의뢰한 아이템을 재매입할 수 없게 됩니다. 계속하시겠습니까?",
-        ];
+    //215	TEXT_CMNDEFRETAINERCALL_00010_ASK_RETURN_WITH_BUYBACK
+    // 📌 台服原文是兩行:「讓僱員返回後將無法購回委託賣掉的道具，」+換行+「確定要繼續嗎？」。
+    //    比對端 Utils.GetSpecificYesno 走 ContainsAny,錨點只取第一行,避開換行段。
+    internal static string[] WillBeUnableToProcessBuyback => field ??= [FirstLine(BellText(215, "讓僱員返回後將無法購回委託賣掉的道具"))];
 
     internal static readonly string[] LogInPartialText = ["Logging in with", "Log in with", "でログインします。", "einloggen?", "eingeloggt.", "Se connecter avec", "Vous allez vous connecter avec", "Souhaitez-vous vous connecter avec", "登入吗", "登入嗎", "登录吗", "접속하시겠습니까?"];
 

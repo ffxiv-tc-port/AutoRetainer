@@ -1,4 +1,5 @@
 ﻿using AutoRetainer.Internal;
+using AutoRetainer.Services;
 using Dalamud.Interface.Components;
 using FFXIVClientStructs.FFXIV.Client.Game;
 
@@ -8,7 +9,7 @@ internal unsafe class RetainersOld : DebugSectionBase
     private static Dictionary<int, (Vector2 start, Vector2 end)> bars = [];
     public override void Draw()
     {
-        if(!(GameRetainerManager.Ready && Svc.ClientState.LocalPlayer != null))
+        if(!(GameRetainerManager.Ready && Svc.Objects.LocalPlayer != null))
         {
             ImGuiEx.Text("Data Not Ready");
             return;
@@ -27,13 +28,14 @@ internal unsafe class RetainersOld : DebugSectionBase
         ImGui.SameLine(0, 0);
         ImGuiEx.Text(ventures < 2 * GameRetainerManager.Count ? ImGuiColors.DalamudRed : ventures < 24 * GameRetainerManager.Count ? ImGuiColors.DalamudOrange : ImGuiColors.ParsedGreen,
                 $"{ventures}");
-        ImGuiComponents.HelpMarker("The plugin will automatically disable itself at < 2 Ventures or inventory slots available.");
+        ImGuiComponents.HelpMarker(Loc.T("The plugin will automatically disable itself at < 2 Ventures or inventory slots available."));
         var storePos = ImGui.GetCursorPos();
-        for(var i = 0; i < GameRetainerManager.Count; i++)
+        var gameRetainers = GameRetainerManager.Retainers;
+        for(var i = 0; i < gameRetainers.Count; i++)
         {
             if(bars.TryGetValue(i, out var v))
             {
-                var ret = GameRetainerManager.Retainers[i];
+                var ret = gameRetainers[i];
                 if(ret.VentureID == 0 || !ret.Available || ret.Name.ToString().IsNullOrEmpty()) continue;
                 ImGui.SetCursorPos(v.start - ImGui.GetStyle().CellPadding with { Y = 0 });
                 ImGui.PushStyleColor(ImGuiCol.PlotHistogram, 0xbb500000);
@@ -45,14 +47,14 @@ internal unsafe class RetainersOld : DebugSectionBase
         }
         ImGui.SetCursorPos(storePos);
         ImGui.BeginTable("##ertainertable", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders);
-        ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Venture");
-        ImGui.TableSetupColumn("Interaction");
+        ImGui.TableSetupColumn(Loc.T("Name"), ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn(Loc.T("Venture"));
+        ImGui.TableSetupColumn(Loc.T("Interaction"));
         ImGui.TableHeadersRow();
-        var retainers = P.GetSelectedRetainers(Svc.ClientState.LocalContentId);
-        for(var i = 0; i < GameRetainerManager.Count; i++)
+        var retainers = P.GetSelectedRetainers(Svc.PlayerState.ContentId);
+        for(var i = 0; i < gameRetainers.Count; i++)
         {
-            var ret = GameRetainerManager.Retainers[i];
+            var ret = gameRetainers[i];
             if(!ret.Available || ret.Name.ToString().IsNullOrEmpty()) continue;
             ImGui.TableNextRow();
             ImGui.TableNextColumn();

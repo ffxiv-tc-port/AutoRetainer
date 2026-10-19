@@ -8,11 +8,17 @@ namespace AutoRetainer.Modules.Multi;
 
 internal static unsafe class HouseEnterTask
 {
+    // AutorunOffBell 每幀跑:null＝這趟還沒量過,所以重置後的第一幀一定會印一次基準距離。
+    private static bool? BellWithinStopRange;
+
     internal static bool? Approach()
     {
         DebugLog($"Enabling automove");
+        BellWithinStopRange = null;
         Utils.RegenerateRandom();
-        Chat.ExecuteCommand("/automove on");
+        // Routed through AutomoveManager so the matching "off" is guaranteed even if the queued
+        // AutorunOffBell step below never runs - see AutomoveManager for the full rationale.
+        AutomoveManager.On();
         return true;
     }
 
@@ -25,7 +31,8 @@ internal static unsafe class HouseEnterTask
         var addon = Utils.GetSpecificYesno(Lang.ConfirmHouseEntrance);
         if(addon != null)
         {
-            if(IsAddonReady(addon) && EzThrottler.Throttle("HET.SelectYesno"))
+            // 🔴 確認框按下即關;EzThrottler 不是防護。同一扇只按一次。
+            if(IsAddonReady(addon) && EzThrottler.Throttle("HET.SelectYesno") && DialogGuards.TryPressOnce("SelectYesno", (nint)addon, "HET.SelectYesno"))
             {
                 DebugLog("Select yes");
                 new AddonMaster.SelectYesno((nint)addon).Yes();
@@ -77,11 +84,24 @@ internal static unsafe class HouseEnterTask
     internal static bool? AutorunOffBell()
     {
         var bell = Utils.GetReachableRetainerBell(false);
-        if(bell != null) PluginLog.Information($"Dist {Vector3.Distance(Player.Object.Position, bell.Position)}");
-        if(bell != null && Vector3.Distance(Player.Object.Position, bell.Position) < 4f + Utils.Random * 0.25f)
+        if(bell == null) return false;
+        var dist = Vector3.Distance(Player.Object.Position, bell.Position);
+        var stopRange = 4f + Utils.Random * 0.25f;
+        var within = dist < stopRange;
+        // 只在跨過停步門檻那一幀寫 Information,其餘走 Debug:每幀一行 Information 會洗掉 log。
+        if(within != BellWithinStopRange)
+        {
+            BellWithinStopRange = within;
+            PluginLog.Information($"Dist {dist} stop range {stopRange} within {within}");
+        }
+        else
+        {
+            DebugLog($"Dist {dist}");
+        }
+        if(within)
         {
             DebugLog($"Disabling automove");
-            Chat.ExecuteCommand("/automove off");
+            AutomoveManager.Off();
             return true;
         }
         return false;

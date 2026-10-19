@@ -21,15 +21,15 @@ public sealed class VentureStatsManager
         {
             Load();
         }
-        if(ImGui.Button("Reload"))
+        if(ImGui.Button(Loc.T("Reload")))
         {
             Load();
         }
         ImGui.SameLine();
-        ImGui.Checkbox("Show HQ and non-HQ together", ref C.StatsUnifyHQ);
+        ImGui.Checkbox(Loc.T("Show HQ and non-HQ together"), ref C.StatsUnifyHQ);
         ImGui.SameLine();
         ImGuiEx.SetNextItemFullWidth();
-        ImGui.InputTextWithHint("##search", "Filter items...", ref Filter, 100);
+        ImGui.InputTextWithHint("##search", Loc.T("Filter items..."), ref Filter, 100);
         var cindex = 0;
         foreach(var cData in Data)
         {
@@ -37,7 +37,7 @@ public sealed class VentureStatsManager
             var display = false;
             if(CharTotal[cData.Key] != 0)
             {
-                if(ImGui.CollapsingHeader($"{Censor.Character(cData.Key)} | Total Ventures: {CharTotal.GetSafe(cData.Key)}###chara{cData.Key}"))
+                if(ImGui.CollapsingHeader($"{Censor.Character(cData.Key)}{Loc.T(" | Total Ventures: ")}{CharTotal.GetSafe(cData.Key)}###chara{cData.Key}"))
                 {
                     display = true;
                 }
@@ -52,7 +52,7 @@ public sealed class VentureStatsManager
                 {
                     ImGui.Dummy(new(10, 1));
                     ImGui.SameLine();
-                    if(ImGui.CollapsingHeader($"{Censor.Retainer(x.Key)} | Ventures: {num}###{cData.Key}ret{x.Key}"))
+                    if(ImGui.CollapsingHeader($"{Censor.Retainer(x.Key)}{Loc.T(" | Ventures: ")}{num}###{cData.Key}ret{x.Key}"))
                     {
                         foreach(var c in array)
                         {
@@ -65,44 +65,70 @@ public sealed class VentureStatsManager
         }
     }
 
+    private bool _loading;
+
     internal void Load()
     {
-        Data.Clear();
-        VentureTimestamps.Clear();
-        try
+        // Called from DrawVentures() on the UI thread (first tab open, or the Reload button); it
+        // directory-scans + deserializes every *.statistic.json in the config folder, which grows with use.
+        // Build the result in the background using local collections, then publish onto the framework
+        // thread so DrawVentures() (which reads these fields every frame without any locking) never sees
+        // a partially-updated state.
+        if(_loading)
+            return;
+        _loading = true;
+
+        Task.Run(() =>
         {
-            foreach(var x in Directory.GetFiles(Svc.PluginInterface.GetPluginConfigDirectory()))
+            var data = new Dictionary<string, Dictionary<string, Dictionary<uint, StatisticsData>>>();
+            var ventureTimestamps = new Dictionary<(string Char, string Ret), HashSet<long>>();
+            var charTotal = new Dictionary<string, uint>();
+            var retTotal = new Dictionary<string, uint>();
+
+            try
             {
-                if(x.EndsWith(".statistic.json"))
+                foreach(var x in Directory.GetFiles(Svc.PluginInterface.GetPluginConfigDirectory()))
                 {
-                    var file = EzConfig.LoadConfiguration<StatisticsFile>(x);
-                    foreach(var z in file.Records)
+                    if(x.EndsWith(".statistic.json"))
                     {
-                        AddData(file.PlayerName, file.RetainerName, z.ItemId, z.IsHQ, z.Amount, z.Timestamp);
+                        var file = EzConfig.LoadConfiguration<StatisticsFile>(x);
+                        foreach(var z in file.Records)
+                        {
+                            AddData(data, ventureTimestamps, file.PlayerName, file.RetainerName, z.ItemId, z.IsHQ, z.Amount, z.Timestamp);
+                        }
                     }
                 }
-            }
-            foreach(var x in Data)
-            {
-                uint ctotal = 0;
-                foreach(var z in x.Value)
+                foreach(var x in data)
                 {
-                    uint cnt = 0;
-                    foreach(var c in z.Value.Values)
+                    uint ctotal = 0;
+                    foreach(var z in x.Value)
                     {
-                        cnt += c.Amount + c.AmountHQ;
+                        uint cnt = 0;
+                        foreach(var c in z.Value.Values)
+                        {
+                            cnt += c.Amount + c.AmountHQ;
+                        }
+                        retTotal[z.Key] = cnt;
+                        ctotal += cnt;
                     }
-                    RetTotal[z.Key] = cnt;
-                    ctotal += cnt;
+                    charTotal[x.Key] = ctotal;
                 }
-                CharTotal[x.Key] = ctotal;
             }
-        }
-        catch(Exception e)
-        {
-            e.Log();
-            Notify.Error($"Error: {e.Message}");
-        }
+            catch(Exception e)
+            {
+                e.Log();
+                Notify.Error($"Error: {e.Message}");
+            }
+
+            Svc.Framework.RunOnFrameworkThread(() =>
+            {
+                Data = data;
+                VentureTimestamps = ventureTimestamps;
+                CharTotal = charTotal;
+                RetTotal = retTotal;
+                _loading = false;
+            });
+        });
     }
 
     private int GetVentureCount(string character)
@@ -127,12 +153,14 @@ public sealed class VentureStatsManager
         return 0;
     }
 
-    private void AddData(string character, string retainer, uint item, bool hq, uint amount, long timestamp)
+    private static void AddData(Dictionary<string, Dictionary<string, Dictionary<uint, StatisticsData>>> data,
+        Dictionary<(string Char, string Ret), HashSet<long>> ventureTimestamps,
+        string character, string retainer, uint item, bool hq, uint amount, long timestamp)
     {
-        if(!Data.TryGetValue(character, out var cData))
+        if(!data.TryGetValue(character, out var cData))
         {
             cData = [];
-            Data.Add(character, cData);
+            data.Add(character, cData);
         }
         if(!cData.TryGetValue(retainer, out var rData))
         {
@@ -144,11 +172,11 @@ public sealed class VentureStatsManager
             iData = new();
             rData.Add(item, iData);
         }
-        if(!VentureTimestamps.ContainsKey((character, retainer)))
+        if(!ventureTimestamps.ContainsKey((character, retainer)))
         {
-            VentureTimestamps[(character, retainer)] = [];
+            ventureTimestamps[(character, retainer)] = [];
         }
-        VentureTimestamps[(character, retainer)].Add(timestamp);
+        ventureTimestamps[(character, retainer)].Add(timestamp);
         if(hq)
         {
             iData.AmountHQ += amount;

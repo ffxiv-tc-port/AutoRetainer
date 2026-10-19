@@ -2,5 +2,5 @@
 public abstract class InventoryManagemenrBase : NeoUIEntry
 {
     public abstract string Name { get; }
-    public sealed override string Path => $"Inventory Management/{Name}";
+    public sealed override string Path => $"{Loc.T("Inventory Management")}/{Name}";
 }

@@ -5,6 +5,7 @@ using ECommons.Automation.NeoTaskManager.Tasks;
 using ECommons.ExcelServices;
 using ECommons.ExcelServices.TerritoryEnumeration;
 using ECommons.GameHelpers;
+using ECommons.IPC;
 using ECommons.Reflection;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
@@ -25,7 +26,7 @@ internal unsafe class DebugMulti : DebugSectionBase
             if(ImGui.Button("Enqueue HET")) TaskNeoHET.Enqueue(null);
             if(ImGui.Button("Enqueue workshop")) TaskNeoHET.TryEnterWorkshop(() => DuoLog.Error("Fail"));
             ImGuiEx.Text($"""
-                Can enter workshop: {S.LifestreamIPC.CanMoveToWorkshop()}
+                Can enter workshop: {ECommonsIPC.Lifestream.CanMoveToWorkshop()}
                 """);
         }
         if(ImGui.CollapsingHeader("Tasks"))
@@ -39,7 +40,8 @@ internal unsafe class DebugMulti : DebugSectionBase
             }
         }
         ImGui.Checkbox("Don't logout", ref C.DontLogout);
-        ImGui.Checkbox("Enabled", ref MultiMode.Enabled);
+        var multi = MultiMode.Enabled;
+        if(ImGui.Checkbox(Loc.T("Enabled"), ref multi)) MultiMode.SetEnabled(multi, "除錯頁的勾選框", MultiModeChangeCause.User);
         ImGuiEx.Text($"Expected: {TaskChangeCharacter.Expected}");
         if(ImGui.Button("Force mismatch")) TaskChangeCharacter.Expected = ("AAAAAAAA", "BBBBBBB");
         if(ImGui.Button("Simulate nothing left"))
@@ -54,7 +56,9 @@ internal unsafe class DebugMulti : DebugSectionBase
         {
             DalamudReflector.DeleteSharedData("AutoRetainer.WasLoaded");
         }
-        ImGuiEx.Text($"Moving: {AgentMap.Instance()->IsPlayerMoving}");
+        // AgentMap 取得器合法回 null。拿不到印 "?"，不要把「不知道」畫成 False。
+        var dbgMap = AgentMap.Instance();
+        ImGuiEx.Text($"Moving: {(dbgMap == null ? "?" : $"{dbgMap->IsPlayerMoving}")}");
         ImGuiEx.Text($"Occupied: {IsOccupied()}");
         ImGuiEx.Text($"Casting: {Player.Object?.IsCasting}");
         ImGuiEx.TextCopy($"CID: {Player.CID}");
@@ -77,11 +81,11 @@ internal unsafe class DebugMulti : DebugSectionBase
         ImGuiEx.Text($"Is in sanctuary: {TerritoryInfo.Instance()->InSanctuary}");
         ImGuiEx.Text($"Is in sanctuary ExcelTerritoryHelper: {ExcelTerritoryHelper.IsSanctuary(Svc.ClientState.TerritoryType)}");
         ImGui.Checkbox($"Bypass sanctuary check", ref C.BypassSanctuaryCheck);
-        if(Svc.ClientState.LocalPlayer != null && Svc.Targets.Target != null)
+        if(Svc.Objects.LocalPlayer != null && Svc.Targets.Target != null)
         {
-            ImGuiEx.Text($"Distance to target: {Vector3.Distance(Svc.ClientState.LocalPlayer.Position, Svc.Targets.Target.Position)}");
+            ImGuiEx.Text($"Distance to target: {Vector3.Distance(Svc.Objects.LocalPlayer.Position, Svc.Targets.Target.Position)}");
             ImGuiEx.Text($"Target hitbox: {Svc.Targets.Target.HitboxRadius}");
-            ImGuiEx.Text($"Distance to target's hitbox: {Vector3.Distance(Svc.ClientState.LocalPlayer.Position, Svc.Targets.Target.Position) - Svc.Targets.Target.HitboxRadius}");
+            ImGuiEx.Text($"Distance to target's hitbox: {Vector3.Distance(Svc.Objects.LocalPlayer.Position, Svc.Targets.Target.Position) - Svc.Targets.Target.HitboxRadius}");
         }
         if(ImGui.CollapsingHeader("CharaSelect"))
         {

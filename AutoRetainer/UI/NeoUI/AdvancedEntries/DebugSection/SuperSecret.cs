@@ -6,10 +6,10 @@ internal class SuperSecret : DebugSectionBase
 {
     public override void Draw()
     {
-        ImGuiEx.TextWrapped(ImGuiColors.ParsedOrange, "Anything can happen here.");
-        ImGui.Checkbox("Old RetainerSense", ref C.OldRetainerSense);
-        ImGuiComponents.HelpMarker("Detect and use the closest Summoning Bell within valid distance of the player.");
-        ImGuiEx.TextWrapped(ImGuiColors.DalamudGrey, "RetainerSense is enforced to be active during MultiMode operation.");
+        ImGuiEx.TextWrapped(ImGuiColors.ParsedOrange, Loc.T("Anything can happen here."));
+        ImGui.Checkbox(Loc.T("Old RetainerSense"), ref C.OldRetainerSense);
+        ImGuiComponents.HelpMarker(Loc.T("Detect and use the closest Summoning Bell within valid distance of the player."));
+        ImGuiEx.TextWrapped(ImGuiColors.DalamudGrey, Loc.T("RetainerSense is enforced to be active during MultiMode operation."));
         ImGui.Separator();
         ImGui.Checkbox($"Unsafe options protection", ref C.UnsafeProtection);
         ImGui.SameLine();

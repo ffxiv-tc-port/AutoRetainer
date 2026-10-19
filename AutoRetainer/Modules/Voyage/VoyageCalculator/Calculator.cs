@@ -1,5 +1,4 @@
 ﻿using Lumina.Excel.Sheets;
-using System.Collections.Concurrent;
 using static AutoRetainer.Modules.Voyage.VoyageCalculator.Build;
 
 namespace AutoRetainer.Modules.Voyage.VoyageCalculator;
@@ -11,14 +10,22 @@ internal unsafe class Calculator
     private uint[] BestPath = Array.Empty<uint>();
     private List<SubmarineExploration> AllowedSectors = [];
 
+    // 建構時（呼叫端的框架執行緒）取一次。FindBestPath 跑在執行緒池，那裡不可呼叫遊戲函式：
+    // IsSubmarineExplorationUnlocked 直接讀 HousingManager->WorkshopTerritory（不在工房時為 null）。
+    private readonly List<uint> UnlockedSectors;
+
     internal SubmarineBuild? CurrentBuild;
     internal RouteBuild? RouteBuild;
 
     internal Calculator()
     {
         var current = CurrentSubmarine.Get();
+        // CurrentSubmarine.Get() 會回 null（不在工房／面板沒開）。丟可讀例外，不要讓
+        // 下一行去解參考 null —— AVE 是 corrupted-state exception，try/catch 攔不到。
+        if(current == null) throw new InvalidOperationException(CurrentSubmarine.Unavailable);
         CurrentBuild = new(current->RankId, current->HullId, current->SternId, current->BowId, current->BridgeId);
         RouteBuild = new(current->RankId, current->HullId, current->SternId, current->BowId, current->BridgeId);
+        UnlockedSectors = CurrentSubmarine.GetUnlockedSectors();
     }
 
     public (uint[] path, TimeSpan duration, double exp)? FindBestPath(uint mapId)
@@ -29,15 +36,13 @@ internal unsafe class Calculator
             if(CurrentBuild != null)
             {
                 VoyageUtils.Log($"Starting to get best path for map {mapId}");
-                var mapDictionary = new ConcurrentDictionary<int, (int, List<SubmarineExploration>)[]>();
 
                 List<SubmarineExploration> valid;
-                int highestRank;
                 try
                 {
                     valid = Svc.Data.GetExcelSheet<SubmarineExploration>()
                             .Where(r => r.Map.RowId == mapId && !r.StartingPoint && r.RankReq <= routeBuild.Rank)
-                            .Where(r => CurrentSubmarine.GetUnlockedSectors().Contains(r.RowId))
+                            .Where(r => UnlockedSectors.Contains(r.RowId))
                             .ToList();
                     if(AllowedSectors.Any())
                     {
@@ -46,7 +51,8 @@ internal unsafe class Calculator
                                 .Where(r => AllowedSectors.Contains(r))
                                 .ToList();
                     }
-                    highestRank = valid.Max(r => r.RankReq);
+                    // valid 為空時由 Max 擲例外（外層記錯誤並回 null），保留這個行為。
+                    _ = valid.Max(r => r.RankReq);
                 }
                 catch(KeyNotFoundException)
                 {
@@ -54,64 +60,7 @@ internal unsafe class Calculator
                 }
 
                 var startPoint = Svc.Data.GetExcelSheet<SubmarineExploration>().First(r => r.Map.RowId == mapId);
-                if(!mapDictionary.TryGetValue(highestRank, out var distances) || !distances.Any(t => t.Item2.ContainsAllItems<SubmarineExploration>(MustInclude)))
-                {
-                    var paths = valid.Select(t => new[] { startPoint.RowId, t.RowId }.ToList()).ToHashSet(new ListComparer());
-                    if(MustInclude.Any())
-                        paths = new[] { MustInclude.Select(t => t.RowId).Prepend(startPoint.RowId).ToList() }.ToHashSet(new ListComparer());
-
-                    var i = MustInclude.Any() ? MustInclude.Count : 1;
-                    while(i++ < 5)
-                    {
-                        foreach(var path in paths.ToArray())
-                        {
-                            foreach(var validPoint in valid.Where(t => !path.Contains(t.RowId)))
-                            {
-                                var pathNew = path.ToList();
-                                pathNew.Add(validPoint.RowId);
-                                paths.Add(pathNew.ToList());
-                            }
-                        }
-                    }
-
-                    var allPaths = C.VoyageDisableCalcParallel ? paths.Select(t => t.Select(f => valid.Cast<SubmarineExploration?>().FirstOrDefault(k => k?.RowId == f) ?? startPoint)).ToList() : paths.AsParallel().Select(t => t.Select(f => valid.Cast<SubmarineExploration?>().FirstOrDefault(k => k?.RowId == f) ?? startPoint)).ToList();
-
-                    if(!allPaths.Any())
-                    {
-                        return null;
-                    }
-
-                    distances = C.VoyageDisableCalcParallel ? allPaths.Select(Voyage.CalculateDistance).ToArray() : allPaths.AsParallel().Select(Voyage.CalculateDistance).ToArray();
-                    mapDictionary.AddOrUpdate(highestRank, distances, (k, v) => distances);
-                }
-
-                var build = routeBuild.GetSubmarineBuild;
-                var optimalDistances = C.VoyageDisableCalcParallel ? distances.Where(t => t.Item1 <= build.Range && t.Item2.ContainsAllItems(MustInclude)).ToArray() : distances.AsParallel().Where(t => t.Item1 <= build.Range && t.Item2.ContainsAllItems(MustInclude)).ToArray();
-                if(!optimalDistances.Any())
-                {
-                    return null;
-                }
-
-                var bestPath = optimalDistances.Select(t =>
-                {
-                    var path = t.Item2.Prepend(startPoint).ToArray();
-
-                    return new Tuple<uint[], TimeSpan, double>(
-                        t.Item2.Select(t => t.RowId).ToArray(),
-                        TimeSpan.FromSeconds(Voyage.CalculateDuration(path, build)),
-                        Sectors.CalculateExpForSectors(t.Item2, CurrentBuild.Value)
-                    );
-                })
-                  //.Where(t => t.Item2 < Configuration.DurationLimit.ToTime())
-                  .OrderByDescending(t => t.Item3 / t.Item2.TotalMinutes)
-                  //.Select(t => t.Item1)
-                  .FirstOrDefault();
-
-                if(bestPath == null)
-                {
-                    return null;
-                }
-                return (bestPath.Item1, bestPath.Item2, bestPath.Item3);
+                return RouteSearch.FindBest(valid, startPoint, MustInclude, routeBuild, CurrentBuild.Value, !C.VoyageDisableCalcParallel);
             }
         }
         catch(Exception e)

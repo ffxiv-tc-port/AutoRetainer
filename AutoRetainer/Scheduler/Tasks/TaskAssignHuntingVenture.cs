@@ -32,10 +32,15 @@ public static unsafe class TaskAssignHuntingVenture
             {
                 var ptr = (nint)addon->AtkValues[42 + i].Pointer;
                 var id = *(uint*)ptr;
-                if(id == ventureId && Utils.GenericThrottle)
+                if(id == ventureId)
                 {
-                    rethrottle();
-                    Callback.Fire(addon, true, 5, i, Callback.ZeroAtkValue);
+                    // RetainerTaskSupply 按下不關(開出 RetainerTaskAsk 才 return true):帶參數組,同一列 15 幀內不重送。
+                    // 比中就結束這一輪(不管有沒有送出),不要掉到下面「切等級清單」那條路去對同一扇窗送別的事件。
+                    if(Utils.GenericThrottle && DialogGuards.TryPressOnce("RetainerTaskSupply", (nint)addon, "OpenAssignVentureWindow", $"Select{i}", escapeIsRoutine: true))
+                    {
+                        rethrottle();
+                        Callback.Fire(addon, true, 5, i, Callback.ZeroAtkValue);
+                    }
                     return false;
                 }
             }
@@ -44,7 +49,7 @@ public static unsafe class TaskAssignHuntingVenture
                 var level = task.RetainerLevel;
                 var levelIndex = (level - 1) / 5;
                 var listIndex = addon->AtkValues[40].Int - levelIndex - 1;
-                if(listIndex >= 0 && Utils.GenericThrottle)
+                if(listIndex >= 0 && Utils.GenericThrottle && DialogGuards.TryPressOnce("RetainerTaskSupply", (nint)addon, "OpenAssignVentureWindow.Level", $"Level{listIndex}", escapeIsRoutine: true))
                 {
                     rethrottle();
                     Callback.Fire(addon, true, 4, listIndex, Callback.ZeroAtkValue);

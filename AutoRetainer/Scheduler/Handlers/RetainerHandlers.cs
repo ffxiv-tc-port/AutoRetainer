@@ -1,5 +1,6 @@
 ﻿using AutoRetainer.Scheduler.Tasks;
 using Dalamud.Utility;
+using ECommons.Automation.NeoTaskManager;
 using ECommons.Automation.UIInput;
 using ECommons.Throttlers;
 using ECommons.UIHelpers.AddonMasterImplementations;
@@ -18,7 +19,10 @@ internal static unsafe class RetainerHandlers
         var yesno = Utils.GetSpecificYesno(Lang.WillBeUnableToProcessBuyback);
         if(yesno != null)
         {
-            if(Utils.GenericThrottle && EzThrottler.Throttle("WillBeUnableToProcessBuyback"))
+            // 🔴 RetainerBulkOperation 的復原鏈會在幾個 tick 內第二次進到這裡,GetSpecificYesno 對關閉中的窗仍命中;
+            //    節流不是防護,同一扇確認框只按一次(記號在 DialogGuards,窗消失後解除)。
+            if(Utils.GenericThrottle && EzThrottler.Throttle("WillBeUnableToProcessBuyback")
+                && DialogGuards.TryPressOnce("SelectYesno", (nint)yesno, "WillBeUnableToProcessBuyback"))
             {
                 new AddonMaster.SelectYesno((nint)yesno).Yes();
                 return true;
@@ -33,14 +37,25 @@ internal static unsafe class RetainerHandlers
 
     internal static bool? WaitForVentureListUpdate()
     {
-        if(P.ListUpdateFrame > CSFramework.Instance()->FrameCounter - 10) return true;
+        // 🔴 CSFramework.Instance() 是 isPointer:true 的靜態位址，會合法回 null，
+        //    裸解參考是攔不到的 AVE。
+        //    讀不到就回 false ＝「還沒等到」，下一輪再試；不會謊報清單已更新。
+        var framework = CSFramework.Instance();
+        if(framework == null) return false;
+        if(P.ListUpdateFrame > framework->FrameCounter - 10) return true;
         return false;
     }
 
+    // 下面這幾個選項文字取自 Addon 表：表在插件存活期間不變，第一次用到時算好就重用（同 ViewVentureReportEntry）。
+    private static string[] AssignVentureEntries => field ??= [Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2386).Text.ToDalamudString().GetText(), Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2387).Text.ToDalamudString().GetText()];
+    private static string QuitEntry => field ??= Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2383).Text.ToDalamudString().GetText();
+    private static string EntrustItemsEntry => field ??= Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2378).Text.ToDalamudString().GetText(true);
+    private static string EntrustGilEntry => field ??= Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2379).Text.ToDalamudString().GetText(true);
+    private static string CloseWindowText => field ??= Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(13530).Text.ToDalamudString().GetText();
+
     internal static bool? SelectAssignVenture()
     {
-        var text = new string[] { Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2386).Text.ToDalamudString().GetText(), Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2387).Text.ToDalamudString().GetText() };
-        return Utils.TrySelectSpecificEntry(text);
+        return Utils.TrySelectSpecificEntry(AssignVentureEntries);
     }
 
     internal static bool? SelectQuit()
@@ -48,14 +63,14 @@ internal static unsafe class RetainerHandlers
         if(BailoutManager.SimulateStuckOnQuit) return false;
         if(TryGetAddonByName<AtkUnitBase>("RetainerTaskSupply", out var addon))
         {
-            if(Utils.GenericThrottle)
+            // Close(true) 對關閉中的窗再叫一次同樣未證安全:同一扇只關一次。
+            if(Utils.GenericThrottle && DialogGuards.TryPressOnce("RetainerTaskSupply", (nint)addon, "SelectQuit.CloseTaskSupply"))
             {
                 addon->Close(true);
             }
             return false;
         }
-        var text = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2383).Text.ToDalamudString().GetText();
-        return Utils.TrySelectSpecificEntry(text);
+        return Utils.TrySelectSpecificEntry(QuitEntry);
     }
 
     internal static void EnforceSelectStringThrottle()
@@ -63,12 +78,19 @@ internal static unsafe class RetainerHandlers
         EzThrottler.Throttle("EnforceSelectString", 3000, true);
     }
 
+    /// <summary>選單上「查看探險報告（已結束）」那一行的文字，取自 Addon#2385，跟隨客戶端語言。</summary>
+    /// <remarks>逾時診斷要印出「當時在等什麼」，兩邊必須取同一個來源，不可以各抄一份。</remarks>
+    // 表在插件存活期間不變，第一次存取時算好就重用。
+    internal static string ViewVentureReportEntry => field ??= Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2385).Text.ToDalamudString().GetText();
+
+    /// <summary>探險報告選項的等待上限，刻意短於 TaskManager 的預設。</summary>
+    /// <remarks>那一行不出現時（僱員手上沒有已結束的探險）久等無用，上限只決定多久放棄。</remarks>
+    internal static readonly TaskManagerConfiguration ViewVentureReportConf = new(timeLimitMS: 5000);
+
     internal static bool? SelectViewVentureReport()
     {
         EnforceSelectStringThrottle();
-        //2385	View venture report. (Complete)
-        var text = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2385).Text.ToDalamudString().GetText();
-        return Utils.TrySelectSpecificEntry(text);
+        return Utils.TrySelectSpecificEntry(ViewVentureReportEntry);
     }
 
     internal static bool? EnforceSelectString(Func<bool?> Action)
@@ -90,11 +112,14 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AddonRetainerTaskResult>("RetainerTaskResult", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
             const string thrName = "ClickResultReassign.WaitForButtonEnabled";
-            if(!addon->ReassignButton->IsEnabled)
+            if(!Utils.IsButtonEnabled(addon->ReassignButton))
             {
                 FrameThrottler.Throttle(thrName, 5, true);
             }
-            if(FrameThrottler.Check(thrName) && addon->ReassignButton->IsEnabled && Utils.GenericThrottle)
+            // 🔴 按鈕按下即關窗;「按過的按鈕會被停用」未證實,5 幀穩定閘+GenericThrottle 都不是防護。
+            //    同一扇 RetainerTaskResult 只按一次(Reassign/Confirm 共用一把 key)。
+            if(FrameThrottler.Check(thrName) && Utils.IsButtonEnabled(addon->ReassignButton) && Utils.GenericThrottle
+                && DialogGuards.TryPressOnce("RetainerTaskResult", (nint)addon, "ClickResultReassign"))
             {
                 new AddonMaster.RetainerTaskResult(addon).Reassign();
                 DebugLog($"Clicked reassign");
@@ -113,11 +138,12 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AddonRetainerTaskResult>("RetainerTaskResult", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
             const string thrName = "RetainerTaskResult.WaitForButtonEnabled";
-            if(!addon->ConfirmButton->IsEnabled)
+            if(!Utils.IsButtonEnabled(addon->ConfirmButton))
             {
                 FrameThrottler.Throttle(thrName, 5, true);
             }
-            if(FrameThrottler.Check(thrName) && addon->ConfirmButton->IsEnabled && Utils.GenericThrottle)
+            if(FrameThrottler.Check(thrName) && Utils.IsButtonEnabled(addon->ConfirmButton) && Utils.GenericThrottle
+                && DialogGuards.TryPressOnce("RetainerTaskResult", (nint)addon, "ClickResultConfirm"))
             {
                 new AddonMaster.RetainerTaskResult(addon).Confirm();
                 DebugLog($"Clicked confirm");
@@ -136,11 +162,12 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AddonRetainerTaskAsk>("RetainerTaskAsk", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
             const string thrName = "ClickAskAssign.WaitForButtonEnabled";
-            if(!addon->AssignButton->IsEnabled)
+            if(!Utils.IsButtonEnabled(addon->AssignButton))
             {
                 FrameThrottler.Throttle(thrName, 5, true);
             }
-            if(FrameThrottler.Check(thrName) && addon->AssignButton->IsEnabled && Utils.GenericThrottle)
+            if(FrameThrottler.Check(thrName) && Utils.IsButtonEnabled(addon->AssignButton) && Utils.GenericThrottle
+                && DialogGuards.TryPressOnce("RetainerTaskAsk", (nint)addon, "ClickAskAssign"))
             {
                 new AddonMaster.RetainerTaskAsk((IntPtr)addon).Assign();
                 DebugLog("Clicked assign");
@@ -159,11 +186,12 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AddonRetainerTaskAsk>("RetainerTaskAsk", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
             const string thrName = "ClickAskReturn.WaitForButtonEnabled";
-            if(!addon->ReturnButton->IsEnabled)
+            if(!Utils.IsButtonEnabled(addon->ReturnButton))
             {
                 FrameThrottler.Throttle(thrName, 5, true);
             }
-            if(FrameThrottler.Check(thrName) && addon->ReturnButton->IsEnabled && Utils.GenericThrottle)
+            if(FrameThrottler.Check(thrName) && Utils.IsButtonEnabled(addon->ReturnButton) && Utils.GenericThrottle
+                && DialogGuards.TryPressOnce("RetainerTaskAsk", (nint)addon, "ClickAskReturn"))
             {
                 new AddonMaster.RetainerTaskAsk((IntPtr)addon).Return();
                 DebugLog("Clicked return");
@@ -185,15 +213,13 @@ internal static unsafe class RetainerHandlers
     internal static bool? SelectEntrustItems()
     {
         //2378	Entrust or withdraw items.
-        var text = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2378).Text.ToDalamudString().GetText(true);
-        return Utils.TrySelectSpecificEntry(text);
+        return Utils.TrySelectSpecificEntry(EntrustItemsEntry);
     }
 
     internal static bool? SelectEntrustGil()
     {
         //2379	Entrust or withdraw gil.
-        var text = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2379).Text.ToDalamudString().GetText(true);
-        return Utils.TrySelectSpecificEntry(text);
+        return Utils.TrySelectSpecificEntry(EntrustGilEntry);
     }
 
     internal static bool? ClickEntrustDuplicates()
@@ -201,8 +227,16 @@ internal static unsafe class RetainerHandlers
         var invName = Utils.GetActiveRetainerInventoryName();
         if(TryGetAddonByName<AtkUnitBase>(invName.Name, out var addon) && IsAddonReady(addon))
         {
-            var button = (AtkComponentButton*)addon->UldManager.NodeList[invName.EntrustDuplicatesIndex]->GetComponent();
-            if(addon->UldManager.NodeList[invName.EntrustDuplicatesIndex]->IsVisible() && button->IsEnabled && Utils.GenericThrottle)
+            // 🔴 這個索引不是常數 —— EntrustDuplicatesIndex 依道具欄種類(InventoryLarge / InventoryExpansion /
+            //    InventoryRetainerLarge …)切換,不同版面的 NodeListCount 也不同,越界時讀到的是相鄰記憶體而不是 null,
+            //    元素判空完全擋不住,所以走 GetNodeSafe。GetComponent() / IsVisible() 都是 [MemberFunction],節點取不到時
+            //    等於把 this = 0 交給遊戲原生碼。取不到就當「按鈕還沒出現」回 false 讓下一輪重試 —— 與既有的
+            //    「不可見／未啟用」走同一條路,不會謊報已委託。
+            var node = Utils.GetNodeSafe(&addon->UldManager, invName.EntrustDuplicatesIndex);
+            var button = node == null ? null : (AtkComponentButton*)node->GetComponent();
+            // 道具欄窗按下不關(開出 RetainerItemTransferList):帶參數組,15 幀內不對同一扇重送。
+            if(node != null && node->IsVisible() && Utils.IsButtonEnabled(button) && Utils.GenericThrottle
+                && DialogGuards.TryPressOnce(invName.Name, (nint)addon, "ClickEntrustDuplicates", "EntrustDuplicates", escapeIsRoutine: true))
             {
                 //new ClickButtonGeneric(addon, invName.Name).Click(button);
                 Callback.Fire(addon, false, (int)0);
@@ -221,8 +255,14 @@ internal static unsafe class RetainerHandlers
     {
         if(TryGetAddonByName<AtkUnitBase>("RetainerItemTransferList", out var addon) && IsAddonReady(addon))
         {
-            var button = (AtkComponentButton*)addon->UldManager.NodeList[3]->GetComponent();
-            if(addon->UldManager.NodeList[3]->IsVisible() && button->IsEnabled && Utils.GenericThrottle)
+            // 🔴 除了上界與元素判空,這裡還多一層:button 是 GetComponent() 的回值,也要判空 ——
+            //    ClickAddonButton 內部會讀 AtkComponentBase 的欄位,對 null 一樣是解參考。
+            //    取不到就回 false 重試,不謊報已確認。
+            var node = Utils.GetNodeSafe(&addon->UldManager, 3);
+            var button = node == null ? null : (AtkComponentButton*)node->GetComponent();
+            // 🔴 按下即關窗;GenericThrottle 下界 0 幀,不是防護。同一扇只按一次。
+            if(node != null && button != null && node->IsVisible() && Utils.IsButtonEnabled(button) && Utils.GenericThrottle
+                && DialogGuards.TryPressOnce("RetainerItemTransferList", (nint)addon, "ClickEntrustDuplicatesConfirm"))
             {
                 button->ClickAddonButton(addon);
                 DebugLog($"Clicked duplicates confirm");
@@ -239,12 +279,24 @@ internal static unsafe class RetainerHandlers
     internal static bool? ClickCloseEntrustWindow()
     {
         //13530	Close Window
-        var text = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(13530).Text.ToDalamudString().GetText();
+        var text = CloseWindowText;
         if(TryGetAddonByName<AtkUnitBase>("RetainerItemTransferProgress", out var addon) && IsAddonReady(addon))
         {
-            var button = (AtkComponentButton*)addon->UldManager.NodeList[2]->GetComponent();
-            var nodetext = GenericHelpers.ReadSeString(&addon->UldManager.NodeList[2]->GetComponent()->UldManager.NodeList[2]->GetAsAtkTextNode()->NodeText).GetText();
-            if(nodetext == text && addon->UldManager.NodeList[2]->IsVisible() && button->IsEnabled && Utils.GenericThrottle)
+            // 🔴 五跳鏈每一跳都要驗:NodeList[2](上界與元素)→ GetComponent()([MemberFunction],
+            //    對 null this 呼叫＝當場 AVE)→ 回值可為 null → 內層 NodeList[2] → GetAsAtkTextNode()
+            //    → &...->NodeText(毒指標 0xC0,連 ReadSeString 的判空都騙得過去)。
+            //    任一跳取不到就當「還沒到可以按的狀態」回 false 讓下一輪重試(與既有的
+            //    addon 尚未 ready 路徑同語意),不謊報已關閉。
+            var node = Utils.GetNodeSafe(&addon->UldManager, 2);
+            var component = node == null ? null : node->GetComponent();
+            var button = (AtkComponentButton*)component;
+            if(component != null
+                && Utils.TryGetNodeText(Utils.GetNodeSafe(&component->UldManager, 2), out var nodetext)
+                && nodetext == text
+                && node->IsVisible()
+                && Utils.IsButtonEnabled(button)
+                && Utils.GenericThrottle
+                && DialogGuards.TryPressOnce("RetainerItemTransferProgress", (nint)addon, "ClickCloseEntrustWindow"))
             {
                 button->ClickAddonButton(addon);
                 DebugLog($"Clicked transfer progress close");
@@ -260,7 +312,17 @@ internal static unsafe class RetainerHandlers
 
     internal static bool? CloseAgentRetainer()
     {
-        var a = Framework.Instance()->UIModule->GetAgentModule()->GetAgentByInternalId(AgentId.Retainer);
+        // 🔴 四層鏈每一層都要驗：Framework.Instance()（isPointer:true，可能 null）
+        //    → UIModule（+0x2B68 裸欄位）→ GetAgentModule()（可能 null）→ 代理人（可能 null）。
+        //    任一層 null 就是攔不到的 AVE（corrupted-state exception，try/catch 無效）。
+        //    這支是「把僱員代理人關掉」的任務步驟，回 false ＝ 尚未完成、下一輪再試，
+        //    與既有的「代理人不活躍時回 false」同一條路徑（不謊報已關閉）。
+        var framework = Framework.Instance();
+        if(framework == null || framework->UIModule == null) return false;
+        var agentModule = framework->UIModule->GetAgentModule();
+        if(agentModule == null) return false;
+        var a = agentModule->GetAgentByInternalId(AgentId.Retainer);
+        if(a == null) return false;
         if(a->IsAgentActive())
         {
             a->Hide();
@@ -274,13 +336,19 @@ internal static unsafe class RetainerHandlers
         if(TryGetAddonByName<AtkUnitBase>("Bank", out var addon) && IsAddonReady(addon) && Utils.TryGetCurrentRetainer(out var name) && Utils.TryGetRetainerByName(name, out var retainer))
         {
             if(percent < 1 || percent > 100) throw new ArgumentOutOfRangeException(nameof(percent), percent, "Percent must be between 1 and 100");
-            if(uint.TryParse(GenericHelpers.ReadSeString(&addon->UldManager.NodeList[27]->GetAsAtkTextNode()->NodeText).GetText().RemoveOtherChars("0123456789"), out var numGil))
+            // 🔴 走 Utils.TryGetNodeText:GetAsAtkTextNode() 對 null 節點是當場 AVE,
+            //    &...->NodeText 則是靜默的毒指標 0xC0。取不到就回 false 讓下一輪重試 ——
+            //    刻意不走下面那個「解析失敗＝視為完成」的 else,因為「節點還沒建好」與
+            //    「金額欄位真的不是數字」是兩件事,前者重試就會好。
+            if(!Utils.TryGetNodeText(&addon->UldManager, 27, out var gilText)) return false;
+            if(uint.TryParse(gilText.RemoveOtherChars("0123456789"), out var numGil))
             {
                 DebugLog($"Gil: {numGil}");
                 var gilToWithdraw = (uint)(percent == 100 ? numGil : numGil / 100f * percent);
                 if(gilToWithdraw > 0 && gilToWithdraw <= numGil)
                 {
-                    if(Utils.GenericThrottle)
+                    // Bank 窗設金額不關窗:帶參數組;ProcessBankOrCancel 對同一扇按過提領/取消後,任何參數組都不再送。
+                    if(Utils.GenericThrottle && DialogGuards.TryPressOnce("Bank", (nint)addon, "SetWithdrawGilAmount", $"Set{gilToWithdraw}", escapeIsRoutine: true))
                     {
                         var v = stackalloc AtkValue[]
                         {
@@ -319,7 +387,7 @@ internal static unsafe class RetainerHandlers
             var gilToDeposit = (uint)(percent == 100 ? numGil : numGil / 100f * percent);
             if(gilToDeposit > 0 && gilToDeposit <= numGil)
             {
-                if(Utils.GenericThrottle)
+                if(Utils.GenericThrottle && DialogGuards.TryPressOnce("Bank", (nint)addon, "SetDepositGilAmount", $"Set{gilToDeposit}", escapeIsRoutine: true))
                 {
                     var v = stackalloc AtkValue[]
                     {
@@ -353,7 +421,7 @@ internal static unsafe class RetainerHandlers
             var gilToDeposit = (uint)numGil;
             if(gilToDeposit > 0 && gilToDeposit <= numGil)
             {
-                if(Utils.GenericThrottle)
+                if(Utils.GenericThrottle && DialogGuards.TryPressOnce("Bank", (nint)addon, "SetDepositGilAmountExact", $"Set{gilToDeposit}", escapeIsRoutine: true))
                 {
                     var v = stackalloc AtkValue[]
                     {
@@ -381,7 +449,7 @@ internal static unsafe class RetainerHandlers
     {
         if(TryGetAddonByName<AtkUnitBase>("Bank", out var addon) && IsAddonReady(addon))
         {
-            if(Utils.GenericThrottle)
+            if(Utils.GenericThrottle && DialogGuards.TryPressOnce("Bank", (nint)addon, "SwapBankMode", "SwapMode", escapeIsRoutine: true))
             {
                 var v = stackalloc AtkValue[]
                 {
@@ -405,14 +473,43 @@ internal static unsafe class RetainerHandlers
         return ProcessBankOrCancel(false);
     }
 
+    // 上一輪已經對這個位址的 Bank 視窗送出「提領／取消」callback、而那扇窗還沒消失時記下的位址。
+    // 🔴 只做等值比較，永遠不解參（與 DialogGuards 同一條紀律）。位址可能被下一扇窗重用，
+    //    所以要判「是不是同一扇還沒關掉的窗」時一律再問一次 DialogGuards.WasPressed：
+    //    那邊的紀錄會在窗真的從 addon 清單消失時被清掉，光靠這個欄位分不出
+    //    「同一扇窗還開著」與「新的一扇窗剛好落在同一塊記憶體」。
+    private static nint bankPendingClose;
+
     internal static bool? ProcessBankOrCancel(bool forceCancel = false)
     {
         if(TryGetAddonByName<AtkUnitBase>("Bank", out var addon) && IsAddonReady(addon))
         {
-            var withdraw = (AtkComponentButton*)addon->UldManager.NodeList[3]->GetComponent();
-            if(addon->UldManager.NodeList[3]->IsVisible() && withdraw->IsEnabled && !forceCancel)
+            var current = (nint)addon;
+            if(bankPendingClose == current && DialogGuards.WasPressed("Bank", current))
             {
-                if(Utils.GenericThrottle)
+                // 🔴 上一輪送出的提領／取消 callback 沒有把這扇窗關掉，現在才補送 Close(true)。
+                // 危險的是「順序」而不是「多餘」：callback 的處理常式若自己把窗收掉，緊接的 Close 就落在關閉中的窗上（攔不到的原生 AccessViolation）。
+                // 把 Close 挪到「下一輪、重新用窗名解出來的位址」上，窗有沒有被那一發關掉兩種可能都安全。
+                // 🔴 這裡刻意**不**掛 Utils.GenericThrottle：它數的是繪製幀，過場動畫與隱藏 UI 期間會停住；DialogGuards 自己的時鐘掛在 Framework.Update 上。
+                if(!DialogGuards.TryPressOnce("Bank", current, "ProcessBank.Close", escapeIsRoutine: true)) return false;
+                bankPendingClose = 0;
+                addon->Close(true);
+                DebugLog($"Closed bank window");
+                return true;
+            }
+            // 不是那扇待關的窗（位址對不上，或那扇已經消失、現在這扇是新的）⇒ 記號作廢，走正常流程。
+            bankPendingClose = 0;
+            // 🔴 兩個節點都走 GetNodeSafe,失敗語意刻意分兩層:
+            //    ①「提領」節點取不到 → 落到 else 走「取消」分支(與「提領鈕不可見／未啟用」相同,
+            //       forceCancel 的既有行為也是靠這條路),不是直接放棄整步;
+            //    ②「取消」節點也取不到 → 回 false 讓下一輪重試,絕不回 true(回 true 會讓佇列
+            //       以為銀行視窗已經處理掉了,實際上它還開著)。
+            var withdrawNode = Utils.GetNodeSafe(&addon->UldManager, 3);
+            var withdraw = withdrawNode == null ? null : (AtkComponentButton*)withdrawNode->GetComponent();
+            if(withdrawNode != null && withdrawNode->IsVisible() && Utils.IsButtonEnabled(withdraw) && !forceCancel)
+            {
+                // 🔴 提領/取消按下即關;同一扇 Bank 只按一次。關窗那一步移到下一輪(理由見上面補送 Close 那一段)。
+                if(Utils.GenericThrottle && DialogGuards.TryPressOnce("Bank", current, "ProcessBank"))
                 {
                     var v = stackalloc AtkValue[]
                     {
@@ -420,33 +517,44 @@ internal static unsafe class RetainerHandlers
                         new() { Type = 0, Int = 0 }
                     };
                     addon->FireCallback(2, v);
-                    addon->Close(true);
-
-                    DebugLog($"Clicked withdraw");
+                    // 🔴 送出之後這一輪不再碰這扇窗（連 Close 都不行）。回 false 的意義是「這一輪沒做完，
+                    //    下一輪再來」，與「addon 還沒出現」「節流還沒放行」走的是同一條既有路徑。
+                    bankPendingClose = current;
+                    DebugLog($"Withdraw callback sent; window close deferred to next round");
                     //new ClickButtonGeneric(addon, "Bank").Click(withdraw);
-                    return true;
+                    return false;
                 }
             }
             else
             {
-                var cancel = (AtkComponentButton*)addon->UldManager.NodeList[2]->GetComponent();
-                if(addon->UldManager.NodeList[2]->IsVisible() && cancel->IsEnabled)
+                var cancelNode = Utils.GetNodeSafe(&addon->UldManager, 2);
+                var cancel = cancelNode == null ? null : (AtkComponentButton*)cancelNode->GetComponent();
+                if(cancelNode != null && cancelNode->IsVisible() && Utils.IsButtonEnabled(cancel))
                 {
-                    if(Utils.GenericThrottle)
+                    if(Utils.GenericThrottle && DialogGuards.TryPressOnce("Bank", current, "CancelBank"))
                     {
                         var v = stackalloc AtkValue[]
-                    {
+                        {
                             new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int, Int = 1 },
                             new() { Type = 0, Int = 0 }
                         };
                         addon->FireCallback(2, v);
-                        addon->Close(true);
-                        DebugLog($"Clicked cancel");
+                        // 理由同提領那一支:Close 移到下一輪重新解位址之後再做。
+                        bankPendingClose = current;
+                        DebugLog($"Cancel callback sent; window close deferred to next round");
                         //new ClickButtonGeneric(addon, "Bank").Click(cancel);
-                        return true;
+                        return false;
                     }
                 }
             }
+        }
+        else if(bankPendingClose != 0)
+        {
+            // 我們送過提領／取消 callback，而那扇窗現在已經不在（或已經進入不 ready 的拆除狀態）⇒
+            // 那一發自己把窗關掉了，這一步完成。🔴 這裡刻意不再碰那個位址，只是把記號清掉。
+            bankPendingClose = 0;
+            DebugLog($"Bank window closed by its own callback");
+            return true;
         }
         else
         {
@@ -464,12 +572,19 @@ internal static unsafe class RetainerHandlers
     {
         if(TryGetAddonByName<AtkUnitBase>("RetainerTaskList", out var addon) && IsAddonReady(addon))
         {
-            var ventureData = Svc.Data.GetExcelSheet<RetainerTask>().GetRow(VentureID);
+            // GetRowOrDefault 而非 GetRow：VentureID 來自委託計畫(設定檔)或 IPC 覆寫。
+            // 這個方法是排進 P.TaskManager 的工作,裡面擲例外會被 TaskManager 當成失敗而
+            // Abort() 整條佇列(預設 abortOnError),不是只掉這一步。查無此列時
+            // GetVentureName 回 null,下面的 Contains(null) 為 false,直接落到既有的
+            // Error 分支印出「找不到這個委託」—— 失敗仍然看得見,只是不再炸掉佇列。
+            var ventureData = Svc.Data.GetExcelSheet<RetainerTask>().GetRowOrDefault(VentureID);
             var ventureName = ventureData.GetVentureName();
             if(Utils.GenericThrottle && EzThrottler.Throttle("AssignSpecificVenture", 1000))
             {
                 if(VentureUtils.GetAvailableVentureNames().Contains(ventureName))
                 {
+                    // 委託清單窗按下不關(開出 RetainerTaskAsk):帶參數組。
+                    if(!DialogGuards.TryPressOnce("RetainerTaskList", (nint)addon, "SelectSpecificVenture", $"Assign{VentureID}", escapeIsRoutine: true)) return false;
                     Callback.Fire(addon, false, (int)11, (int)VentureID);
                     return true;
                 }
@@ -490,9 +605,17 @@ internal static unsafe class RetainerHandlers
     {
         if(TryGetAddonByName<AddonRetainerTaskAsk>("RetainerTaskAsk", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
-            if(addon->AtkUnitBase.UldManager.NodeList[6]->IsVisible())
+            // 🔴 NodeList[6] 走 GetNodeSafe。這一步是「畫面上有沒有跳錯誤訊息」的判別式,
+            //    取不到時只能回「沒偵測到錯誤」(＝落到下面的 return false),絕不能反過來當成
+            //    有錯誤而重排整條委託指派 —— 那會在版面還沒建好的每一幀無限重排。
+            //    這一步是以 timeLimitMS 輪詢的,回 false 就只是繼續等,不會卡住佇列。
+            var errorNode = Utils.GetNodeSafe(&addon->AtkUnitBase.UldManager, 6);
+            if(errorNode != null && errorNode->IsVisible())
             {
                 //An Error is on screen.
+                // 🔴 InsertStack 重排的 RedoErrorCheck 可能在這扇 RetainerTaskAsk 關閉中重進:同一扇只按一次 Return,
+                //    被擋就當「這一幀沒看到錯誤」回 false,重排也只做一次。
+                if(!DialogGuards.TryPressOnce("RetainerTaskAsk", (nint)addon, "CheckForErrorAssignedVenture.Return")) return false;
                 new AddonMaster.RetainerTaskAsk((IntPtr)addon).Return();
                 DebugLog($"Clicked cancel");
                 P.TaskManager.BeginStack();
@@ -556,29 +679,50 @@ internal static unsafe class RetainerHandlers
 
             if(FrameThrottler.Check("RetainerTaskSupply.InitWait") && Utils.GenericThrottle)
             {
-                if(addon->UldManager.NodeList[3]->IsVisible())
+                // 🔴 清單節點取不到時**不能**掉進下面的 else —— 那個 else 會真的送出搜尋 callback。
+                //    「讀不到」與「清單不可見」是兩件事,前者一律回 false 等下一輪重試。
+                var listNode = Utils.GetNodeSafe(&addon->UldManager, 3);
+                if(listNode == null) return false;
+                if(listNode->IsVisible())
                 {
-                    var list = addon->UldManager.NodeList[3]->GetAsAtkComponentList();
+                    var list = listNode->GetAsAtkComponentList();
+                    if(list == null) return false;
                     PluginLog.Debug($"Cnt: {list->ListLength}");
                     for(var i = 0; i < Math.Min(list->ListLength, 16); i++)
                     {
-                        var el = list->AtkComponentBase.UldManager.NodeList[2 + i];
-                        var text = GenericHelpers.ReadSeString(&el->GetAsAtkComponentNode()->Component->UldManager.NodeList[9]->GetAsAtkTextNode()->NodeText).GetText();
+                        // ⚠️ ListLength 是「清單有幾筆」,與 NodeList 的 NodeListCount 是兩個不同的量,
+                        //    拿前者當後者的上界就是半套邊界檢查(越界讀到相鄰記憶體、不是 null)。
+                        //    GetNodeSafe 會把上界與元素判空一起做掉。
+                        var el = Utils.GetNodeSafe(&list->AtkComponentBase.UldManager, 2 + i);
+                        var elNode = el == null ? null : el->GetAsAtkComponentNode();
+                        if(elNode == null || elNode->Component == null) continue;
+                        // 讀不到這一列的文字就跳過這一列(fail-closed:寧可漏配,也不要拿空字串去比對名稱,
+                        // 比中的後果是對錯的僱員任務按下去)。
+                        if(!Utils.TryGetNodeText(Utils.GetNodeSafe(&elNode->Component->UldManager, 9), out var text)) continue;
                         PluginLog.Debug($"Text: {text}, name: {name}");
                         if(text == name)
                         {
                             PluginLog.Debug($"Match");
+                            // RetainerTaskSupply 選列/清空/搜尋都不關窗,是刻意的重試迴圈:帶參數組,
+                            // 同位址同參數組 15 幀內只送一次,不同參數組照常。
+                            if(!DialogGuards.TryPressOnce("RetainerTaskSupply", (nint)addon, "SelectVentureRow", $"Select{i}", escapeIsRoutine: true)) return false;
                             Callback.Fire(addon, true, 5, i, new AtkValue() { Type = 0, Int = 0 });
                             return true;
                         }
                     }
 
-                    Callback.Fire(addon, true, 1);
+                    if(DialogGuards.TryPressOnce("RetainerTaskSupply", (nint)addon, "ClearVentureList", "Clear", escapeIsRoutine: true))
+                    {
+                        Callback.Fire(addon, true, 1);
+                    }
                     return false;
                 }
                 else
                 {
-                    Callback.Fire(addon, true, 2, new AtkValue() { Type = 0, Int = 0 }, name);
+                    if(DialogGuards.TryPressOnce("RetainerTaskSupply", (nint)addon, "SearchVenture", $"Search{name}", escapeIsRoutine: true))
+                    {
+                        Callback.Fire(addon, true, 2, new AtkValue() { Type = 0, Int = 0 }, name);
+                    }
                     Utils.RethrottleGeneric();
                     return false;
                 }
@@ -604,7 +748,8 @@ internal static unsafe class RetainerHandlers
                 return false;
             }
 
-            if(FrameThrottler.Check("RetainerTaskSupply.InitWait"))
+            if(FrameThrottler.Check("RetainerTaskSupply.InitWait")
+                && DialogGuards.TryPressOnce("RetainerTaskSupply", (nint)addon, "ForceSearchVenture", $"Search{name}", escapeIsRoutine: true))
             {
                 Callback.Fire(addon, true, 2, new AtkValue() { Type = 0, Int = 0 }, name);
                 Utils.RethrottleGeneric();
@@ -624,7 +769,7 @@ internal static unsafe class RetainerHandlers
     {
         if(TryGetAddonByName<AtkUnitBase>("RetainerTaskSupply", out var addon) && IsAddonReady(addon))
         {
-            if(Utils.GenericThrottle)
+            if(Utils.GenericThrottle && DialogGuards.TryPressOnce("RetainerTaskSupply", (nint)addon, "ClearTaskSupplylist", "Clear", escapeIsRoutine: true))
             {
                 Callback.Fire(addon, true, 1);
                 return true;

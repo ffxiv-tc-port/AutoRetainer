@@ -32,6 +32,7 @@ public sealed unsafe class AddonWatcher : IDisposable
                 GCDeliveryType.Hide_Armoury_Chest_Items => 2,
                 _ => 2,
             };
+            if (*ptr == newValue) return;
             PluginLog.Information($"Setting exchange mode to {Data.GCDeliveryType} ({*ptr}->{newValue})");
             *ptr = newValue;
         }

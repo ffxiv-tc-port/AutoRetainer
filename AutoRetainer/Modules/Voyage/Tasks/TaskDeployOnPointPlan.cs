@@ -1,4 +1,5 @@
 ﻿using AutoRetainer.Internal;
+using AutoRetainer.Modules.Voyage.VoyageCalculator;
 using AutoRetainerAPI.Configuration;
 
 namespace AutoRetainer.Modules.Voyage.Tasks;
@@ -21,7 +22,9 @@ internal static unsafe class TaskDeployOnPointPlan
 
     internal static void PickFromPlan(SubmarinePointPlan unlock)
     {
-        var points = unlock.Points;
+        // 這艘潛水艇的航行距離跑不完整份計畫時，從清單尾端往前砍到跑得完為止。
+        // 未啟用、或任何一步算不出來時 GetEffectivePoints 會原樣回傳 unlock.Points（＝維持現狀）。
+        var points = PointPlanRange.GetEffectivePoints(unlock, log: true);
         VoyageUtils.Log($"points: {points.Select(x => $"{x}").Join("\n")}");
         TaskPickSubmarineRoute.EnqueueImmediate(unlock.GetMapId(), points.ToArray());
     }
