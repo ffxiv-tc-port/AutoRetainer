@@ -365,7 +365,7 @@ internal static unsafe class DialogGuards
                     // 純節流那一類窗的總結：一輪一行。
                     // 這裡是記號解除的時點（位址消失，或常駐窗連續隱藏夠久），總次數只有在這裡才完整。
                     if(slot.Pressed.TryGetValue(addr, out var done) && done.Represses > 0)
-                        PluginLog.Debug($"{slot.Label ?? key}: 這一輪按了 {done.Represses + 1} 次（每 {RoutineRepressIntervalFrames} 幀最多一次），第一次到最後一次相隔 {done.Frame - done.FirstFrame} 幀");
+                        PluginLog.Verbose($"{slot.Label ?? key}: 這一輪按了 {done.Represses + 1} 次（每 {RoutineRepressIntervalFrames} 幀最多一次），第一次到最後一次相隔 {done.Frame - done.FirstFrame} 幀");
                     slot.Pressed.Remove(addr);
                 }
                 if(slot.Pressed.Count == 0) EmptyKeysBuf.Add(key);
