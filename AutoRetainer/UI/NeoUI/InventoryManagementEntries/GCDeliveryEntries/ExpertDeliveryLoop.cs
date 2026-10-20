@@ -9,6 +9,35 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
 {
     public override string Name { get; } = Loc.T("Grand Company Delivery/Expert Delivery Loop");
 
+    /// <summary>每幀都畫、內容很少變的文字：鍵（含 Loc.T 回傳的那份字串，換語系就換）沒變就重用上次組好的字串。只在繪製執行緒用。</summary>
+    private sealed class TextCache<TKey> where TKey : IEquatable<TKey>
+    {
+        private bool Has;
+        private TKey Key;
+        private string Text;
+
+        internal bool TryGet(TKey key, out string text)
+        {
+            text = Text;
+            return Has && Key.Equals(key);
+        }
+
+        internal string Set(TKey key, string text)
+        {
+            Has = true;
+            Key = key;
+            Text = text;
+            return text;
+        }
+    }
+
+    private readonly TextCache<(string, int, string, int, string, int)> ProgressText = new();
+    private readonly TextCache<(string, int)> VenturesText = new();
+    private readonly TextCache<(string, int)> SealCapText = new();
+    private readonly TextCache<(string, int, int)> ReserveText = new();
+    private readonly TextCache<(string, int)> AllowanceText = new();
+    private readonly TextCache<string> ResumeHelpText = new();
+
     public override void Draw()
     {
         ImGuiEx.TextWrapped(Loc.T("""
@@ -54,21 +83,36 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
             ImGuiEx.Text(Loc.T("Idle"));
         }
 
-        // ⚠️ 讀不到的東西畫「?」不要畫 0 —— 把「不知道」顯示成 0 會直接誤導。
-        var freeSlots = Player.Available ? Utils.GetInventoryFreeSlotCount().ToString() : "?";
-        ImGuiEx.Text($"{Loc.T("Retrieved")}: {GCExpertDeliveryLoop.RetrievedTotal}    " +
-            $"{Loc.T("Handin rounds")}: {GCExpertDeliveryLoop.HandinRounds}    " +
-            $"{Loc.T("Free slots")}: {freeSlots}");
+        // ⚠️ 讀不到的東西畫「?」不要畫 0 —— 把「不知道」顯示成 0 會直接誤導。-1＝讀不到。
+        var freeSlots = Player.Available ? Utils.GetInventoryFreeSlotCount() : -1;
+        var progressKey = (Loc.T("Retrieved"), GCExpertDeliveryLoop.RetrievedTotal, Loc.T("Handin rounds"), GCExpertDeliveryLoop.HandinRounds, Loc.T("Free slots"), freeSlots);
+        if(!ProgressText.TryGet(progressKey, out var progressText))
+        {
+            progressText = ProgressText.Set(progressKey, $"{progressKey.Item1}: {progressKey.Item2}    " +
+                $"{progressKey.Item3}: {progressKey.Item4}    " +
+                $"{progressKey.Item5}: {(freeSlots < 0 ? "?" : freeSlots.ToString())}");
+        }
+        ImGuiEx.Text(progressText);
         if(C.ExpertDeliveryLoopRefreshVentures)
         {
-            ImGuiEx.Text($"{Loc.T("Ventures resent")}: {GCExpertDeliveryLoop.VenturesResentTotal}");
+            var venturesKey = (Loc.T("Ventures resent"), GCExpertDeliveryLoop.VenturesResentTotal);
+            if(!VenturesText.TryGet(venturesKey, out var venturesText))
+            {
+                venturesText = VenturesText.Set(venturesKey, $"{venturesKey.Item1}: {venturesKey.Item2}");
+            }
+            ImGuiEx.Text(venturesText);
         }
 
         // 「這一趟被軍票上限擋了幾次」的訊息只進記錄檔，次數在這裡與繳交疊加層兩處都看得見；
         // 為什麼會這樣、要不要處理放 tooltip。
         if(AutoGCHandin.SealCapPauses > 0)
         {
-            ImGuiEx.Text(ImGuiColors.DalamudGrey, string.Format(Loc.T("Seal cap reached {0}x"), AutoGCHandin.SealCapPauses));
+            var sealCapKey = (Loc.T("Seal cap reached {0}x"), AutoGCHandin.SealCapPauses);
+            if(!SealCapText.TryGet(sealCapKey, out var sealCapText))
+            {
+                sealCapText = SealCapText.Set(sealCapKey, string.Format(sealCapKey.Item1, sealCapKey.Item2));
+            }
+            ImGuiEx.Text(ImGuiColors.DalamudGrey, sealCapText);
             ImGuiEx.Tooltip(C.AutoGCContinuation
                 ? Loc.T("Handing in stopped this many times because your company seals were at the cap. Expert delivery continuation is on, so AutoRetainer went and spent the seals and came back by itself every time - nothing was lost and there is nothing to do.")
                 : Loc.T("Handing in stopped this many times because your company seals were at the cap. Expert delivery continuation is off, so it does not resume on its own: spend some seals, then tick the box above again."));
@@ -130,17 +174,26 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         ImGui.SliderInt(Loc.T("Reserved inventory slots"), ref C.ExpertDeliveryLoopReservedSlots, 0, 30);
         // 這一行不是裝飾:設定值比 MultiMinInventorySlots 小的時候完全不會生效,
         // 而那看起來就像「設定壞掉了」。
-        ImGuiEx.Text(ImGuiColors.DalamudGrey,
-            string.Format(Loc.T("Effective reserve: {0} (the larger of this and Minimum inventory slots = {1})"),
-                GCExpertDeliveryLoop.EffectiveReservedSlots, C.MultiMinInventorySlots));
+        var reserveKey = (Loc.T("Effective reserve: {0} (the larger of this and Minimum inventory slots = {1})"),
+            GCExpertDeliveryLoop.EffectiveReservedSlots, C.MultiMinInventorySlots);
+        if(!ReserveText.TryGet(reserveKey, out var reserveText))
+        {
+            reserveText = ReserveText.Set(reserveKey, string.Format(reserveKey.Item1, reserveKey.Item2, reserveKey.Item3));
+        }
+        ImGuiEx.Text(ImGuiColors.DalamudGrey, reserveText);
 
         ImGui.Checkbox(Loc.T("Use Priority Seal Allowance when no seal bonus is active"), ref C.ExpertDeliveryLoopUseSealAllowance);
         if(C.ExpertDeliveryLoopUseSealAllowance)
         {
             ImGui.Indent();
             ImGui.Checkbox(Loc.T("Stop if the seal bonus cannot be applied"), ref C.ExpertDeliveryLoopStopWithoutSealBonus);
-            ImGuiEx.Text(ImGuiColors.DalamudGrey, string.Format(Loc.T("Allowances held: {0}"),
-                Player.Available ? GCExpertDeliveryLoop.GetSealAllowanceCount().ToString() : "?"));
+            // -1＝沒登入、讀不到（畫「?」）。
+            var allowanceKey = (Loc.T("Allowances held: {0}"), Player.Available ? GCExpertDeliveryLoop.GetSealAllowanceCount() : -1);
+            if(!AllowanceText.TryGet(allowanceKey, out var allowanceText))
+            {
+                allowanceText = AllowanceText.Set(allowanceKey, string.Format(allowanceKey.Item1, allowanceKey.Item2 < 0 ? "?" : allowanceKey.Item2.ToString()));
+            }
+            ImGuiEx.Text(ImGuiColors.DalamudGrey, allowanceText);
             ImGui.Unindent();
         }
 
@@ -165,11 +218,16 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         ImGui.SliderInt(Loc.T("Handin round timeout (minutes)"), ref C.ExpertDeliveryLoopHandinTimeoutMinutes, 1, 60);
 
         ImGui.Checkbox(Loc.T("Turn Multi Mode back on after the loop finishes"), ref C.ExpertDeliveryLoopResumeMultiMode);
-        ImGuiEx.HelpMarker(string.Format(Loc.T("""
+        var resumeHelpKey = Loc.T("""
             Only when the loop finishes everything it was asked to do: once AutoRetainer and Lifestream are idle, Multi Mode is turned on the same way as ticking "Multi" in the main window. Night mode and your other Multi Mode settings are left as they are.
 
             Stopping it by hand, an error or a timeout never turns Multi Mode on. If AutoRetainer is still busy after {0} minutes, it gives up and leaves Multi Mode off. This never starts the loop itself.
-            """), GCExpertDeliveryLoop.ResumeMultiModeTimeoutMs / 60000));
+            """);
+        if(!ResumeHelpText.TryGet(resumeHelpKey, out var resumeHelpText))
+        {
+            resumeHelpText = ResumeHelpText.Set(resumeHelpKey, string.Format(resumeHelpKey, GCExpertDeliveryLoop.ResumeMultiModeTimeoutMs / 60000));
+        }
+        ImGuiEx.HelpMarker(resumeHelpText);
 
         ImGui.Checkbox(Loc.T("Collect and resend due ventures before leaving each character"), ref C.ExpertDeliveryLoopRefreshVentures);
         ImGuiEx.HelpMarker(Loc.T("""
@@ -248,7 +306,7 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
 
             ImGui.TableNextColumn();
             var selected = C.ExpertDeliveryLoopCharacters.Contains(data.CID);
-            if(ImGui.Checkbox($"{Censor.Character(data.Name, data.World)}##ExpertDeliveryLoopChar{data.CID}", ref selected))
+            if(ImGui.Checkbox($"{GetCharacterName(data)}##ExpertDeliveryLoopChar{data.CID}", ref selected))
             {
                 if(selected)
                 {
@@ -275,6 +333,21 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
             DrawDestinationCell(GCExpertDeliveryLoop.GetGCDestination(data.CID), (rowConf?.GCFavoriteId ?? 0u) != 0);
         }
         ImGui.EndTable();
+    }
+
+    // Censor.Character 每次都組新字串；結果只由名字、伺服器、打碼開關與種子決定，任一項變了才重組。
+    private readonly Dictionary<ulong, (string Name, string World, bool NoNames, string Seed, string Text)> CharacterNames = [];
+
+    private string GetCharacterName(OfflineCharacterData data)
+    {
+        if(CharacterNames.TryGetValue(data.CID, out var cached) && cached.Name == data.Name && cached.World == data.World
+            && cached.NoNames == C.NoNames && cached.Seed == C.CensorSeed)
+        {
+            return cached.Text;
+        }
+        var text = Censor.Character(data.Name, data.World);
+        CharacterNames[data.CID] = (data.Name, data.World, C.NoNames, C.CensorSeed, text);
+        return text;
     }
 
     /// <summary>「這個角色有幾個僱員會被拜訪」。
@@ -399,16 +472,13 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
     private bool DrawFavoritePicker(string label, ref uint id, ref byte subIndex, ref string savedName, bool allowInherit = false)
     {
         var favorites = GetFavorites();
-        // ref 參數不能被 lambda 捕捉,先取值到區域變數。
-        var curId = id;
-        var curSub = subIndex;
         var notSelected = allowInherit ? Loc.T("Use the destination above") : Loc.T("Not selected");
-        var current = curId == 0
+        var current = id == 0
             ? notSelected
             // 選過的項目被取消收藏之後就不在清單裡了。這種狀態要說出來,不能顯示成「未選擇」——
             // 那會讓使用者以為只是還沒選,而不知道原本選的已經失效。
             // 🔴 但沒登入時我們根本沒問過清單，那時不可以說「已經不是我的最愛」。
-            : FavoritesNeedLogin || favorites.Any(x => x.Id == curId && x.SubIndex == curSub)
+            : FavoritesNeedLogin || ContainsFavorite(favorites, id, subIndex)
                 ? savedName
                 : $"{savedName} {Loc.T("(no longer a favourite)")}";
 
@@ -445,6 +515,16 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
                     : Loc.T("(Lifestream is not available)"));
         }
         return changed;
+    }
+
+    // ＝favorites.Any(x => x.Id == id && x.SubIndex == subIndex)，但不建閉包與委派（每個選擇器每幀問一次）。
+    private static bool ContainsFavorite(List<(uint Id, byte SubIndex, string Name, uint Territory)> favorites, uint id, byte subIndex)
+    {
+        foreach(var x in favorites)
+        {
+            if(x.Id == id && x.SubIndex == subIndex) return true;
+        }
+        return false;
     }
 
     private void DrawEntrustPlanPicker()
