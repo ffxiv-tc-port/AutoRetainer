@@ -44,7 +44,8 @@ internal static unsafe class SchedulerMain
     /// The retainer's own inventory is only readable while that retainer is open, so it is captured once.
     /// 🔑 Deliberately NOT "the ids that were duplicate work at scan time": the player gains items during this phase, so a set frozen against the player's inventory would miss work that only came into existence afterwards.
     /// </summary>
-    /// <remarks><c>NoRoom</c>：這個僱員真的開著時量到「玩家身上哪些（道具, HQ）它放不進」（<see cref="CaptureEntrustNoRoom"/>）；null＝沒量到，重驗不篩。</remarks>
+    /// <remarks><c>NoRoom</c>：這個僱員真的開著時量到「玩家身上哪些（道具, HQ）它放不進」（<see cref="CaptureEntrustNoRoom"/>）；null＝沒量到，重驗不篩。
+    /// <c>DuplicatesCandidates</c> 同一時機量；null＝沒量到，開僱員前不重驗、照樣開。</remarks>
     internal static List<(string Retainer, HashSet<uint> DuplicatesCandidates, HashSet<(uint ItemId, bool Hq)> NoRoom)> PendingEntrustVendorPostprocess = [];
 
     /// <summary>Drops the deferred entrust/vendor queue. It holds retainer <b>names</b> belonging to one
@@ -196,20 +197,17 @@ internal static unsafe class SchedulerMain
 
                                     // Entrusting duplicates and auto-vendoring are deferred to a final batch pass (see
                                     // PendingEntrustVendorPostprocess) that only runs once every retainer has had its venture
-                                    // business settled. Only queue retainers that actually have something to do - this retainer's
-                                    // own inventory is already loaded right now (we're mid-visit), so it's checked live instead of
-                                    // just "is this enabled".
+                                    // business settled. The retainer is not open yet here (selecting it is only queued), so the
+                                    // duplicates half is queued as unknown (null) and measured by CaptureEntrustNoRoom once it is.
                                     var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
-                                    // Both halves are evaluated - deliberately not short-circuited. The retainer
-                                    // side of the duplicates rule is only obtainable right now (this retainer's
-                                    // inventory is open), so it has to be captured even when the shared half
-                                    // already said "yes".
                                     var hasSharedWork = HasSharedEntrustVendorWork(selectedPlan);
-                                    var duplicatesCandidates = CollectDuplicatesCandidates(selectedPlan);
-                                    if((hasSharedWork || PlayerHoldsAnyOf(selectedPlan, duplicatesCandidates))
+                                    var duplicatesPossible = C.EnableEntrustManager && selectedPlan != null && selectedPlan.Duplicates;
+                                    var queuedOnlyForDuplicates = false;
+                                    if((hasSharedWork || duplicatesPossible)
                                         && !PendingEntrustVendorPostprocess.Any(x => x.Retainer == retainer))
                                     {
-                                        PendingEntrustVendorPostprocess.Add((retainer, duplicatesCandidates, null));
+                                        PendingEntrustVendorPostprocess.Add((retainer, duplicatesPossible ? null : [], null));
+                                        queuedOnlyForDuplicates = !hasSharedWork;
                                     }
 
                                     //withdraw gil
@@ -233,10 +231,10 @@ internal static unsafe class SchedulerMain
                                         TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
                                     }
                                     // 這段 Tick 跑的當下還沒選到這個僱員（選僱員只是排進佇列），僱員背包容器裡還不是它的東西，
-                                    // 所以「放不放得進」排成任務，等它真的開著、選單就緒再量。逾時只跳過這一步，不中止後面的任務。
+                                    // 所以「重複道具候選」與「放不放得進」排成任務，等它真的開著、選單就緒再量。逾時只跳過這一步，不中止後面的任務。
                                     if(C.EnableEntrustManager && selectedPlan != null && PendingEntrustVendorPostprocess.Any(x => x.Retainer == retainer))
                                     {
-                                        P.TaskManager.Enqueue(() => CaptureEntrustNoRoom(retainer, selectedPlan), "EntrustVendorPass.CaptureNoRoom", new(timeLimitMS: 5000, abortOnTimeout: false));
+                                        P.TaskManager.Enqueue(() => CaptureEntrustNoRoom(retainer, selectedPlan, queuedOnlyForDuplicates), "EntrustVendorPass.CaptureNoRoom", new(timeLimitMS: 5000, abortOnTimeout: false));
                                     }
                                     P.TaskManager.Enqueue(RetainerHandlers.SelectQuit);
                                     P.TaskManager.Enqueue(RetainerHandlers.ConfirmCantBuyback);
@@ -540,8 +538,8 @@ internal static unsafe class SchedulerMain
             var adata = Utils.GetAdditionalData(Svc.PlayerState.ContentId, next);
             var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
 
-            // Data null 或背包讀不到 ⇒ 不重驗，照樣把僱員開起來。
-            var canRevalidate = Data != null && Utils.IsInventoryStateReadable();
+            // Data null、背包讀不到、或開著時沒量到重複道具候選 ⇒ 不重驗，照樣把僱員開起來。
+            var canRevalidate = Data != null && Utils.IsInventoryStateReadable() && duplicatesCandidates != null;
             TaskEntrustDuplicates.EntrustPrecheckHit precheck = default;
             if(canRevalidate
                 && !TryFindPlayerHeldCandidate(selectedPlan, duplicatesCandidates, noRoom, out precheck)
@@ -552,7 +550,7 @@ internal static unsafe class SchedulerMain
                     PluginLog.Information($"[EntrustVendorPass] Skipping {next}: everything the player still carries for it is something it had no room for when it was open (first: {dropped.Path} item={dropped.ItemId} hq={dropped.Hq}; {noRoom.Count} item/quality pair(s) judged no-room).");
                     continue;
                 }
-                PluginLog.Information($"[EntrustVendorPass] Skipping {next}: the shared inventory work it was queued for has already been done by an earlier retainer in this batch, and the player no longer carries any of the {duplicatesCandidates.Count} item(s) this retainer could have taken as duplicates.");
+                PluginLog.Information($"[EntrustVendorPass] Skipping {next}: no shared inventory work is left (an earlier retainer in this batch already did it, or there was none), and the player no longer carries any of the {duplicatesCandidates.Count} item(s) this retainer could have taken as duplicates.");
                 continue;
             }
 
@@ -770,9 +768,10 @@ internal static unsafe class SchedulerMain
         return false;
     }
 
-    /// <summary>僱員開著、選單就緒時，把 <see cref="CollectEntrustNoRoom"/> 的結果記到這個僱員的延後批次項目上。只在框架執行緒的任務回呼裡跑。</summary>
-    /// <remarks>量不到（選單被探險視窗蓋住、最近的僱員不是它、項目已被清掉）就不記 ⇒ 重驗照舊開，失敗方向是多開一次不是漏存。</remarks>
-    private static bool? CaptureEntrustNoRoom(string retainer, EntrustPlan plan)
+    /// <summary>僱員開著、選單就緒時，把 <see cref="CollectDuplicatesCandidates"/> 與 <see cref="CollectEntrustNoRoom"/> 的結果記到這個僱員的延後批次項目上。只在框架執行緒的任務回呼裡跑。</summary>
+    /// <remarks>量不到（選單被探險視窗蓋住、最近的僱員不是它、僱員背包讀不到、項目已被清掉）就不記 ⇒ 重驗照舊開，失敗方向是多開一次不是漏存。</remarks>
+    /// <param name="queuedOnlyForDuplicates">這次入列只因為「可能有重複道具」：量到之後確定沒有任何工作就撤掉，等同入列當下就知道答案。</param>
+    private static bool? CaptureEntrustNoRoom(string retainer, EntrustPlan plan, bool queuedOnlyForDuplicates)
     {
         if(TryGetAddonByName<AtkUnitBase>("RetainerTaskSupply", out _)) return true;
         if(!TryGetAddonByName<AtkUnitBase>("SelectString", out var addon) || !IsAddonReady(addon)) return false;
@@ -784,8 +783,21 @@ internal static unsafe class SchedulerMain
             return true;
         }
         var noRoom = CollectEntrustNoRoom(plan);
-        PendingEntrustVendorPostprocess[index] = PendingEntrustVendorPostprocess[index] with { NoRoom = noRoom };
-        PluginLog.Debug($"[EntrustVendorPass] {retainer}: no room for {noRoom?.Count.ToString() ?? "unknown (containers unreadable)"} item/quality pair(s) the player carries");
+        if(noRoom == null)
+        {
+            // 背包讀不到時候選集合也收不準（讀不到的格位只會少收），所以兩者都不記。
+            PluginLog.Debug($"[EntrustVendorPass] {retainer}: not measuring, retainer containers unreadable");
+            return true;
+        }
+        var candidates = CollectDuplicatesCandidates(plan);
+        if(queuedOnlyForDuplicates && !PlayerHoldsAnyOf(plan, candidates) && !HasSharedEntrustVendorWork(plan))
+        {
+            PendingEntrustVendorPostprocess.RemoveAt(index);
+            PluginLog.Debug($"[EntrustVendorPass] {retainer}: dropped from the batch, the player carries none of its {candidates.Count} duplicate candidate(s) and there is no shared work");
+            return true;
+        }
+        PendingEntrustVendorPostprocess[index] = PendingEntrustVendorPostprocess[index] with { DuplicatesCandidates = candidates, NoRoom = noRoom };
+        PluginLog.Debug($"[EntrustVendorPass] {retainer}: {candidates.Count} duplicate candidate(s); no room for {noRoom.Count} item/quality pair(s) the player carries");
         return true;
     }
 
