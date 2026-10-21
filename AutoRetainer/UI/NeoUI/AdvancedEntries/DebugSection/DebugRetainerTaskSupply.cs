@@ -10,10 +10,14 @@ public unsafe class DebugRetainerTaskSupply : DebugSectionBase
     {
         if(TryGetAddonByName<AtkUnitBase>("RetainerTaskSupply", out var addon) && addon->IsReady())
         {
-            for(var i = 0; i < addon->AtkValues[107].UInt; i++)
+            var count = TaskAssignHuntingVenture.TryGetListCount(addon, out var n) ? n : 0;
+            for(var i = 0; i < count; i++)
             {
-                var ptr = (nint)addon->AtkValues[42 + i].Pointer;
-                var id = *(uint*)ptr;
+                if(!TaskAssignHuntingVenture.TryGetListedTaskId(addon, i, out var id))
+                {
+                    ImGuiEx.Text($"[{i}] ?");
+                    continue;
+                }
                 ImGuiEx.Text($"{Svc.Data.GetExcelSheet<RetainerTask>().GetRow(id).GetVentureItem().Value.GetName()}");
             }
         }

@@ -28,10 +28,9 @@ internal static unsafe class TaskRedeployPreviousLog
     {
         if(TryGetAddonByName<AtkUnitBase>("AirShipExplorationDetail", out var addon) && IsAddonReady(addon))
         {
-            var fuel = addon->AtkValues[1].String;
-            if(fuel != null)
+            if(AtkValueGuard.TryGetUtf8String(addon, 1, "AirShipExplorationDetail", out var fuel))
             {
-                var values = MemoryHelper.ReadStringNullTerminated((nint)fuel.Value).Split("/");
+                var values = MemoryHelper.ReadStringNullTerminated(fuel).Split("/");
                 if(values.Length == 2 && uint.TryParse(values[0], out var req) && uint.TryParse(values[1], out var have))
                 {
                     if(req > have)

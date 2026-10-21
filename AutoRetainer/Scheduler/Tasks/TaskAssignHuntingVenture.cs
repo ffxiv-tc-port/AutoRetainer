@@ -28,10 +28,14 @@ public static unsafe class TaskAssignHuntingVenture
         if(TryGetAddonByName<AtkUnitBase>("RetainerTaskAsk", out _)) return true;
         if(TryGetAddonByName<AtkUnitBase>("RetainerTaskSupply", out var addon) && addon->IsReady())
         {
-            for(var i = 0; i < addon->AtkValues[107].UInt; i++)
+            if(!TryGetListCount(addon, out var count))
             {
-                var ptr = (nint)addon->AtkValues[42 + i].Pointer;
-                var id = *(uint*)ptr;
+                rethrottle();
+                return false;
+            }
+            for(var i = 0; i < count; i++)
+            {
+                if(!TryGetListedTaskId(addon, i, out var id)) continue;
                 if(id == ventureId)
                 {
                     // RetainerTaskSupply 按下不關(開出 RetainerTaskAsk 才 return true):帶參數組,同一列 15 幀內不重送。
@@ -48,7 +52,12 @@ public static unsafe class TaskAssignHuntingVenture
             {
                 var level = task.RetainerLevel;
                 var levelIndex = (level - 1) / 5;
-                var listIndex = addon->AtkValues[40].Int - levelIndex - 1;
+                if(!AtkValueGuard.TryGet(addon, 40, "RetainerTaskSupply", out var levels))
+                {
+                    rethrottle();
+                    return false;
+                }
+                var listIndex = levels.Int - levelIndex - 1;
                 if(listIndex >= 0 && Utils.GenericThrottle && DialogGuards.TryPressOnce("RetainerTaskSupply", (nint)addon, "OpenAssignVentureWindow.Level", $"Level{listIndex}", escapeIsRoutine: true))
                 {
                     rethrottle();
@@ -65,5 +74,29 @@ public static unsafe class TaskAssignHuntingVenture
         return false;
 
         void rethrottle() => FrameThrottler.Throttle("OpenAssignVentureWindow", Utils.FrameDelay, true);
+    }
+
+    // RetainerTaskSupply：[107]＝清單筆數，[42+i]＝第 i 筆資料的指標，開頭 4 位元組是 RetainerTask 列號。
+    private const int ListCountValue = 107;
+    private const int ListFirstValue = 42;
+
+    /// <summary>清單筆數，夾在 AtkValuesCount 之內（被夾掉時記一次）。讀不到回 false＝這一輪不做。</summary>
+    internal static bool TryGetListCount(AtkUnitBase* addon, out int count)
+    {
+        count = 0;
+        if(!AtkValueGuard.TryGetCount(addon, ListCountValue, "RetainerTaskSupply", out var listed)) return false;
+        var available = Math.Max(0, addon->AtkValuesCount - ListFirstValue);
+        count = (int)Math.Min(listed, (uint)available);
+        if(listed > (uint)available) AtkValueGuard.ReportOnce("RetainerTaskSupply", ListFirstValue + available, "out of range", $"listed={listed} AtkValuesCount={addon->AtkValuesCount}");
+        return true;
+    }
+
+    /// <summary>第 <paramref name="i"/> 筆的 RetainerTask 列號。該格型別不對或指標為空（遊戲也當合法狀態）時回 false＝跳過該格。</summary>
+    internal static bool TryGetListedTaskId(AtkUnitBase* addon, int i, out uint id)
+    {
+        id = 0;
+        if(!AtkValueGuard.TryGetPointer(addon, ListFirstValue + i, "RetainerTaskSupply", out var ptr)) return false;
+        id = *(uint*)ptr;
+        return true;
     }
 }
