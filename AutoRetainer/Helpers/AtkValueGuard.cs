@@ -27,37 +27,21 @@ internal static unsafe class AtkValueGuard
         return true;
     }
 
-    /// <summary>筆數一類的整數格。型別未定義時回 0（遊戲自己的讀法同樣當 0）；不是 Int／UInt 時回 false。</summary>
+    /// <summary>整數格，讀法同遊戲：型別未定義當 0，其他型別一律讀成 uint；只有格數不夠回 false。</summary>
     internal static bool TryGetCount(AtkUnitBase* addon, int index, string addonName, out uint count)
     {
         count = 0;
         if(!TryGet(addon, index, addonName, out var v)) return false;
-        var t = BaseType(v.Type);
-        if(t == AtkValueType.Undefined) return true;
-        if(t is AtkValueType.Int or AtkValueType.UInt)
-        {
-            count = v.UInt;
-            return true;
-        }
-        ReportOnce(addonName, index, "not a number", $"type={v.Type}");
-        return false;
+        if(BaseType(v.Type) != AtkValueType.Undefined) count = v.UInt;
+        return true;
     }
 
-    /// <summary>
-    /// 指標格。值域裝得下 64 位元指標的型別才收：32 位元以下的純量（Int／UInt／Bool／Float）上半部不是值，
-    /// 當指標讀會是殘留的位元組。指標為空是合法狀態（遊戲自己也逐格判空），回 false、不記錄。
-    /// </summary>
+    /// <summary>指標格，讀法同遊戲：型別未定義跳過，其他型別一律讀指標；為空是合法狀態，回 false 不記錄。</summary>
     internal static bool TryGetPointer(AtkUnitBase* addon, int index, string addonName, out nint pointer)
     {
         pointer = 0;
         if(!TryGet(addon, index, addonName, out var v)) return false;
-        var t = BaseType(v.Type);
-        if(t is not (AtkValueType.Pointer or AtkValueType.Vector or AtkValueType.AtkValues or AtkValueType.Int64 or AtkValueType.UInt64
-            or AtkValueType.String or AtkValueType.String8 or AtkValueType.WideString))
-        {
-            ReportOnce(addonName, index, "not a pointer", $"type={v.Type}");
-            return false;
-        }
+        if(BaseType(v.Type) == AtkValueType.Undefined) return false;
         pointer = (nint)v.Pointer;
         return pointer != 0;
     }

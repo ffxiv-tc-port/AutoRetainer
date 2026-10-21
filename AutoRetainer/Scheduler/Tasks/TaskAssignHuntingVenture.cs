@@ -91,7 +91,7 @@ public static unsafe class TaskAssignHuntingVenture
         return true;
     }
 
-    /// <summary>第 <paramref name="i"/> 筆的 RetainerTask 列號。該格型別不對或指標為空（遊戲也當合法狀態）時回 false＝跳過該格。</summary>
+    /// <summary>第 <paramref name="i"/> 筆的 RetainerTask 列號。該格型別未定義或指標為空（遊戲也當合法狀態）時回 false＝跳過該格。</summary>
     internal static bool TryGetListedTaskId(AtkUnitBase* addon, int i, out uint id)
     {
         id = 0;
