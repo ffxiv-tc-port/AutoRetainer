@@ -113,23 +113,47 @@ public unsafe class QuickSellItems : IDisposable
         // 這支是從 hook detour 呼叫進來的，讀不到就直接回 false ＝ 不做快捷操作（fail-closed）。
         var framework = CSFramework.Instance();
         if(framework == null || framework->WindowInactive) return false;
-        if(IsKeyPressed(C.SellKey))
+        if(KeyHeldAlone(C.SellKey))
         {
             text.Add(retainerSellText);
         }
-        if(IsKeyPressed(C.RetrieveKey))
+        if(KeyHeldAlone(C.RetrieveKey))
         {
             text.Add(retrieveFromRetainerText);
         }
-        if(IsKeyPressed(C.EntrustKey))
+        if(KeyHeldAlone(C.EntrustKey))
         {
             text.Add(entrustToRetainerText);
         }
-        if(IsKeyPressed(C.SellMarketKey))
+        if(KeyHeldAlone(C.SellMarketKey))
         {
             text.Add(putUpForSaleText);
         }
         return text.Count > 0;
+    }
+
+    private static readonly int[] ModifierGroups = [0x10, 0x11, 0x12];
+
+    /// <summary>Shift／Ctrl／Alt（含左右鍵）歸到通用鍵碼；其他鍵回 0。</summary>
+    private static int ModifierGroup(int vk) => vk switch
+    {
+        0x10 or 0xA0 or 0xA1 => 0x10,
+        0x11 or 0xA2 or 0xA3 => 0x11,
+        0x12 or 0xA4 or 0xA5 => 0x12,
+        _ => 0,
+    };
+
+    // Marketbuddy 快速上架與 TCToolbox 轉移也在同一支開選單函式上、用修飾鍵觸發；兩邊同時選會打在關閉中的選單上。
+    // ⇒ 自己的鍵按著、而且 Shift／Ctrl／Alt 中其他的都沒按才算（自己的鍵是修飾鍵時不算它自己）。
+    private static bool KeyHeldAlone(LimitedKeys key)
+    {
+        if(!IsKeyPressed(key)) return false;
+        var own = ModifierGroup((int)key);
+        foreach(var group in ModifierGroups)
+        {
+            if(group != own && IsKeyPressed(group)) return false;
+        }
+        return true;
     }
 
     private void* OpenInventoryContextDetour(AgentInventoryContext* agent, InventoryType inventoryType, ushort slot, int a4, ushort a5, byte a6)
@@ -140,6 +164,12 @@ public unsafe class QuickSellItems : IDisposable
         {
             if(CanSellFrom.Contains(inventoryType) && IsReadyToUse() && GetAction(out var text))
             {
+                // 原函式開頭的「封鎖格」檢查成立時直接返回、不重建選單，detour 照樣被呼叫 ⇒ 選單是上一次的，不選。
+                if(agent->TargetInventoryId != inventoryType || agent->TargetInventorySlotId != slot)
+                {
+                    PluginLog.Debug($"QuickSellItems:這次右鍵原生端沒有重建選單（目標 {inventoryType}#{slot}，選單是 {agent->TargetInventoryId}#{agent->TargetInventorySlotId}），不自動選。");
+                    return retVal;
+                }
                 var inventory = InventoryManager.Instance()->GetInventoryContainer(inventoryType);
                 if(inventory != null)
                 {
