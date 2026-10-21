@@ -84,6 +84,41 @@ internal static class GameTextMatch
         return [.. list];
     }
 
+    /// <summary>整句相等的錨最多幾個字：短到會成為別的選項前綴的，實機只見過兩個字的。</summary>
+    internal const int ExactMaxLength = 2;
+
+    /// <summary>
+    /// 這些列裡「整列沒有巨集、全文不超過 <see cref="ExactMaxLength"/> 個字」的錨（與 <see cref="Opening"/> 同字），
+    /// 選單比對時只做整句相等。沒有這種列時回 null。
+    /// </summary>
+    internal static HashSet<string> ExactAnchors(ReadOnlySeString?[] rows)
+    {
+        HashSet<string> exact = null;
+        foreach(var row in rows)
+        {
+            if(row is not { } s) continue;
+            var sb = new StringBuilder();
+            var whole = true;
+            foreach(var p in s)
+            {
+                if(p.Type != ReadOnlySePayloadType.Text) { whole = false; break; }
+                sb.Append(Encoding.UTF8.GetString(p.Body.Span));
+            }
+            var text = sb.ToString().Trim();
+            if(whole && text.Length >= 2 && StripWhitespace(text).Length <= ExactMaxLength) (exact ??= new(StringComparer.Ordinal)).Add(text);
+        }
+        return exact;
+    }
+
+    /// <summary>
+    /// 選項文字比一個錨：在 <paramref name="exact"/> 裡的錨兩邊去空白後整句相等（忽略大小寫），
+    /// 其餘照舊 StartsWith(Ordinal)。
+    /// </summary>
+    internal static bool MenuEntryMatches(string entry, string anchor, HashSet<string> exact)
+        => exact != null && exact.Contains(anchor)
+            ? string.Equals(StripWhitespace(entry), StripWhitespace(anchor), StringComparison.OrdinalIgnoreCase)
+            : entry.StartsWith(anchor, StringComparison.Ordinal);
+
     private static string StripWhitespace(string s)
     {
         if(s.AsSpan().IndexOfAny(" \n\r\t") < 0) return s;

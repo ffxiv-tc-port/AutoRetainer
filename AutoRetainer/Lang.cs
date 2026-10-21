@@ -5,6 +5,7 @@ using ECommons.ExcelServices.Sheets;
 using Lumina.Excel.Sheets;
 using Lumina.Text.ReadOnly;
 using System.Collections.ObjectModel;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using System.Windows.Forms.VisualStyles;
 
@@ -178,6 +179,19 @@ internal static class Lang
     private static string[] Openings(params ReadOnlySeString?[] rows) => [.. rows.Select(GameTextMatch.Opening)];
     private static string[][] Parts(params ReadOnlySeString?[] rows) => [.. rows.Select(GameTextMatch.FixedParts)];
 
+    // 選單清單 → 該清單要整句相等的錨。只有 MenuList 建的清單在這裡；別的清單照舊全部 StartsWith。
+    private static readonly ConditionalWeakTable<string[], HashSet<string>> MenuExactAnchors = new();
+
+    /// <summary>內容與順序同 <c>TableFirst(Openings(rows), literals)</c>；另外記下整列沒有巨集的短錨（含與它同字的字面值）要整句相等。</summary>
+    private static string[] MenuList(ReadOnlySeString?[] rows, string[] literals)
+    {
+        var list = GameTextMatch.TableFirst(Openings(rows), literals);
+        if(GameTextMatch.ExactAnchors(rows) is { } exact) MenuExactAnchors.AddOrUpdate(list, exact);
+        return list;
+    }
+
+    internal static HashSet<string> ExactMenuAnchorsOf(IEnumerable<string> anchors) => anchors is string[] a && MenuExactAnchors.TryGetValue(a, out var exact) ? exact : null;
+
     //196	TASK_CATEGORY_TREASURE	Field Exploration.
     //198	TASK_CATEGORY_MINER_2	Highland Exploration.
     //200	TASK_CATEGORY_BOTANIST_2	Woodland Exploration.
@@ -242,7 +256,7 @@ internal static class Lang
     //0	TEXT_HOUFIXMANSIONENTRANCE_00359_HOUSINGAREA_MENU_ENTER_MYROOM	Die eigene Wohnung betreten
     //0	TEXT_HOUFIXMANSIONENTRANCE_00359_HOUSINGAREA_MENU_ENTER_MYROOM	Aller dans votre appartement
 
-    internal static string[] GoToYourApartment => field ??= GameTextMatch.TableFirst(Openings(DialogueRow(ApartmentDialogue, TextRow.ApartmentGoToMyRoom)),
+    internal static string[] GoToYourApartment => field ??= MenuList([DialogueRow(ApartmentDialogue, TextRow.ApartmentGoToMyRoom)],
     [
         "Go to your apartment",
         "自分の部屋に移動する",
@@ -268,19 +282,19 @@ internal static class Lang
     //11	TEXT_CMNDEFHOUSINGPERSONALROOMENTRANCE_00178_GOTO_WORKSHOP	地下工房に移動する
     //11	TEXT_CMNDEFHOUSINGPERSONALROOMENTRANCE_00178_GOTO_WORKSHOP	Die Ge<SoftHyphen/>sell<SoftHyphen/>schaftswerkstätte betreten
     //11	TEXT_CMNDEFHOUSINGPERSONALROOMENTRANCE_00178_GOTO_WORKSHOP	Aller dans l'atelier de compagnie
-    internal static string[] EnterWorkshop => field ??= GameTextMatch.TableFirst(Openings(DialogueRow(PersonalRoomDialogue, TextRow.PersonalRoomGoToWorkshop)), ["Move to the company workshop", "地下工房に移動する", "移动到部队工房", "移動到部隊工房", "移動到公會工坊", "Die Gesellschaftswerkstätte betreten", "Aller dans l'atelier de compagnie", "지하공방으로 이동"]);
+    internal static string[] EnterWorkshop => field ??= MenuList([DialogueRow(PersonalRoomDialogue, TextRow.PersonalRoomGoToWorkshop)], ["Move to the company workshop", "地下工房に移動する", "移动到部队工房", "移動到部隊工房", "移動到公會工坊", "Die Gesellschaftswerkstätte betreten", "Aller dans l'atelier de compagnie", "지하공방으로 이동"]);
 
-    internal static string[] AirshipManagement => field ??= GameTextMatch.TableFirst(Openings(CustomTalkOptionRow(TextRow.TalkAirshipManagement)), ["Airship Management", "飛空艇の管理", "管理飞空艇", "管理飛空艇", "Luftschiff verwalten", "Contrôle aérien", "비공정 관리"]);
-    internal static string[] SubmarineManagement => field ??= GameTextMatch.TableFirst(Openings(CustomTalkOptionRow(TextRow.TalkSubmarineManagement)), ["Submersible Management", "潜水艦の管理", "管理潜水艇", "管理潛水艇", "Tauchboot verwalten", "Contrôle sous-marin", "잠수함 관리"]);
-    internal static string[] CancelVoyage => field ??= GameTextMatch.TableFirst(Openings(AddonRow(TextRow.AddonCancel)), ["Cancel", "キャンセル", "取消", "Abbrechen", "Annuler", "취소"]);
-    internal static string[] NothingVoyage => field ??= GameTextMatch.TableFirst(Openings(DialogueRow(SubmarineDialogue, TextRow.SubSelectExit), DialogueRow(AirshipDialogue, TextRow.AirSelectExit)), ["Nothing.", "やめる", "取消", "Nichts", "Annuler", "그만두기"]);
-    internal static string[] DeployOnSubaquaticVoyage => field ??= GameTextMatch.TableFirst(Openings(DialogueRow(SubmarineDialogue, TextRow.SubDeploy)), ["Deploy submersible on subaquatic voyage", "ボイジャー出港", "出发", "出發", "Auf Erkundung gehen", "Expédier le sous-marin", "탐사 출항"]);
-    internal static string[] ViewPrevVoyageLog => field ??= GameTextMatch.TableFirst(Openings(DialogueRow(SubmarineDialogue, TextRow.SubPreviousLog), DialogueRow(AirshipDialogue, TextRow.AirPreviousLog)), ["View previous voyage log", "前回のボイジャー報告", "上次的远航报告", "上次的遠航報告", "Bericht der letzten Erkundung", "Consulter le journal de la précédente expédition", "이전 탐사 보고서"]);
+    internal static string[] AirshipManagement => field ??= MenuList([CustomTalkOptionRow(TextRow.TalkAirshipManagement)], ["Airship Management", "飛空艇の管理", "管理飞空艇", "管理飛空艇", "Luftschiff verwalten", "Contrôle aérien", "비공정 관리"]);
+    internal static string[] SubmarineManagement => field ??= MenuList([CustomTalkOptionRow(TextRow.TalkSubmarineManagement)], ["Submersible Management", "潜水艦の管理", "管理潜水艇", "管理潛水艇", "Tauchboot verwalten", "Contrôle sous-marin", "잠수함 관리"]);
+    internal static string[] CancelVoyage => field ??= MenuList([AddonRow(TextRow.AddonCancel)], ["Cancel", "キャンセル", "取消", "Abbrechen", "Annuler", "취소"]);
+    internal static string[] NothingVoyage => field ??= MenuList([DialogueRow(SubmarineDialogue, TextRow.SubSelectExit), DialogueRow(AirshipDialogue, TextRow.AirSelectExit)], ["Nothing.", "やめる", "取消", "Nichts", "Annuler", "그만두기"]);
+    internal static string[] DeployOnSubaquaticVoyage => field ??= MenuList([DialogueRow(SubmarineDialogue, TextRow.SubDeploy)], ["Deploy submersible on subaquatic voyage", "ボイジャー出港", "出发", "出發", "Auf Erkundung gehen", "Expédier le sous-marin", "탐사 출항"]);
+    internal static string[] ViewPrevVoyageLog => field ??= MenuList([DialogueRow(SubmarineDialogue, TextRow.SubPreviousLog), DialogueRow(AirshipDialogue, TextRow.AirPreviousLog)], ["View previous voyage log", "前回のボイジャー報告", "上次的远航报告", "上次的遠航報告", "Bericht der letzten Erkundung", "Consulter le journal de la précédente expédition", "이전 탐사 보고서"]);
     // TC's per-vessel menu (the 7-entry variant shown after collecting a report) closes with "退出";
     // "取消" only appears on the vessel-selector list and repair-reopened variants, so both are needed.
-    internal static string[] VoyageQuitEntry => field ??= GameTextMatch.TableFirst(Openings(AddonRow(TextRow.AddonQuit)), ["Quit", "やめる", "取消", "退出", "Beenden", "Annuler", "그만두기"]);
-    internal static string[] ChangeSubmersibleComponents => field ??= GameTextMatch.TableFirst(Openings(DialogueRow(SubmarineDialogue, TextRow.SubChangeParts)), ["Change submersible components", "パーツの変更", "Bauteile austauschen", "Changer les éléments", "부품 변경", "更换配件", "更換配件"]);
-    internal static string[] RegisterSub => field ??= GameTextMatch.TableFirst(Openings(DialogueRow(SubmarineDialogue, TextRow.SubRegisterNew)), ["Outfit and register a submersible.", "潜水艦の新規登録", "Registrierung eines neuen Tauchboots", "Enregistrement d'un sous-marin", "새 잠수함 등록", "登记新的潜水艇", "登記新的潛水艇"]);
+    internal static string[] VoyageQuitEntry => field ??= MenuList([AddonRow(TextRow.AddonQuit)], ["Quit", "やめる", "取消", "退出", "Beenden", "Annuler", "그만두기"]);
+    internal static string[] ChangeSubmersibleComponents => field ??= MenuList([DialogueRow(SubmarineDialogue, TextRow.SubChangeParts)], ["Change submersible components", "パーツの変更", "Bauteile austauschen", "Changer les éléments", "부품 변경", "更换配件", "更換配件"]);
+    internal static string[] RegisterSub => field ??= MenuList([DialogueRow(SubmarineDialogue, TextRow.SubRegisterNew)], ["Outfit and register a submersible.", "潜水艦の新規登録", "Registrierung eines neuen Tauchboots", "Enregistrement d'un sous-marin", "새 잠수함 등록", "登记新的潜水艇", "登記新的潛水艇"]);
 
     // Company Workshop's "adventurer doll" NPC name carries a per-instance
     // numeric suffix (e.g. "冒險人偶014號"), so this is matched with Contains
@@ -353,7 +367,7 @@ internal static class Lang
     //10	TEXT_CMNDEFCOMPANYCOMMANDERBOARD_00258_AIRSHIP_CMD_REPAIR_PARTS	Réparer des éléments
     //10	TEXT_CMNDEFCOMPANYCOMMANDERBOARD_00258_AIRSHIP_CMD_REPAIR_PARTS	修理配件
 
-    internal static string[] WorkshopRepair => field ??= GameTextMatch.TableFirst(Openings(DialogueRow(SubmarineDialogue, TextRow.SubRepairParts), DialogueRow(AirshipDialogue, TextRow.AirRepairParts)),
+    internal static string[] WorkshopRepair => field ??= MenuList([DialogueRow(SubmarineDialogue, TextRow.SubRepairParts), DialogueRow(AirshipDialogue, TextRow.AirRepairParts)],
     [
         "Repair submersible components",
         "Repair airship components",

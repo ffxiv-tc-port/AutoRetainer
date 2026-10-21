@@ -1427,13 +1427,15 @@ public static unsafe class Utils
     /// <remarks>
     /// 與 <c>new AddonMaster.SelectString(addon).Entries.TryGetFirst(x =&gt; !TextIsUnstable(x.Text) &amp;&amp; 比對(x.Text))</c>
     /// 選同一項、送同一個 callback（<c>Entry.Select()</c>＝<c>Callback.Fire(addon, true, 索引)</c>）。
-    /// 比對照舊：單一字串＝<c>StartsWith(Ordinal)</c>、多個＝ECommons <c>StartsWithAny</c>（預設 Ordinal）。
+    /// 單一字串＝<c>StartsWith(Ordinal)</c>、多個＝ECommons <c>StartsWithAny</c>（預設 Ordinal）；
+    /// 例外：<c>Lang.MenuList</c> 建的清單裡整列沒有巨集的短錨（如「取消」）改成整句相等。
     /// 任務每幀輪詢這支：每項文字只讀一次，不建 AddonMaster、陣列與閉包。
     /// </remarks>
     private static bool TrySelectSpecificEntryCore(EntryMatch mode, string single, IEnumerable<string> many, Func<string, bool> inputTextTest, Func<bool> Throttler)
     {
         if(TryGetAddonByName<AddonSelectString>("SelectString", out var addon) && IsAddonReady(&addon->AtkUnitBase))
         {
+            var exact = mode == EntryMatch.Many ? Lang.ExactMenuAnchorsOf(many) : null;
             // 讀到 U+FFFD 的選項這一幀不碰(窗記憶體正在變動);選項按下即關窗,所以整扇 SelectString 一把 key。
             // 🔑 這支是全外掛 SelectString 選項按下的唯一咽喉,在這裡接守衛就罩住全部呼叫端。
             var count = addon->PopupMenu.PopupMenu.EntryCount;
@@ -1444,7 +1446,7 @@ public static unsafe class Utils
                 var match = mode switch
                 {
                     EntryMatch.Single => text.StartsWith(single, StringComparison.Ordinal),
-                    EntryMatch.Many => StartsWithAnyOrdinal(text, many),
+                    EntryMatch.Many => exact == null ? StartsWithAnyOrdinal(text, many) : MenuMatchesAny(text, (string[])many, exact),
                     _ => inputTextTest(text),
                 };
                 if(!match) continue;
@@ -1460,6 +1462,15 @@ public static unsafe class Utils
         else
         {
             RethrottleGeneric();
+        }
+        return false;
+    }
+
+    private static bool MenuMatchesAny(string text, string[] anchors, HashSet<string> exact)
+    {
+        foreach(var x in anchors)
+        {
+            if(GameTextMatch.MenuEntryMatches(text, x, exact)) return true;
         }
         return false;
     }
