@@ -70,7 +70,7 @@ internal static unsafe class MiniTA
 
     internal static void ConfirmRepair()
     {
-        var x = Utils.GetSpecificYesno((s) => s.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.WorkshopRepairConfirm));
+        var x = Utils.GetSpecificYesno((s) => Lang.IsWorkshopRepairConfirm(s));
         // 🔴 GenericThrottle 不是防護:它的幀數是 Utils.FrameDelay = 10 + C.ExtraFrameDelay,而
         //    ExtraFrameDelay 的合法範圍是 ValidateRange(-10, 100)(UI 滑桿只給 0..50,但設定檔可以是負的),
         //    設成 -10 時延遲就是 **0 幀** —— 每一幀都放行。而且它全外掛共用一把 key,記的是
@@ -88,7 +88,7 @@ internal static unsafe class MiniTA
 
     internal static void ConfirmRegister()
     {
-        var x = Utils.GetSpecificYesno((s) => s.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.WorkshopRegisterConfirm));
+        var x = Utils.GetSpecificYesno((s) => Lang.IsWorkshopRegisterConfirm(s));
         // 🔴 GenericThrottle 不是防護,理由同 ConfirmRepair。
         if(x != null && Utils.GenericThrottle)
         {

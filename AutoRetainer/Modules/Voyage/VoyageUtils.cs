@@ -347,11 +347,11 @@ internal static unsafe class VoyageUtils
             //    讀不到面板標題就回 Unknown ＝「認不出這是哪種面板」,與既有的「三種都比不中」
             //    同一條路徑(fail-closed:呼叫端不會據此把潛艇當飛空艇操作)。
             if(!Utils.TryGetNodeText(&addon->UldManager, 3, out var text)) return PanelType.Unknown;
-            if(text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.PanelSubmersible))
+            if(Lang.IsPanelSubmersible(text))
             {
                 return PanelType.Submersible;
             }
-            if(text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.PanelAirship))
+            if(Lang.IsPanelAirship(text))
             {
                 return PanelType.Airship;
             }
@@ -579,11 +579,11 @@ internal static unsafe class VoyageUtils
         //    取不到就回 null ＝「認不出型別」,與既有的「兩個字串都比不中」同一條路徑。
         if(addon == null) return null;
         if(!Utils.TryGetNodeText(&addon->UldManager, 3, out var text)) return null;
-        if(text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.PanelAirship))
+        if(Lang.IsPanelAirship(text))
         {
             return VoyageType.Airship;
         }
-        if(text.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.PanelSubmersible))
+        if(Lang.IsPanelSubmersible(text))
         {
             return VoyageType.Submersible;
         }

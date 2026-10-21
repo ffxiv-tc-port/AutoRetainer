@@ -44,7 +44,7 @@ internal static unsafe class VoyageMain
                     Data.WorkshopEnabled = false;
                 }
             }
-            if(txt.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.UnableToRepairVessel))
+            if(Lang.IsUnableToRepairVessel(txt))
             {
                 TaskRepairAll.Abort = true;
                 DuoLog.Warning($"[Voyage] You are out of repair components!");

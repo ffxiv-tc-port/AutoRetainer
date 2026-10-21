@@ -135,7 +135,7 @@ internal static unsafe class GCContinuation
             }
         }
         {
-            var x = Utils.GetSpecificYesno(x => x.ContainsAny(StringComparison.OrdinalIgnoreCase, Lang.GCSealExchangeConfirm));
+            var x = Utils.GetSpecificYesno(x => Lang.IsGCSealExchangeConfirm(x));
             if(x != null && EzThrottler.Throttle("GC ConfirmExchange"))
             {
                 // 被封鎖時同樣回 true:這扇窗的「是」先前已經送出去了,這一步的工作確實已經完成,
