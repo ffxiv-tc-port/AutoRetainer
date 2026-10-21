@@ -41,6 +41,8 @@ internal static unsafe class GCContinuation
 
     public static void EnqueueInitiation(bool redeliver)
     {
+        // 排進佇列而不是當場清：前一輪若還在佇列裡跑，當場清會吃掉它的紀錄。
+        P.TaskManager.Enqueue(ResetPurchaseLog, "ResetPurchaseLog", ContinuationConf);
         P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied, ContinuationConf);
         P.TaskManager.Enqueue(GCContinuation.InteractWithShop, ContinuationConf);
         P.TaskManager.Enqueue(BeginNewPurchase, ContinuationConf);
@@ -596,9 +598,15 @@ internal static unsafe class GCContinuation
         }
         finally
         {
-            PurchaseLog.Clear();
-            PurchaseLogSealsSpent = 0;
+            ResetPurchaseLog();
         }
+    }
+
+    // 兌換被手動停止或中途中止時不會走到 LogPurchaseSummary，下一輪開頭也要清。
+    private static void ResetPurchaseLog()
+    {
+        PurchaseLog.Clear();
+        PurchaseLogSealsSpent = 0;
     }
 
     public static GCExchangeItem GetNextPurchaseListing()
