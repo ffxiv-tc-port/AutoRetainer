@@ -541,6 +541,7 @@ internal static unsafe class GCContinuation
             var spent = sealsCount > newSeals ? sealsCount - newSeals : 0u;
             var purchased = listing.Seals > 0 ? spent / listing.Seals : 0u;
             exchangeItem.QuantitySingleTime = (int)Math.Max(0, exchangeItem.QuantitySingleTime - purchased);
+            NotePurchase(listing.ItemID, purchased, spent);
         }, "GCPurchase.UpdateRemainingQuantity", conf));
         tasks.Add(new FrameDelayTask(4));
         tasks.Add(new(BeginNewPurchase));
@@ -556,7 +557,47 @@ internal static unsafe class GCContinuation
         }
         else
         {
+            LogPurchaseSummary();
             P.TaskManager.Insert(CloseExchange);
+        }
+    }
+
+    // 診斷：一次兌換（EnqueueInitiation 到 CloseExchange）買了什麼。只在框架執行緒上碰。
+    private static readonly List<string> PurchaseLog = [];
+    private static uint PurchaseLogSealsSpent;
+
+    private static void NotePurchase(uint itemId, uint purchased, uint spent)
+    {
+        PurchaseLog.Add($"{ExcelItemHelper.GetName(itemId)}(id {itemId})×{purchased}/{spent} 軍票");
+        PurchaseLogSealsSpent += spent;
+    }
+
+    private static void LogPurchaseSummary()
+    {
+        try
+        {
+            var bought = PurchaseLog.Count == 0 ? "什麼都沒買" : string.Join("、", PurchaseLog);
+            // 解釋「為什麼停在這裡」：第一個「現在買不起、但軍票夠時買得起」的項目會讓 GetNextPurchaseListing 提早回 null。
+            var blockedBy = "無";
+            List<GCExchangeItem> items = [.. Utils.GetGCExchangePlanWithOverrides().Items, new(VentureItem, 65000)];
+            foreach(var l in items)
+            {
+                if(l.GetAmountThatCanBePurchased() == 0 && l.GetAmountThatCanBePurchased(true) > 0)
+                {
+                    blockedBy = $"{ExcelItemHelper.GetName(l.ItemID)}(id {l.ItemID})";
+                    break;
+                }
+            }
+            PluginLog.Information($"[GCHandin] [SealSpend] 這次兌換：{bought}；共花 {PurchaseLogSealsSpent} 軍票，剩 {AutoGCHandin.GetSeals()}/{AutoGCHandin.GetMaxSeals()}（計畫保留 {Utils.GetGCExchangePlanWithOverrides().RemainingSeals}，可動用 {GetAdjustedSeals()}）；探險幣 {InventoryManager.Instance()->GetInventoryItemCount(VentureItem)}；卡在 {blockedBy}；本趟軍票上限中斷第 {AutoGCHandin.SealCapPauses} 次。");
+        }
+        catch(Exception e)
+        {
+            PluginLog.Information($"[GCHandin] [SealSpend] 診斷失敗（不影響兌換）：{e.Message}");
+        }
+        finally
+        {
+            PurchaseLog.Clear();
+            PurchaseLogSealsSpent = 0;
         }
     }
 

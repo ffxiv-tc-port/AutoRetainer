@@ -154,6 +154,9 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>導航窗的結束時刻。送出任何會讓角色移動/換區的東西時往後推。</summary>
     private static long NavigationDeadline;
 
+    /// <summary>已印過「抵達軍團」診斷的角色；0＝這一趟還沒印。只在 <see cref="Start"/> 歸零。</summary>
+    private static ulong GcArrivalLoggedCID;
+
     private static List<string> Retainers = [];
     private static int RetainerIndex;
     private static bool TravelledToBellThisRound;
@@ -440,6 +443,7 @@ internal static unsafe class GCExpertDeliveryLoop
         VentureSkippedTotal = 0;
         // 軍票上限中斷次數跟著這一趟走：這裡是它唯一的歸零點（見 AutoGCHandin.SealCapPauses）。
         AutoGCHandin.SealCapPauses = 0;
+        GcArrivalLoggedCID = 0;
         StatusText = "";
 
         if(startHere)
@@ -1133,6 +1137,62 @@ internal static unsafe class GCExpertDeliveryLoop
         return best;
     }
 
+    /// <summary>診斷：抵達軍團那一刻，最近的傳喚鈴（不限構不構得到）與人事官、軍需官的距離。
+    /// 每個角色每趟只印一次；任何失敗都只記一行，不影響後面的繳交。</summary>
+    private static void LogGcArrivalOnce()
+    {
+        try
+        {
+            if(Player.Object is null || GcArrivalLoggedCID == Player.CID) return;
+            GcArrivalLoggedCID = Player.CID;
+            var me = Player.Object.Position;
+
+            IGameObject bell = null;
+            var bellDist = float.MaxValue;
+            foreach(var x in Svc.Objects)
+            {
+                if(x.ObjectKind != ObjectKind.Housing && x.ObjectKind != ObjectKind.EventObj) continue;
+                if(!Utils.ObjectNameEqualsAny(x, Lang.BellName)) continue;
+                if(!x.IsTargetable) continue;
+                var d = Vector3.Distance(x.Position, me);
+                if(d < bellDist)
+                {
+                    bellDist = d;
+                    bell = x;
+                }
+            }
+
+            var gc = GCContinuation.GetGCInfo();
+            var officerDist = -1f;
+            var shopDist = -1f;
+            if(gc != null)
+            {
+                foreach(var x in Svc.Objects)
+                {
+                    if(!x.IsTargetable) continue;
+                    if(x.BaseId == gc.Value.ExchangeDataID) officerDist = Vector3.Distance(x.Position, me);
+                    else if(x.BaseId == gc.Value.ShopDataID) shopDist = Vector3.Distance(x.Position, me);
+                }
+            }
+
+            string bellText;
+            if(bell == null)
+            {
+                bellText = "物件表裡沒有傳喚鈴";
+            }
+            else
+            {
+                var reach = Utils.GetValidInteractionDistance(bell);
+                bellText = $"{bellDist:F2}m（{bell.ObjectKind} 位置 <{bell.Position.X:F2}, {bell.Position.Y:F2}, {bell.Position.Z:F2}>，互動門檻 {reach:F2}m，現在構得到={bellDist < reach}）";
+            }
+            PluginLog.Information($"[ExpertDeliveryLoop] [GCArrival] 抵達軍團：區域 {Player.Territory} 位置 <{me.X:F2}, {me.Y:F2}, {me.Z:F2}>；最近的傳喚鈴 {bellText}；人事官(id {gc?.ExchangeDataID}) {(officerDist < 0 ? "不在物件表" : $"{officerDist:F2}m")}、軍需官(id {gc?.ShopDataID}) {(shopDist < 0 ? "不在物件表" : $"{shopDist:F2}m")}（兩者互動門檻 10m）；第 {HandinRounds} 輪，鈴邊→這裡 {TimeInPhase}ms。");
+        }
+        catch(Exception e)
+        {
+            PluginLog.Information($"[ExpertDeliveryLoop] [GCArrival] 診斷失敗（不影響繳交）：{e.Message}");
+        }
+    }
+
     private static void TickEnsureBell()
     {
         if(Utils.IsBusy) return;
@@ -1570,7 +1630,11 @@ internal static unsafe class GCExpertDeliveryLoop
                 return;
             }
             P.TaskManager.Enqueue(() => !ECommonsIPC.Lifestream.IsBusy(), "WaitLifestreamBeforeHandin", new(timeLimitMS: 5 * 60 * 1000));
-            P.TaskManager.Enqueue(() => GCContinuation.EnqueueInitiation(true), "EnqueueInitiation");
+            P.TaskManager.Enqueue(() =>
+            {
+                LogGcArrivalOnce();
+                GCContinuation.EnqueueInitiation(true);
+            }, "EnqueueInitiation");
         }
         else
         {

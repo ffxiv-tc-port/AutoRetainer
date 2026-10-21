@@ -751,6 +751,7 @@ internal static unsafe class MultiMode
             {
                 BlockInteraction(1);
             }
+            WatchRelogGate();
             if(P.TaskManager.IsBusy)
             {
                 return;
@@ -823,6 +824,7 @@ internal static unsafe class MultiMode
                 // 排在換角色之前：探險幣或背包空格不足的角色要先處理完再決定是不是輪到下一個。
                 if(MultiModeVentureDelivery.EnqueueIfNeeded())
                 {
+                    EndRelogGateWatch("改去軍團繳交");
                     BlockInteraction(10);
                 }
                 else if(IsCurrentCharacterDone() && !IsOccupied())
@@ -835,6 +837,7 @@ internal static unsafe class MultiMode
                     if(next != null)
                     {
                         DebugLog($"Enqueueing relog");
+                        EndRelogGateWatch("放行換角");
                         BlockInteraction(20);
                         if(!Relog(next, out var error, RelogReason.MultiMode))
                         {
@@ -852,6 +855,7 @@ internal static unsafe class MultiMode
                         if(MultiMode.WaitOnLoginScreen)
                         {
                             DebugLog($"Enqueueing logoff");
+                            EndRelogGateWatch("放行登出");
                             BlockInteraction(20);
                             if(!Relog(null, out var error, RelogReason.MultiMode))
                             {
@@ -879,6 +883,7 @@ internal static unsafe class MultiMode
                             if(!TaskTeleportToProperty.EnqueueIfNeededAndPossible(true))
                             {
                                 DebugLog($"Enqueueing interaction with panel");
+                                EndRelogGateWatch("改去潛水艇面板");
                                 BlockInteraction(10);
                                 TaskInteractWithNearestPanel.Enqueue();
                                 P.TaskManager.Enqueue(() => { VoyageScheduler.Enabled = true; }, "MultiMode.EnableVoyageScheduler");
@@ -898,6 +903,7 @@ internal static unsafe class MultiMode
                                 if(data.Enabled)
                                 {
                                     DebugLog($"Enqueueing interaction with bell");
+                                    EndRelogGateWatch("改回傳喚鈴");
                                     TaskInteractWithNearestBell.Enqueue();
                                     P.TaskManager.Enqueue(() => { SchedulerMain.EnablePlugin(PluginEnableReason.MultiMode); return true; }, "MultiMode.EnableRetainerScheduler");
                                     BlockInteraction(10);
@@ -1039,6 +1045,82 @@ internal static unsafe class MultiMode
     internal static bool IsInteractionAllowed()
     {
         return Environment.TickCount64 > NextInteractionAt;
+    }
+
+    // 診斷：傳喚鈴關窗後到 Tick 放行下一步的時間，依 Tick 的判斷順序記下每一幀是哪一道閘門擋著；
+    // 晚於 RelogGateLateMs 才在放行時印一行。每幀路徑只做比較與加法，字串只在要印時組。只在框架執行緒上碰。
+    private const long RelogGateLateMs = 2000;
+    private const long RelogGateGiveUpMs = 30000;
+    private static long RelogGateSince;
+    private static long RelogGateLastTick;
+    private static bool RelogGateWasAtBell;
+    private static long RelogGateTaskMs, RelogGateNoPlayerMs, RelogGateOccupiedMs, RelogGateCooldownMs, RelogGateSyncMs, RelogGateNotDoneMs;
+    private static string RelogGateFirstTask, RelogGateLastTask, RelogGateSnapshot;
+
+    private static void WatchRelogGate()
+    {
+        var now = Environment.TickCount64;
+        var atBell = Svc.Condition[ConditionFlag.OccupiedSummoningBell];
+        if(now - RelogGateLastTick > 1000)
+        {
+            // 中間有幀沒追到（多角色被關或被抑制）：舊的邊緣與計時都不可信。
+            RelogGateSince = 0;
+            RelogGateWasAtBell = atBell;
+        }
+        var dt = now - RelogGateLastTick;
+        RelogGateLastTick = now;
+        if(RelogGateWasAtBell && !atBell)
+        {
+            RelogGateSince = now;
+            RelogGateTaskMs = RelogGateNoPlayerMs = RelogGateOccupiedMs = RelogGateCooldownMs = RelogGateSyncMs = RelogGateNotDoneMs = 0;
+            RelogGateFirstTask = RelogGateLastTask = RelogGateSnapshot = null;
+            dt = 0;
+        }
+        RelogGateWasAtBell = atBell;
+        if(RelogGateSince == 0) return;
+
+        if(P.TaskManager.IsBusy)
+        {
+            RelogGateTaskMs += dt;
+            var name = P.TaskManager.CurrentTask?.Name;
+            if(name != null)
+            {
+                RelogGateFirstTask ??= name;
+                RelogGateLastTask = name;
+            }
+        }
+        else if(!ProperOnLogin.PlayerPresent) RelogGateNoPlayerMs += dt;
+        else if(IsOccupied() || !IsScreenReady()) RelogGateOccupiedMs += dt;
+        else if(!IsInteractionAllowed()) RelogGateCooldownMs += dt;
+        else if(Synchronize) RelogGateSyncMs += dt;
+        else if(!IsCurrentCharacterDone()) RelogGateNotDoneMs += dt;
+
+        var waited = now - RelogGateSince;
+        if(RelogGateSnapshot == null && waited > RelogGateLateMs) RelogGateSnapshot = DescribeRelogGates(now);
+        if(waited > RelogGateGiveUpMs) EndRelogGateWatch("仍未放行（30 秒後停止追蹤）");
+    }
+
+    private static string DescribeRelogGates(long now)
+    {
+        try
+        {
+            var flags = string.Join(",", Svc.Condition.AsReadOnlySet());
+            return $"taskBusy={P.TaskManager.IsBusy} 目前任務={P.TaskManager.CurrentTask?.Name ?? "-"} 佇列={P.TaskManager.NumQueuedTasks} playerPresent={ProperOnLogin.PlayerPresent} screenReady={IsScreenReady()} occupied={IsOccupied()} 狀態旗標=[{flags}] 互動冷卻剩 {Math.Max(0, NextInteractionAt - now)}ms synchronize={Synchronize} 僱員做完={IsCurrentCharacterRetainersDone()} 潛水艇做完={IsCurrentCharacterCaptainDone()} utilsBusy={Utils.IsBusy} 排程器開著={SchedulerMain.PluginEnabled} 後處理鎖={SchedulerMain.CharacterPostProcessLocked}";
+        }
+        catch(Exception e)
+        {
+            return $"讀取失敗：{e.Message}";
+        }
+    }
+
+    /// <param name="outcome">固定字面值，不可傳組出來的字串（每幀路徑上呼叫）。</param>
+    private static void EndRelogGateWatch(string outcome)
+    {
+        if(RelogGateSince == 0) return;
+        var waited = Environment.TickCount64 - RelogGateSince;
+        RelogGateSince = 0;
+        if(waited <= RelogGateLateMs) return;
+        PluginLog.Information($"[MultiMode] [RelogGate] 傳喚鈴關窗後 {waited}ms {outcome}；各閘門擋住的時間：任務佇列 {RelogGateTaskMs}ms（第一個 {RelogGateFirstTask ?? "-"}、最後 {RelogGateLastTask ?? "-"}）、角色不在 {RelogGateNoPlayerMs}ms、角色忙碌或畫面未就緒 {RelogGateOccupiedMs}ms、互動冷卻 {RelogGateCooldownMs}ms、同步等待 {RelogGateSyncMs}ms、角色還沒做完 {RelogGateNotDoneMs}ms；第 2 秒當下：{RelogGateSnapshot ?? "?"}");
     }
 
     internal static OfflineRetainerData[] GetEnabledRetainers(this OfflineCharacterData data)
