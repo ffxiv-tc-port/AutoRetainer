@@ -154,6 +154,8 @@ public unsafe class AutoRetainer : IDalamudPlugin
         // 守衛的解除點若排在它後面,每幀就變成「先按、後解除」。
         // 解除點掛在最前面就不會被別人的例外連累而漏掉一幀。
         Svc.Framework.Update += DialogGuardsTick;
+        // Load 由 TickScheduler 在框架執行緒呼叫；監聽器下一幀才生效，所以趁載入先掛好。
+        DialogGuards.WatchKnownAddons();
 
         // showDebug 跟隨 /autoretainer debug（C.Verbose）。
         // 🔴 切換要即時生效必須同時改 DefaultConfiguration：見 SyncTaskManagerDebugOutput()。

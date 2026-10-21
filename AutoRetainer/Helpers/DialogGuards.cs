@@ -401,6 +401,29 @@ internal static unsafe class DialogGuards
         return false;
     }
 
+    /// <summary>全外掛按法用到的固定窗名（含委託重複道具那兩種道具欄）；新增按下點時一併加進來。</summary>
+    /// <remarks>漏列的窗名不會失去保護，只是退回「第一次按下才掛監聽器」。</remarks>
+    private static readonly string[] KnownGuardedAddons =
+    [
+        "AirShipExploration", "AirShipExplorationDetail", "AirShipExplorationResult", "AirShipPartsMenu",
+        "Bank", "CompanyCraftSupply", "ContextIconMenu", "ContextMenu",
+        "FreeCompany", "FreeCompanyChest", "FreeCompanyCreditShop",
+        "GrandCompanyExchange", "GrandCompanySupplyList", "GrandCompanySupplyReward",
+        "InputNumeric", "InventoryRetainer", "InventoryRetainerLarge",
+        "RetainerItemTransferList", "RetainerItemTransferProgress", "RetainerList",
+        "RetainerTaskAsk", "RetainerTaskList", "RetainerTaskResult", "RetainerTaskSupply",
+        "SelectIconString", "SelectString", "SelectYesno", "Shop", "ShopExchangeCurrencyDialog",
+        "SubmarineExplorationMapSelect", "Talk", "TitleDCWorldMap", "Trade",
+        "_CharaSelectListMenu", "_CharaSelectWorldServer", "_TitleMenu",
+    ];
+
+    /// <summary>外掛載入時（框架執行緒）先替 <see cref="KnownGuardedAddons"/> 掛好監聽器。</summary>
+    /// <remarks>Dalamud 的 RegisterListener 要到下一幀才生效；等到第一次按下才掛，那一發就沒有銷毀鎖。重複呼叫無害。</remarks>
+    internal static void WatchKnownAddons()
+    {
+        foreach(var name in KnownGuardedAddons) EnsureWatching(name);
+    }
+
     /// <summary>第一次守護某個窗名時掛上 PreFinalize／PostSetup 監聽器；掛上之後就不再拆（只在 <see cref="ForceTeardown"/> 拆）。</summary>
     private static void EnsureWatching(string addonName)
     {
