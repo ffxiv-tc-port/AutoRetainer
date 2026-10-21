@@ -1048,56 +1048,33 @@ internal static unsafe class MultiMode
     }
 
     // 診斷：傳喚鈴關窗後到 Tick 放行下一步的時間，依 Tick 的判斷順序記下每一幀是哪一道閘門擋著；
-    // 晚於 RelogGateLateMs 才在放行時印一行。每幀路徑只做比較與加法，字串只在要印時組。只在框架執行緒上碰。
-    private const long RelogGateLateMs = 2000;
-    private const long RelogGateGiveUpMs = 30000;
-    private static long RelogGateSince;
-    private static long RelogGateLastTick;
-    private static bool RelogGateWasAtBell;
-    private static long RelogGateTaskMs, RelogGateNoPlayerMs, RelogGateOccupiedMs, RelogGateCooldownMs, RelogGateSyncMs, RelogGateNotDoneMs;
-    private static string RelogGateFirstTask, RelogGateLastTask, RelogGateSnapshot;
+    // 晚於 RelogGateTracker.LateMs 才在結束時印一行。每幀路徑只做比較與加法，字串只在要印時組。只在框架執行緒上碰。
+    private static readonly RelogGateTracker RelogGate = new();
 
     private static void WatchRelogGate()
     {
         var now = Environment.TickCount64;
-        var atBell = Svc.Condition[ConditionFlag.OccupiedSummoningBell];
-        if(now - RelogGateLastTick > 1000)
-        {
-            // 中間有幀沒追到（多角色被關或被抑制）：舊的邊緣與計時都不可信。
-            RelogGateSince = 0;
-            RelogGateWasAtBell = atBell;
-        }
-        var dt = now - RelogGateLastTick;
-        RelogGateLastTick = now;
-        if(RelogGateWasAtBell && !atBell)
-        {
-            RelogGateSince = now;
-            RelogGateTaskMs = RelogGateNoPlayerMs = RelogGateOccupiedMs = RelogGateCooldownMs = RelogGateSyncMs = RelogGateNotDoneMs = 0;
-            RelogGateFirstTask = RelogGateLastTask = RelogGateSnapshot = null;
-            dt = 0;
-        }
-        RelogGateWasAtBell = atBell;
-        if(RelogGateSince == 0) return;
+        if(!RelogGate.Advance(now, Svc.Condition[ConditionFlag.OccupiedSummoningBell])) return;
 
+        var block = RelogGateBlock.None;
+        string taskName = null;
+        var logoutRunning = false;
         if(P.TaskManager.IsBusy)
         {
-            RelogGateTaskMs += dt;
-            var name = P.TaskManager.CurrentTask?.Name;
-            if(name != null)
-            {
-                RelogGateFirstTask ??= name;
-                RelogGateLastTask = name;
-            }
+            block = RelogGateBlock.Task;
+            var task = P.TaskManager.CurrentTask;
+            taskName = task?.Name;
+            logoutRunning = task != null && task.Name == nameof(TaskChangeCharacter.Logout) && task.Location == nameof(TaskChangeCharacter);
         }
-        else if(!ProperOnLogin.PlayerPresent) RelogGateNoPlayerMs += dt;
-        else if(IsOccupied() || !IsScreenReady()) RelogGateOccupiedMs += dt;
-        else if(!IsInteractionAllowed()) RelogGateCooldownMs += dt;
-        else if(Synchronize) RelogGateSyncMs += dt;
-        else if(!IsCurrentCharacterDone()) RelogGateNotDoneMs += dt;
+        else if(!ProperOnLogin.PlayerPresent) block = RelogGateBlock.NoPlayer;
+        else if(IsOccupied() || !IsScreenReady()) block = RelogGateBlock.Occupied;
+        else if(!IsInteractionAllowed()) block = RelogGateBlock.Cooldown;
+        else if(Synchronize) block = RelogGateBlock.Sync;
+        else if(!IsCurrentCharacterDone()) block = RelogGateBlock.NotDone;
 
-        var waited = now - RelogGateSince;
-        if(RelogGateSnapshot == null && waited > RelogGateLateMs) RelogGateSnapshot = DescribeRelogGates(now);
-        if(waited > RelogGateGiveUpMs) EndRelogGateWatch("仍未放行（30 秒後停止追蹤）");
+        var outcome = RelogGate.Account(block, taskName, logoutRunning, now);
+        if(RelogGate.SnapshotDue(now)) RelogGate.Snapshot = DescribeRelogGates(now);
+        if(outcome != null) EndRelogGateWatch(outcome);
     }
 
     private static string DescribeRelogGates(long now)
@@ -1116,11 +1093,10 @@ internal static unsafe class MultiMode
     /// <param name="outcome">固定字面值，不可傳組出來的字串（每幀路徑上呼叫）。</param>
     private static void EndRelogGateWatch(string outcome)
     {
-        if(RelogGateSince == 0) return;
-        var waited = Environment.TickCount64 - RelogGateSince;
-        RelogGateSince = 0;
-        if(waited <= RelogGateLateMs) return;
-        PluginLog.Information($"[MultiMode] [RelogGate] 傳喚鈴關窗後 {waited}ms {outcome}；各閘門擋住的時間：任務佇列 {RelogGateTaskMs}ms（第一個 {RelogGateFirstTask ?? "-"}、最後 {RelogGateLastTask ?? "-"}）、角色不在 {RelogGateNoPlayerMs}ms、角色忙碌或畫面未就緒 {RelogGateOccupiedMs}ms、互動冷卻 {RelogGateCooldownMs}ms、同步等待 {RelogGateSyncMs}ms、角色還沒做完 {RelogGateNotDoneMs}ms；第 2 秒當下：{RelogGateSnapshot ?? "?"}");
+        var waited = RelogGate.End(Environment.TickCount64);
+        if(waited <= RelogGateTracker.LateMs) return;
+        var g = RelogGate;
+        PluginLog.Information($"[MultiMode] [RelogGate] 傳喚鈴關窗後 {waited}ms {outcome}；各閘門擋住的時間：任務佇列 {g.TaskMs}ms（第一個 {g.FirstTask ?? "-"}、最後 {g.LastTask ?? "-"}）、角色不在 {g.NoPlayerMs}ms、角色忙碌或畫面未就緒 {g.OccupiedMs}ms、互動冷卻 {g.CooldownMs}ms、同步等待 {g.SyncMs}ms、角色還沒做完 {g.NotDoneMs}ms；第 2 秒當下：{g.Snapshot ?? "?"}");
     }
 
     internal static OfflineRetainerData[] GetEnabledRetainers(this OfflineCharacterData data)
