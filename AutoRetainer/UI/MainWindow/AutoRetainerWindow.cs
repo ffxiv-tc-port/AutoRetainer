@@ -310,9 +310,11 @@ internal unsafe class AutoRetainerWindow : Window
         {
             MultiModeRoundTrip.Start();
         }
+        // ImGuiEx.Tooltip 內部再判一次不帶 AllowWhenDisabled 的 hover，按鈕停用時永遠不出現 ⇒ 直接畫。
+        // 說明框在 EndDisabled 之後才畫，不受停用淡化。
         if(ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
         {
-            ImGuiEx.Tooltip(canStart
+            ImGuiEx.SetTooltip(canStart
                 ? Loc.T("Turns on Multi Mode. Once no character has retainers, submersibles or airships to handle, it turns Multi Mode off and logs back into the character you are on now. Turning Multi Mode off or switching characters yourself in the meantime cancels the trip back.")
                 : whyNot);
         }
