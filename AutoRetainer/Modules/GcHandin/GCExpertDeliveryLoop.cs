@@ -159,7 +159,12 @@ internal static unsafe class GCExpertDeliveryLoop
 
     private static List<string> Retainers = [];
     private static int RetainerIndex;
-    private static bool TravelledToBellThisRound;
+    /// <summary>這一輪為了找鈴送過幾次傳送。第一次之後還沒鈴就重送一次,第二次之後才停。</summary>
+    private static int BellTravelsThisRound;
+
+    /// <summary>這一趟裡「傳送過去之後真的找到鈴」的鈴目的地(id, sub)。只在 <see cref="Start"/> 清空。
+    /// 用來分辨兩種停止:這個目的地這趟已經成功過＝這次是傳送沒到,不是目的地選錯。</summary>
+    private static readonly HashSet<(uint Id, byte Sub)> BellDestinationsProvenThisRun = [];
 
     /// <summary>這一趟要跑的角色(CID),依 UI 上看到的順序。單角色跑法時是空的。
     /// 名單在**開始時**決定一次並沿用整趟 —— 跑到一半才加進來的角色不會被納入。</summary>
@@ -444,6 +449,7 @@ internal static unsafe class GCExpertDeliveryLoop
         // 軍票上限中斷次數跟著這一趟走：這裡是它唯一的歸零點（見 AutoGCHandin.SealCapPauses）。
         AutoGCHandin.SealCapPauses = 0;
         GcArrivalLoggedCID = 0;
+        BellDestinationsProvenThisRun.Clear();
         StatusText = "";
 
         if(startHere)
@@ -564,7 +570,7 @@ internal static unsafe class GCExpertDeliveryLoop
         Retainers = retainers;
         RetainerIndex = 0;
         RetrievedThisRound = 0;
-        TravelledToBellThisRound = false;
+        BellTravelsThisRound = 0;
         UnavailableSince = 0;
         NavigationDeadline = 0;
         PendingFinishReason = "";
@@ -1199,7 +1205,13 @@ internal static unsafe class GCExpertDeliveryLoop
 
         if(GetPreferredBell() != null)
         {
-            TravelledToBellThisRound = false;
+            if(BellTravelsThisRound > 0)
+            {
+                var dest = GetBellDestination(Player.CID);
+                BellDestinationsProvenThisRun.Add((dest.Id, dest.Sub));
+                if(BellTravelsThisRound > 1) PluginLog.Information($"[ExpertDeliveryLoop] 重送傳送後找到傳喚鈴了(鈴目的地 id={dest.Id} sub={dest.Sub}),繼續。");
+            }
+            BellTravelsThisRound = 0;
             RetainerIndex = 0;
             RetrievedThisRound = 0;
             RoundEndReason = RoundEnd.NoGearLeft;
@@ -1219,22 +1231,47 @@ internal static unsafe class GCExpertDeliveryLoop
             return;
         }
 
-        if(TravelledToBellThisRound)
-        {
-            // 已經到過目的地卻還是沒有鈴 —— 再送一次只會得到同樣的結果。
-            Stop(Loc.T("Stopped: arrived at the chosen destination but there is no summoning bell within reach. Pick a favourite that is closer to a bell."));
-            return;
-        }
-
         // 使用者指定了目的地:一律走它,而且**只走它**。
         var bell = GetBellDestination(Player.CID);
+        if(BellTravelsThisRound > 0)
+        {
+            // Lifestream 的傳送鏈中途逾時會整條中止、不留訊號給呼叫端,所以「傳送結束卻沒鈴」先重送一次;
+            // 第二次已經在目的城市裡,走的是比較短的路。
+            var arrived = LooksArrivedAtBellDestination(bell.Id, bell.Sub, out var diag);
+            if(BellTravelsThisRound >= 2)
+            {
+                PluginLog.Information($"[ExpertDeliveryLoop] 送了 {BellTravelsThisRound} 次傳送仍沒有構得到的傳喚鈴,停止:判定={(arrived ? "已到目的地、那裡沒有鈴" : "傳送沒到目的地")};{diag}");
+                Stop(arrived
+                    ? Loc.T("Stopped: arrived at the chosen destination but there is no summoning bell within reach. Pick a favourite that is closer to a bell.")
+                    : Loc.T("Stopped: travelling to the chosen summoning bell destination did not get there, even after a second try - Lifestream was probably interrupted on the way. The destination itself does not need changing; start the loop again."));
+                return;
+            }
+            PluginLog.Information($"[ExpertDeliveryLoop] 傳送結束後附近沒有構得到的傳喚鈴,重送一次傳送;{diag}");
+        }
         if(!GoToFavorite(bell.Id, bell.Sub, "bell"))
         {
             Stop(Loc.T("Stopped: could not travel to the chosen summoning bell destination - check that it is still starred in Lifestream."));
             return;
         }
-        TravelledToBellThisRound = true;
+        BellTravelsThisRound++;
         SetPhase(Phase.EnsureBellWait);
+    }
+
+    /// <summary>傳送結束卻沒鈴時,判斷是「到了但那裡沒鈴」還是「傳送沒到」。
+    /// 這趟同一個目的地成功過、或人不在目的地所在的區域＝傳送沒到;其餘(含查不到目的地區域)＝到了。</summary>
+    private static bool LooksArrivedAtBellDestination(uint id, byte sub, out string diag)
+    {
+        var proven = BellDestinationsProvenThisRun.Contains((id, sub));
+        uint destTerritory = 0;
+        foreach(var f in global::AutoRetainer.UI.NeoUI.InventoryManagementEntries.GCDeliveryEntries.ExpertDeliveryLoop.GetFavorites())
+        {
+            if(f.Id == id && f.SubIndex == sub) { destTerritory = f.Territory; break; }
+        }
+        var here = (uint)Player.Territory;
+        var wrongZone = destTerritory != 0 && destTerritory != here;
+        var pos = Player.Object?.Position ?? default;
+        diag = $"鈴目的地 id={id} sub={sub} 區域 {(destTerritory == 0 ? "?" : destTerritory)};現在區域 {here} 位置 <{pos.X:F1}, {pos.Y:F1}, {pos.Z:F1}>;這趟此目的地成功過={proven}";
+        return !proven && !wrongZone;
     }
 
     private static void TickEnsureBellWait()
