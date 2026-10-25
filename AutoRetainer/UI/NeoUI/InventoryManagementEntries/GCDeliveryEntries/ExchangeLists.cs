@@ -156,6 +156,40 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
         }
     }
 
+    /// <summary>每個「有角色用到的軍票上限」一列:勾起來就另設保留量,不勾沿用上面那個數字。</summary>
+    private static void DrawSealReserveByCap(GCExchangePlan plan)
+    {
+        if(!ImGui.TreeNode(Loc.T("Seals to keep by seal cap") + "###sealsByCap")) return;
+        try
+        {
+            ImGuiEx.TextWrapped(Loc.T("Characters whose seal cap matches a ticked row keep that amount instead of the number above; unticked rows use the number above. Each character's cap is read when it logs in."));
+            var counts = C.OfflineData.Where(x => x.GCSealsMax > 0).GroupBy(x => x.GCSealsMax).ToDictionary(g => g.Key, g => g.Count());
+            var caps = counts.Keys.Concat(plan.RemainingSealsByCap.Keys).Distinct().Order().ToList();
+            if(caps.Count == 0)
+            {
+                ImGuiEx.TextWrapped(ImGuiColors.DalamudGrey, Loc.T("No character's seal cap is known yet - it is read when a character logs in."));
+                return;
+            }
+            foreach(var cap in caps)
+            {
+                var on = plan.RemainingSealsByCap.TryGetValue(cap, out var keep);
+                if(ImGui.Checkbox(string.Format(Loc.T("Cap {0} ({1} character(s))"), cap.ToString("N0"), counts.GetValueOrDefault(cap)) + $"##sealCapOn{cap}", ref on))
+                {
+                    if(on) plan.RemainingSealsByCap[cap] = Math.Clamp(plan.RemainingSeals, 0, cap);
+                    else plan.RemainingSealsByCap.Remove(cap);
+                }
+                if(!on) continue;
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(100f);
+                if(ImGui.InputInt($"##sealCapKeep{cap}", ref keep, 0, 0)) plan.RemainingSealsByCap[cap] = Math.Clamp(keep, 0, cap);
+            }
+        }
+        finally
+        {
+            ImGui.TreePop();
+        }
+    }
+
     public void DrawGCEchangeList(GCExchangePlan plan)
     {
         ref string getFilter() => ref Ref<string>.Get($"{plan.ID}filter");
@@ -188,6 +222,7 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
             ImGui.Checkbox(Loc.T("Finish by purchasing items"), ref plan.FinalizeByPurchasing);
             ImGuiEx.HelpMarker(Loc.T("If selected, after final exchange items will be purchased, otherwise - purchase will not be made until seals are capped again."));
         });
+        DrawSealReserveByCap(plan);
 
         ImGuiEx.SetNextItemFullWidth();
         if(ImGui.BeginCombo("##Add Items", Loc.T("Add Items"), ImGuiComboFlags.HeightLarge))

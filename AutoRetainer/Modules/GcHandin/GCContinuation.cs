@@ -324,12 +324,14 @@ internal static unsafe class GCContinuation
     public static uint GetAdjustedSeals()
     {
         var plan = Utils.GetGCExchangePlanWithOverrides();
-        return (uint)Math.Max(0, AutoGCHandin.GetSeals() - Math.Min(plan.RemainingSeals, AutoGCHandin.GetMaxSeals() - 20000));
+        var max = AutoGCHandin.GetMaxSeals();
+        return (uint)Math.Max(0, AutoGCHandin.GetSeals() - Math.Min(plan.GetRemainingSeals(max), max - 20000));
     }
 
     public static uint GetAdjustedMaxSeals()
     {
-        return (uint)(AutoGCHandin.GetMaxSeals() - Utils.GetGCExchangePlanWithOverrides().RemainingSeals);
+        var max = AutoGCHandin.GetMaxSeals();
+        return (uint)(max - Utils.GetGCExchangePlanWithOverrides().GetRemainingSeals(max));
     }
 
     internal static bool? OpenSeals()
@@ -590,7 +592,7 @@ internal static unsafe class GCContinuation
                     break;
                 }
             }
-            PluginLog.Information($"[GCHandin] [SealSpend] 這次兌換：{bought}；共花 {PurchaseLogSealsSpent} 軍票，剩 {AutoGCHandin.GetSeals()}/{AutoGCHandin.GetMaxSeals()}（計畫保留 {Utils.GetGCExchangePlanWithOverrides().RemainingSeals}，可動用 {GetAdjustedSeals()}）；探險幣 {InventoryManager.Instance()->GetInventoryItemCount(VentureItem)}；卡在 {blockedBy}；本趟軍票上限中斷第 {AutoGCHandin.SealCapPauses} 次。");
+            PluginLog.Information($"[GCHandin] [SealSpend] 這次兌換：{bought}；共花 {PurchaseLogSealsSpent} 軍票，剩 {AutoGCHandin.GetSeals()}/{AutoGCHandin.GetMaxSeals()}（計畫保留 {Utils.GetGCExchangePlanWithOverrides().GetRemainingSeals(AutoGCHandin.GetMaxSeals())}，可動用 {GetAdjustedSeals()}）；探險幣 {InventoryManager.Instance()->GetInventoryItemCount(VentureItem)}；卡在 {blockedBy}；本趟軍票上限中斷第 {AutoGCHandin.SealCapPauses} 次。");
         }
         catch(Exception e)
         {
