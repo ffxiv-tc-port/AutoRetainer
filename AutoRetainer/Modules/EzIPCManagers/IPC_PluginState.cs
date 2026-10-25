@@ -285,6 +285,36 @@ public class IPC_PluginState
         }, new List<string>(), "the caller is told there is no character data yet (an empty list)");
     }
 
+    /// <summary>In a Company Workshop, walks up to a summoning bell that is within 20 m but out of interaction
+    /// range - the same approach AutoRetainer uses before opening a workshop bell itself. Only moves; it does not
+    /// target or open the bell. Returns false without enqueuing anything when not in a workshop, a bell is already
+    /// within reach, no bell is within 20 m, or AutoRetainer is busy.</summary>
+    [EzIPC]
+    public bool EnqueueApproachWorkshopBell()
+    {
+        return IpcFrameworkGate.Run(nameof(EnqueueApproachWorkshopBell), () =>
+        {
+            string refused = null;
+            var distance = -1f;
+            if(!Player.Available) refused = "player is not available";
+            else if(!VoyageUtils.Workshops.Contains(Svc.ClientState.TerritoryType)) refused = $"not in a Company Workshop (territory {Svc.ClientState.TerritoryType})";
+            else if(Utils.IsBusy) refused = "AutoRetainer is already busy";
+            else if(IsOccupied()) refused = "the character is occupied";
+            else if(Utils.GetReachableRetainerBell(false) != null) refused = "a summoning bell is already within reach";
+            else if(Utils.GetNearestRetainerBell(out distance) == null || distance >= 20f) refused = distance == float.MaxValue ? "no targetable summoning bell in the object table" : $"the nearest summoning bell is {distance:F1} m away (limit 20 m)";
+            if(refused != null)
+            {
+                PluginLog.Information($"[EnqueueApproachWorkshopBell] Refused: {refused}.");
+                return false;
+            }
+            P.TaskManager.Enqueue(HouseEnterTask.LockonBell);
+            P.TaskManager.Enqueue(HouseEnterTask.Approach);
+            P.TaskManager.Enqueue(HouseEnterTask.AutorunOffBell);
+            PluginLog.Information($"[EnqueueApproachWorkshopBell] Walking to the workshop summoning bell {distance:F1} m away.");
+            return true;
+        }, false, "the caller is told nothing was enqueued");
+    }
+
     /// <summary>Enqueues AutoRetainer's own "walk up to the summoning bell, open it, pick this retainer,
     /// open their item storage" chain. Returns false without enqueuing anything when a precondition does
     /// not hold, so a caller can stop instead of waiting out a timeout on a flow that never started.</summary>
