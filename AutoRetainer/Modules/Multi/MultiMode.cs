@@ -660,6 +660,7 @@ internal static unsafe class MultiMode
             }
             LastLogin = MultiMode.Enabled && !C.MultiWaitOnLoginScreen ? Svc.PlayerState.ContentId : 0;
             Interactions.Clear();
+            TaskNeoHET.ResetEntranceTimeouts();
             // 登出那側也清了一次；這裡是第二道，涵蓋「登出事件沒送到」與「外掛在已登入狀態下載入」。
             // 剛登入時不可能有進行中的僱員行程，所以無條件清空是安全的。
             SchedulerMain.ClearPendingEntrustVendorPass("login");
@@ -1371,7 +1372,8 @@ internal static unsafe class MultiMode
 
     internal static bool IsCurrentCharacterDone()
     {
-        return IsCurrentCharacterRetainersDone() && IsCurrentCharacterCaptainDone();
+        // 進不了屋就不可能做事：當作做完，換角（或停下）走既有流程。
+        return TaskNeoHET.GivenUpEntering || IsCurrentCharacterRetainersDone() && IsCurrentCharacterCaptainDone();
     }
 
     internal static bool IsCurrentCharacterRetainersDone()

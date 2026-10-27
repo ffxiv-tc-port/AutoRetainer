@@ -23,7 +23,11 @@ internal unsafe class DebugMulti : DebugSectionBase
         }
         if(ImGui.CollapsingHeader("NeoHET"))
         {
-            if(ImGui.Button("Enqueue HET")) TaskNeoHET.Enqueue(null);
+            if(ImGui.Button("Enqueue HET"))
+            {
+                TaskNeoHET.ResetEntranceTimeouts();
+                TaskNeoHET.Enqueue(null);
+            }
             if(ImGui.Button("Enqueue workshop")) TaskNeoHET.TryEnterWorkshop(() => DuoLog.Error("Fail"));
             ImGuiEx.Text($"""
                 Can enter workshop: {ECommonsIPC.Lifestream.CanMoveToWorkshop()}
@@ -70,6 +74,7 @@ internal unsafe class DebugMulti : DebugSectionBase
             ImGuiEx.Text($"Nearest entrance: {Utils.GetNearestEntrance(out var d)}, d={d}");
             if(ImGui.Button("Enter house"))
             {
+                TaskNeoHET.ResetEntranceTimeouts();
                 TaskNeoHET.Enqueue(null);
             }
         }

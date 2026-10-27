@@ -12,6 +12,7 @@ public static class TaskTeleportToProperty
     public static uint[] Apartments = [Houses.Ingleside_Apartment, Houses.Kobai_Goten_Apartment, Houses.Lily_Hills_Apartment, Houses.Sultanas_Breath_Apartment, Houses.Topmast_Apartment];
     public static bool EnqueueIfNeededAndPossible(bool isSubmersibleOperation)
     {
+        if(TaskNeoHET.GivenUpEntering) return false;
         if(Player.Territory.EqualsAny(VoyageUtils.Workshops)) return false;
         if(!isSubmersibleOperation && C.NoTeleportHetWhenNextToBell && Utils.GetReachableRetainerBell(false) != null) return false;
         var fcTeleportEnabled = (Data.GetAllowFcTeleportForRetainers() && !isSubmersibleOperation) || (Data.GetAllowFcTeleportForSubs() && isSubmersibleOperation);

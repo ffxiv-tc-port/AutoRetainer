@@ -389,10 +389,12 @@ public unsafe class AutoRetainer : IDalamudPlugin
         }
         else if(arguments.EqualsIgnoreCase("het"))
         {
+            TaskNeoHET.ResetEntranceTimeouts();
             TaskNeoHET.Enqueue(() => DuoLog.Error("Failed to find suitable house"));
         }
         else if(arguments.EqualsIgnoreCase("wet"))
         {
+            TaskNeoHET.ResetEntranceTimeouts();
             if(TaskNeoHET.GetWorkshopEntrance() != null)
             {
                 TaskNeoHET.TryEnterWorkshop(() => DuoLog.Error("Failed to enter workshop"));
@@ -956,6 +958,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         // 這個佇列裝的是「僱員名字」，而僱員名字只在該角色底下唯一。多角模式換角是走登出的，
         // 沒清乾淨的殘留項目會在下一個角色被按名字比對到（同名僱員在不同角色底下是可能的）。
         SchedulerMain.ClearPendingEntrustVendorPass("logout");
+        TaskNeoHET.ResetEntranceTimeouts();
 
         if(!P.TaskManager.IsBusy)
         {

@@ -1,4 +1,5 @@
-﻿using AutoRetainer.Internal.InventoryManagement;
+﻿using AutoRetainer.Internal;
+using AutoRetainer.Internal.InventoryManagement;
 using AutoRetainer.Modules.Voyage;
 using AutoRetainer.Modules.Voyage.Tasks;
 using AutoRetainer.StaticData;
@@ -27,8 +28,88 @@ public static unsafe class TaskNeoHET
     internal static uint[] CurrentFcOrPrivateMarkers => C.SharedHET ? FcOrPrivateOrSharedMarkers : FcOrPrivateMarkers;
     public static readonly float ValidPlayerToApartmentDistance = 24f;
 
+    // 走向入口那一步的逾時帳：同一角色同一次登入連續逾時到上限，這次登入就不再排進屋（見 GivenUpEntering）。
+    // 只在框架執行緒讀寫。
+    public const int EntranceTimeoutLimit = 3;
+    private static ulong TimeoutCid;
+    private static int Timeouts;
+    private static ulong GivenUpCid;
+    private static long NextGivenUpLogAt;
+
+    /// <summary>目前登入的角色已被判定這次進不了屋；登入、登出、換角、走到入口都會解除。</summary>
+    internal static bool GivenUpEntering => GivenUpCid != 0 && GivenUpCid == Player.CID;
+
+    internal static void ResetEntranceTimeouts()
+    {
+        TimeoutCid = 0;
+        Timeouts = 0;
+        GivenUpCid = 0;
+    }
+
+    private static readonly TaskManagerConfiguration EntranceApproachConfig = new()
+    {
+        OnTaskTimeout = OnEntranceApproachTimeout,
+        OnTaskCompletion = OnEntranceApproachCompletion,
+    };
+
+    private static void OnEntranceApproachCompletion(TaskManagerTask task, ref bool? isCompleted)
+    {
+        if(isCompleted == true) ResetEntranceTimeouts();
+    }
+
+    private static void OnEntranceApproachTimeout(TaskManagerTask task, ref long remainingTimeMS)
+    {
+        // 自帶處理器的任務，TaskTimeoutLog 的共用處理器不會印，所以這裡補上。
+        TaskTimeoutLog.Report(P.TaskManager, "AutoRetainer", task);
+        var cid = Player.CID;
+        if(cid == 0) return;
+        if(cid != TimeoutCid)
+        {
+            TimeoutCid = cid;
+            Timeouts = 0;
+        }
+        Timeouts++;
+        PluginLog.Information($"[HET] 走向入口逾時（連續第 {Timeouts}/{EntranceTimeoutLimit} 次）：{DescribeApproachState()}");
+        if(Timeouts >= EntranceTimeoutLimit && GivenUpCid != cid)
+        {
+            GivenUpCid = cid;
+            DuoLog.Warning($"[AutoRetainer] 走向房屋入口連續逾時 {Timeouts} 次，判定 {Player.NameWithWorld} 這次登入進不了屋，不再重排進屋步驟；多角色模式會換下一個角色，沒有下一個就停下。座標與距離見 dalamud.log 的 [HET] 行。");
+        }
+    }
+
+    /// <summary>逾時當下的現場；讀不到的值印 ?，不畫成 0 或 False。</summary>
+    private static string DescribeApproachState()
+    {
+        try
+        {
+            var me = Player.Position;
+            var entrance = GetFcOrPrivateEntranceFromMarkers() ?? GetApartmentEntrance();
+            var map = AgentMap.Instance();
+            var moving = map == null ? "?" : map->IsPlayerMoving.ToString();
+            var target = Svc.Targets.Target;
+            var entranceText = entrance == null
+                ? "物件表裡找不到入口"
+                : $"入口「{entrance.Name}」({entrance.Position.X:F1}, {entrance.Position.Y:F1}, {entrance.Position.Z:F1}) 距離 {Player.DistanceTo(entrance):F1}（門檻 4）可選取={entrance.IsTargetable}";
+            var targetText = target == null ? "（無）" : $"「{target.Name}」{(entrance != null && target.Address == entrance.Address ? "＝入口" : "不是入口")}";
+            return $"角色座標 ({me.X:F1}, {me.Y:F1}, {me.Z:F1})；{entranceText}；Interactable={Player.Interactable}；IsPlayerMoving={moving}；目前目標={targetText}；區域={Svc.ClientState.TerritoryType}。";
+        }
+        catch(Exception e)
+        {
+            return $"現場讀取失敗：{e.Message}";
+        }
+    }
+
     public static void Enqueue(Action onFailure, bool tryForceWorkshop = false)
     {
+        if(GivenUpEntering)
+        {
+            if(Environment.TickCount64 >= NextGivenUpLogAt)
+            {
+                NextGivenUpLogAt = Environment.TickCount64 + 30000;
+                PluginLog.Information("[HET] 這次登入的進屋已因連續逾時放棄，不重排。");
+            }
+            return;
+        }
         PluginLog.Debug($"Enqueued HouseEnterTask from {new StackTrace().GetFrames().Select(x => x.GetMethod()?.Name).Prepend("      ").Print("\n")}");
         P.TaskManager.EnqueueTask(NeoTasks.WaitForNotOccupied(new(timeLimitMS: 10 * 60 * 1000)));
         P.TaskManager.Enqueue(() =>
@@ -38,7 +119,7 @@ public static unsafe class TaskNeoHET
             {
                 P.TaskManager.InsertMulti(
                     NeoTasks.WaitForNotOccupied(),
-                    NeoTasks.ApproachObjectViaAutomove(GetFcOrPrivateEntranceFromMarkers, 4f),
+                    NeoTasks.ApproachObjectViaAutomove(GetFcOrPrivateEntranceFromMarkers, 4f, EntranceApproachConfig),
                     NeoTasks.InteractWithObject(GetFcOrPrivateEntranceFromMarkers),
                     new(HouseEnterTask.SelectYesno),
                     new(HouseEnterTask.WaitUntilLeavingZone),
@@ -63,7 +144,7 @@ public static unsafe class TaskNeoHET
             {
                 P.TaskManager.InsertMulti(
                 NeoTasks.WaitForNotOccupied(),
-                    NeoTasks.ApproachObjectViaAutomove(GetApartmentEntrance, 4f),
+                    NeoTasks.ApproachObjectViaAutomove(GetApartmentEntrance, 4f, EntranceApproachConfig),
                     NeoTasks.InteractWithObject(GetApartmentEntrance),
                     new(HouseEnterTask.SelectYesno),
                     new(HouseEnterTask.WaitUntilLeavingZone),

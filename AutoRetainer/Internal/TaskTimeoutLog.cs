@@ -27,15 +27,20 @@ public static class TaskTimeoutLog
         {
             // 該任務自己帶了處理器就交給它印，不要印兩遍。
             if(task.Configuration?.OnTaskTimeout != null) return;
-
-            var limit = task.Configuration?.TimeLimitMS ?? taskManager.DefaultConfiguration.TimeLimitMS;
-            var abort = task.Configuration?.AbortOnTimeout ?? taskManager.DefaultConfiguration.AbortOnTimeout ?? true;
-            PluginLog.Warning(
-                $"[{tag}] 任務逾時：{Describe(task)}，上限 {(limit.HasValue ? limit.Value.ToString() : "?")} ms" +
-                (abort ? Discarded(taskManager) : "，只丟棄這一步，其餘任務繼續。")
-                + State(describeState, task));
+            Report(taskManager, tag, task, describeState);
         };
         return taskManager;
+    }
+
+    /// <summary>寫出那一行逾時 Warning；自己帶了逾時處理器的任務在處理器裡呼叫它，才不會少了這行。</summary>
+    internal static void Report(TaskManager taskManager, string tag, TaskManagerTask task, Func<TaskManagerTask, string> describeState = null)
+    {
+        var limit = task.Configuration?.TimeLimitMS ?? taskManager.DefaultConfiguration.TimeLimitMS;
+        var abort = task.Configuration?.AbortOnTimeout ?? taskManager.DefaultConfiguration.AbortOnTimeout ?? true;
+        PluginLog.Warning(
+            $"[{tag}] 任務逾時：{Describe(task)}，上限 {(limit.HasValue ? limit.Value.ToString() : "?")} ms" +
+            (abort ? Discarded(taskManager) : "，只丟棄這一步，其餘任務繼續。")
+            + State(describeState, task));
     }
 
     /// <summary>中止時會連帶丟掉的後續步驟。</summary>
