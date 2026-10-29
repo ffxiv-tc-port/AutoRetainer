@@ -1135,7 +1135,7 @@
   "{0} has existed for {1} days and has no estate - it can now buy free company land.": "{0}已成立 {1} 天且沒有公會房屋，可以購買公會土地了。",
   "Founded": "成立日期",
   "FC estate": "公會房屋",
-  "Founding date not known yet. Open this free company's profile once (for example right-click one of its members and choose \"View Company Profile\") and it will be remembered.": "還不知道成立日期。開一次這個公會的「公會情報」視窗（例如在公會成員名字上按右鍵→「查看公會資訊」），之後就會記住。",
+  "Founding date not known yet. Open it once and it will be remembered: the Status tab of the Free Company window on a character of this free company, or right-click one of its members and choose \"View Company Profile\".": "還不知道成立日期。開一次就會記住：用這個公會的角色打開公會視窗的「情報」分頁，或在公會成員名字上按右鍵→「查看公會資訊」。",
   "Owned": "已有房屋",
   "Last confirmed {0}": "最後確認：{0}",
   "None (?)": "沒有（?）",
@@ -1146,6 +1146,6 @@
   "No estate as of {0}. Reaches {1} days since founding in {2} day(s).": "{0} 確認沒有房屋。再過 {2} 天成立滿 {1} 天。",
   "Not checked yet. Log in once with a character of this free company, or open its profile.": "還沒確認。用這個公會的角色登入一次，或開一次它的「公會情報」視窗。",
   "Notify when a free company without an estate can buy land": "沒有房屋的公會成立滿指定天數時，通知可以購買土地",
-  "Once per free company: when its founding date is known, it has reached the number of days below, and it was last seen without an estate. Notifies again only after it has been seen owning an estate and then losing it. The founding date is read when you open that free company's profile window; the estate is checked whenever a character of that free company logs in. Both are shown on the FC Data tab. The game has further conditions of its own (FC rank, member count, and the buyer having been in the free company for 30 days).": "每個公會只通知一次：已知成立日期、成立已滿下方天數、而且最後一次確認時沒有公會房屋。之後要先確認它有過房屋、再失去房屋，才會再通知。成立日期在你打開該公會的「公會情報」視窗時讀取；房屋狀態在該公會的角色每次登入時確認。兩者都顯示在「公會資訊」分頁。遊戲本身另有條件（公會等級、成員人數，以及購買者加入公會滿 30 天）。",
+  "Once per free company: when its founding date is known, it has reached the number of days below, and it was last seen without an estate. Notifies again only after it has been seen owning an estate and then losing it. The founding date is read when you open the Status tab of the Free Company window, or that free company's profile (right-click a member, \"View Company Profile\"); the estate is checked whenever a character of that free company logs in. Both are shown on the FC Data tab. The game has further conditions of its own (FC rank, member count, and the buyer having been in the free company for 30 days).": "每個公會只通知一次：已知成立日期、成立已滿下方天數、而且最後一次確認時沒有公會房屋。之後要先確認它有過房屋、再失去房屋，才會再通知。成立日期在你打開公會視窗的「情報」分頁，或打開該公會的「公會情報」（在成員名字上按右鍵→「查看公會資訊」）時讀取；房屋狀態在該公會的角色每次登入時確認。兩者都顯示在「公會資訊」分頁。遊戲本身另有條件（公會等級、成員人數，以及購買者加入公會滿 30 天）。",
   "Days since founding": "成立天數門檻"
 }

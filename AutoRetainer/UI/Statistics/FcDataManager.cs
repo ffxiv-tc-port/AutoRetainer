@@ -138,7 +138,7 @@ public sealed class FcDataManager
             return;
         }
         ImGuiEx.Text(ImGuiColors.DalamudGrey, "?");
-        ImGuiEx.Tooltip(Loc.T("Founding date not known yet. Open this free company's profile once (for example right-click one of its members and choose \"View Company Profile\") and it will be remembered."));
+        ImGuiEx.Tooltip(Loc.T("Founding date not known yet. Open it once and it will be remembered: the Status tab of the Free Company window on a character of this free company, or right-click one of its members and choose \"View Company Profile\"."));
     }
 
     private static void DrawEstate(FCData fc)

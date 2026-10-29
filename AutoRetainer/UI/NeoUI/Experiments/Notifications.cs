@@ -18,7 +18,7 @@ public class Notifications : ExperimentUIEntry
         ImGui.Checkbox(Loc.T("Do not notify if AutoRetainer is enabled or MultiMode is running"), ref C.NotifyNoToastWhenRunning);
         ImGui.Separator();
         ImGui.Checkbox(Loc.T("Notify when a free company without an estate can buy land"), ref C.NotifyFCHousingEligible);
-        ImGuiEx.HelpMarker(Loc.T("Once per free company: when its founding date is known, it has reached the number of days below, and it was last seen without an estate. Notifies again only after it has been seen owning an estate and then losing it. The founding date is read when you open that free company's profile window; the estate is checked whenever a character of that free company logs in. Both are shown on the FC Data tab. The game has further conditions of its own (FC rank, member count, and the buyer having been in the free company for 30 days)."));
+        ImGuiEx.HelpMarker(Loc.T("Once per free company: when its founding date is known, it has reached the number of days below, and it was last seen without an estate. Notifies again only after it has been seen owning an estate and then losing it. The founding date is read when you open the Status tab of the Free Company window, or that free company's profile (right-click a member, \"View Company Profile\"); the estate is checked whenever a character of that free company logs in. Both are shown on the FC Data tab. The game has further conditions of its own (FC rank, member count, and the buyer having been in the free company for 30 days)."));
         ImGui.SetNextItemWidth(100f.Scale());
         ImGui.InputInt(Loc.T("Days since founding"), ref C.FCHousingEligibleDays.ValidateRange(1, 3650), 1, 5);
         ImGui.Separator();
