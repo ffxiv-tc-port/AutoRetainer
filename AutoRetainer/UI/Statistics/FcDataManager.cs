@@ -1,4 +1,5 @@
 ﻿using AutoRetainerAPI.Configuration;
+using AutoRetainer.Services;
 using ECommons.GameHelpers;
 
 namespace AutoRetainer.UI.Statistics;
@@ -16,12 +17,14 @@ public sealed class FcDataManager
         }
         ImGui.SameLine();
         ImGui.Checkbox(Loc.T("Show only wallet FC"), ref C.DisplayOnlyWalletFC);
-        if(ImGui.BeginTable("FCData", 5, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
+        if(ImGui.BeginTable("FCData", 7, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
         {
             ImGui.TableSetupColumn(Loc.T("Name"), ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableSetupColumn(Loc.T("Characters"));
             ImGui.TableSetupColumn(Loc.T("Gil"));
             ImGui.TableSetupColumn(Loc.T("FC points"));
+            ImGui.TableSetupColumn(Loc.T("Founded"));
+            ImGui.TableSetupColumn(Loc.T("FC estate"));
             ImGui.TableSetupColumn($"##control");
             ImGui.TableHeadersRow();
 
@@ -84,6 +87,11 @@ public sealed class FcDataManager
                 }
 
                 ImGui.TableNextColumn();
+                DrawFounded(x.Value);
+                ImGui.TableNextColumn();
+                DrawEstate(x.Value);
+
+                ImGui.TableNextColumn();
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.ButtonCheckbox($"\uf555##FC{x.Key}", ref x.Value.GilCountsTowardsChara, EColor.Green);
                 ImGui.PopFont();
@@ -119,6 +127,51 @@ public sealed class FcDataManager
             if(diff < 1000L * 60 * 60) return string.Format(Loc.T("{0} minute(s) ago"), (int)(diff / 1000 / 60));
             if(diff < 1000L * 60 * 60 * 60) return string.Format(Loc.T("{0} hour(s) ago"), (int)(diff / 1000 / 60 / 60));
             return string.Format(Loc.T("{0} day(s) ago"), (int)(diff / 1000 / 60 / 60 / 24));
+        }
+    }
+
+    private static void DrawFounded(FCData fc)
+    {
+        if(FCHousingNotifier.IsPlausibleFounding(fc.FoundedAt))
+        {
+            ImGuiEx.Text(DateTimeOffset.FromUnixTimeSeconds(fc.FoundedAt).ToLocalTime().ToString("yyyy/MM/dd"));
+            return;
+        }
+        ImGuiEx.Text(ImGuiColors.DalamudGrey, "?");
+        ImGuiEx.Tooltip(Loc.T("Founding date not known yet. Open this free company's profile once (for example right-click one of its members and choose \"View Company Profile\") and it will be remembered."));
+    }
+
+    private static void DrawEstate(FCData fc)
+    {
+        var checkedWhen = fc.EstateStateUpdate > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(fc.EstateStateUpdate).ToLocalTime().ToString("yyyy/MM/dd HH:mm") : "";
+        switch(fc.EstateState)
+        {
+            case FCEstateState.HasEstate:
+                ImGuiEx.Text(Loc.T("Owned"));
+                ImGuiEx.Tooltip(string.Format(Loc.T("Last confirmed {0}"), checkedWhen));
+                return;
+            case FCEstateState.NoEstate:
+                var days = FCHousingNotifier.GetDaysUntilEligible(fc);
+                if(days == null)
+                {
+                    ImGuiEx.Text(ImGuiColors.DalamudYellow, Loc.T("None (?)"));
+                    ImGuiEx.Tooltip(string.Format(Loc.T("No estate as of {0}. Whether it can buy land yet is unknown until the founding date is known."), checkedWhen));
+                }
+                else if(days <= 0)
+                {
+                    ImGuiEx.Text(EColor.GreenBright, Loc.T("Can buy land"));
+                    ImGuiEx.Tooltip(string.Format(Loc.T("No estate as of {0}, and founded at least {1} days ago. The game also requires FC rank and member count conditions."), checkedWhen, C.FCHousingEligibleDays));
+                }
+                else
+                {
+                    ImGuiEx.Text(string.Format(Loc.T("{0} more day(s)"), days));
+                    ImGuiEx.Tooltip(string.Format(Loc.T("No estate as of {0}. Reaches {1} days since founding in {2} day(s)."), checkedWhen, C.FCHousingEligibleDays, days));
+                }
+                return;
+            default:
+                ImGuiEx.Text(ImGuiColors.DalamudGrey, "?");
+                ImGuiEx.Tooltip(Loc.T("Not checked yet. Log in once with a character of this free company, or open its profile."));
+                return;
         }
     }
 

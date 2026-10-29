@@ -17,6 +17,11 @@ public class Notifications : ExperimentUIEntry
         ImGuiEx.HelpMarker(Loc.T("Uses the taskbar flash built into Dalamud, so this one keeps working even without NotificationMaster installed. It stops on its own once you bring the game window back."));
         ImGui.Checkbox(Loc.T("Do not notify if AutoRetainer is enabled or MultiMode is running"), ref C.NotifyNoToastWhenRunning);
         ImGui.Separator();
+        ImGui.Checkbox(Loc.T("Notify when a free company without an estate can buy land"), ref C.NotifyFCHousingEligible);
+        ImGuiEx.HelpMarker(Loc.T("Once per free company: when its founding date is known, it has reached the number of days below, and it was last seen without an estate. Notifies again only after it has been seen owning an estate and then losing it. The founding date is read when you open that free company's profile window; the estate is checked whenever a character of that free company logs in. Both are shown on the FC Data tab. The game has further conditions of its own (FC rank, member count, and the buyer having been in the free company for 30 days)."));
+        ImGui.SetNextItemWidth(100f.Scale());
+        ImGui.InputInt(Loc.T("Days since founding"), ref C.FCHousingEligibleDays.ValidateRange(1, 3650), 1, 5);
+        ImGui.Separator();
         ImGui.Checkbox(Loc.T("Ask Tataru to remind you when deployables return or the expert delivery loop finishes (requires TataruPraise)"), ref C.TataruPraiseOnCompletion);
         ImGuiEx.HelpMarker(Loc.T("Fires the moment the return time AutoRetainer has on record passes - not when you actually go and collect. Covers every enabled submarine, airship and retainer venture across all of your characters, not just the one you are logged in on. Submarines and airships use the 「潛艇」 praise category, retainer ventures use 「僱員」. The expert delivery loop announces once more when a whole run finishes successfully, using the 「稀有品」 category - on the last character of a multi-character run, and never when the loop stops early or is stopped by hand. Timers that had already expired are silently marked as announced when the plugin loads, so logging in never sets off a burst. Does nothing at all if TataruPraise is not installed - no error, no message."));
     }

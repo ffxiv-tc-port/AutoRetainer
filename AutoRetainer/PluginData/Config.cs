@@ -263,6 +263,8 @@ internal unsafe class Config
     public Dictionary<ulong, FCData> FCData = [];
     public bool UpdateStaleFCData = false;
     public bool DisplayOnlyWalletFC = false;
+    public bool NotifyFCHousingEligible = true;
+    public int FCHousingEligibleDays = 30;
 
     public bool LeastMBSFirst = false;
 
