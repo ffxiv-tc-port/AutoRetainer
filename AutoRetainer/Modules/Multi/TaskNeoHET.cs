@@ -180,7 +180,7 @@ public static unsafe class TaskNeoHET
                 {
                     tasks.AddRange([
                         new(S.LifestreamExtra.MoveToWorkshop),
-                        new(() => !ECommonsIPC.Lifestream.IsBusy())
+                        new(() => !Utils.LifestreamIsBusy())
                         ]);
                 }
                 tasks.AddRange([

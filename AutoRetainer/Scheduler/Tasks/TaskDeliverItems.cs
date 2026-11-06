@@ -20,7 +20,7 @@ public static unsafe class TaskDeliverItems
             Notify.Error("Not employed by a Grand Company");
             return false;
         }
-        if(ECommonsIPC.Lifestream.IsBusy())
+        if(Utils.LifestreamIsBusy())
         {
             Notify.Error("Lifestream is busy");
             return false;
@@ -40,7 +40,7 @@ public static unsafe class TaskDeliverItems
                 _ => throw new ArgumentOutOfRangeException()
             }), "DeliverItems.TeleportToGrandCompany");
         }
-        P.TaskManager.Enqueue(() => !ECommonsIPC.Lifestream.IsBusy(), "DeliverItems.WaitLifestreamIdle", new(timeLimitMS: 5 * 60 * 1000));
+        P.TaskManager.Enqueue(() => !Utils.LifestreamIsBusy(), "DeliverItems.WaitLifestreamIdle", new(timeLimitMS: 5 * 60 * 1000));
         P.TaskManager.Enqueue(() => GCContinuation.EnqueueInitiation(true), "DeliverItems.EnqueueInitiation");
         return true;
     }

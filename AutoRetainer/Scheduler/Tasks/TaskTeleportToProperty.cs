@@ -66,7 +66,7 @@ public static class TaskTeleportToProperty
                             PluginLog.Warning("Upon returning home, apartment not found. Aborting and retrying.");
                             return null;
                         }
-                        return IsScreenReady() && Player.Interactable && Apartments.Contains(Player.Territory) && !ECommonsIPC.Lifestream.IsBusy();
+                        return IsScreenReady() && Player.Interactable && Apartments.Contains(Player.Territory) && !Utils.LifestreamIsBusy();
                     }, "TeleportToProperty.WaitApartmentArrival", new(timeLimitMS: 5 * 60 * 1000));
                     return true;
                 }
@@ -82,7 +82,7 @@ public static class TaskTeleportToProperty
                         PluginLog.Warning($"Logout while waiting to return to home; expecting DC travel. Aborting and waiting for relogging.");
                         return null;
                     }
-                    return IsScreenReady() && Player.Interactable && Inns.List.Contains((ushort)Player.Territory) && !ECommonsIPC.Lifestream.IsBusy();
+                    return IsScreenReady() && Player.Interactable && Inns.List.Contains((ushort)Player.Territory) && !Utils.LifestreamIsBusy();
                 }, "TeleportToProperty.WaitInnArrival", new(timeLimitMS: 5 * 60 * 1000));
                 return true;
             }
@@ -139,7 +139,7 @@ public static class TaskTeleportToProperty
                 && plotInfo.Value.Plot == pathData.Plot
                 && plotInfo.Value.Ward == pathData.Ward
                 && plotInfo.Value.Kind == pathData.ResidentialDistrict
-                && !ECommonsIPC.Lifestream.IsBusy();
+                && !Utils.LifestreamIsBusy();
             }, "TeleportToPlot.WaitPlotArrival", new(timeLimitMS: 5 * 60 * 1000));
             TaskNeoHET.Enqueue(null);
             return true;
@@ -172,7 +172,7 @@ public static class TaskTeleportToProperty
                 }
                 return Player.Interactable
                 && Player.Territory.EqualsAny([.. ResidentalAreas.List])
-                && !ECommonsIPC.Lifestream.IsBusy();
+                && !Utils.LifestreamIsBusy();
             }, "TeleportToProperty.WaitResidentialArrival", new(timeLimitMS: 5 * 60 * 1000));
             TaskNeoHET.Enqueue(null);
             return true;

@@ -664,7 +664,7 @@ internal static unsafe class GCExpertDeliveryLoop
             if(waited <= ResumeMultiModeTimeoutMs) return;
             ResumeMultiModeSince = 0;
             StatusText += " " + string.Format(Loc.T("Multi Mode was not turned back on: AutoRetainer or Lifestream was still busy after {0} minutes."), ResumeMultiModeTimeoutMs / 60000);
-            PluginLog.Information($"[ExpertDeliveryLoop] 放棄開回多角色模式：等了 {waited}ms 仍在忙 taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={ECommonsIPC.Lifestream.IsBusy()} gcHandinOperation={AutoGCHandin.Operation}");
+            PluginLog.Information($"[ExpertDeliveryLoop] 放棄開回多角色模式：等了 {waited}ms 仍在忙 taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={Utils.LifestreamIsBusy()} gcHandinOperation={AutoGCHandin.Operation}");
             return;
         }
         ResumeMultiModeSince = 0;
@@ -804,7 +804,7 @@ internal static unsafe class GCExpertDeliveryLoop
         if(Utils.IsBusy || IsOccupied())
         {
             if(TimeInPhase <= RelogTimeoutMs) return;
-            PluginLog.Information($"[ExpertDeliveryLoop] Gave up waiting to start the character switch after {TimeInPhase}ms (limit {RelogTimeoutMs}ms): taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={ECommonsIPC.Lifestream.IsBusy()} gcHandinOperation={AutoGCHandin.Operation} occupied={IsOccupied()}.");
+            PluginLog.Information($"[ExpertDeliveryLoop] Gave up waiting to start the character switch after {TimeInPhase}ms (limit {RelogTimeoutMs}ms): taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={Utils.LifestreamIsBusy()} gcHandinOperation={AutoGCHandin.Operation} occupied={IsOccupied()}.");
             Stop(string.Format(Loc.T("Stopped: nothing let go of this character within {0} minutes, so it could not be switched."), C.ExpertDeliveryLoopRelogTimeoutMinutes));
             return;
         }
@@ -862,7 +862,7 @@ internal static unsafe class GCExpertDeliveryLoop
 
         if(onTarget && !busy && readable && !occupied)
         {
-            PluginLog.Information($"[ExpertDeliveryLoop] Character switch finished after {elapsed}ms: now on CID {currentCID} (target {RelogTargetCID}), taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={ECommonsIPC.Lifestream.IsBusy()} inventoryReadable={readable} occupied={occupied}.");
+            PluginLog.Information($"[ExpertDeliveryLoop] Character switch finished after {elapsed}ms: now on CID {currentCID} (target {RelogTargetCID}), taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={Utils.LifestreamIsBusy()} inventoryReadable={readable} occupied={occupied}.");
             RelogTargetCID = 0;
             if(!C.OfflineData.TryGetFirst(x => x.CID == currentCID, out var data))
             {
@@ -876,7 +876,7 @@ internal static unsafe class GCExpertDeliveryLoop
         if(now - RelogHeartbeatAt > RelogHeartbeatMs)
         {
             RelogHeartbeatAt = now;
-            PluginLog.Information($"[ExpertDeliveryLoop] Still switching characters after {elapsed}ms of {RelogTimeoutMs}ms: isLoggedIn={loggedIn} currentCID={currentCID} targetCID={RelogTargetCID} playerAvailable={Player.Available} taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={ECommonsIPC.Lifestream.IsBusy()} gcHandinOperation={AutoGCHandin.Operation} inventoryReadable={readable} occupied={occupied}.");
+            PluginLog.Information($"[ExpertDeliveryLoop] Still switching characters after {elapsed}ms of {RelogTimeoutMs}ms: isLoggedIn={loggedIn} currentCID={currentCID} targetCID={RelogTargetCID} playerAvailable={Player.Available} taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={Utils.LifestreamIsBusy()} gcHandinOperation={AutoGCHandin.Operation} inventoryReadable={readable} occupied={occupied}.");
         }
 
         if(elapsed <= RelogTimeoutMs) return;
@@ -889,7 +889,7 @@ internal static unsafe class GCExpertDeliveryLoop
         else if(!readable) cause = Loc.T("the inventory never became readable");
         else cause = Loc.T("the character stayed occupied");
 
-        PluginLog.Information($"[ExpertDeliveryLoop] Character switch timed out after {elapsed}ms (limit {RelogTimeoutMs}ms): isLoggedIn={loggedIn} currentCID={currentCID} targetCID={RelogTargetCID} playerAvailable={Player.Available} taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={ECommonsIPC.Lifestream.IsBusy()} gcHandinOperation={AutoGCHandin.Operation} inventoryReadable={readable} occupied={occupied}.");
+        PluginLog.Information($"[ExpertDeliveryLoop] Character switch timed out after {elapsed}ms (limit {RelogTimeoutMs}ms): isLoggedIn={loggedIn} currentCID={currentCID} targetCID={RelogTargetCID} playerAvailable={Player.Available} taskManagerBusy={P.TaskManager.IsBusy} lifestreamBusy={Utils.LifestreamIsBusy()} gcHandinOperation={AutoGCHandin.Operation} inventoryReadable={readable} occupied={occupied}.");
         Stop(string.Format(Loc.T("Stopped: switching characters did not finish within {0} minutes - {1}."), C.ExpertDeliveryLoopRelogTimeoutMinutes, cause));
     }
 
@@ -1666,7 +1666,7 @@ internal static unsafe class GCExpertDeliveryLoop
                 Stop(Loc.T("Stopped: could not travel to the chosen Grand Company destination - check that it is still starred in Lifestream."));
                 return;
             }
-            P.TaskManager.Enqueue(() => !ECommonsIPC.Lifestream.IsBusy(), "WaitLifestreamBeforeHandin", new(timeLimitMS: 5 * 60 * 1000));
+            P.TaskManager.Enqueue(() => !Utils.LifestreamIsBusy(), "WaitLifestreamBeforeHandin", new(timeLimitMS: 5 * 60 * 1000));
             P.TaskManager.Enqueue(() =>
             {
                 LogGcArrivalOnce();

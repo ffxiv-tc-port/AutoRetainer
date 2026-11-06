@@ -984,7 +984,19 @@ public static unsafe class Utils
     }
 
     internal static bool MultiModeOrArtisan => MultiMode.Active || (SchedulerMain.PluginEnabled && SchedulerMain.Reason == PluginEnableReason.Artisan);
-    internal static bool IsBusy => P.TaskManager.IsBusy || AutoGCHandin.Operation || ECommonsIPC.Lifestream.IsBusy();
+    internal static bool IsBusy => P.TaskManager.IsBusy || AutoGCHandin.Operation || LifestreamIsBusy();
+
+    private static Dalamud.Plugin.Ipc.ICallGateSubscriber<bool> LifestreamIsBusyGate;
+
+    /// <summary>
+    /// 等同 <c>ECommonsIPC.Lifestream.IsBusy()</c>（沒有提供端時 SafeWrapper 也是回 false），但先判 HasFunction：
+    /// 沒裝 Lifestream 時不必每次擲 IpcNotReadyError 再吞掉——IsBusy 每幀被問好幾次。
+    /// </summary>
+    internal static bool LifestreamIsBusy()
+    {
+        LifestreamIsBusyGate ??= Svc.PluginInterface.GetIpcSubscriber<bool>("Lifestream.IsBusy");
+        return LifestreamIsBusyGate.HasFunction && ECommonsIPC.Lifestream.IsBusy();
+    }
     internal static AtkValue ZeroAtkValue = new() { Type = 0, Int = 0 };
 
     internal static IEnumerable<string> GetEObjNames(params uint[] values)

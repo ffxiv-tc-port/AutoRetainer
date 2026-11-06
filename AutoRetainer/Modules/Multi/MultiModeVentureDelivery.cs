@@ -148,7 +148,7 @@ internal static unsafe class MultiModeVentureDelivery
         if(reasons != Trigger.None)
         {
             // 佇列空但 Lifestream 正在替別人跑：這一幀不出發，免得 TaskDeliverItems 跳錯誤通知。
-            if(ECommonsIPC.Lifestream.IsBusy()) return false;
+            if(Utils.LifestreamIsBusy()) return false;
             st = GetState(data.CID);
             st.Name = data.Name;
             st.World = data.World;
