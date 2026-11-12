@@ -58,6 +58,16 @@ internal static unsafe class GCExpertDeliveryLoop
     /// <summary>開鈴互動最多送幾次(含第一次)。上限的用途是不要退化成每五秒無限重試。</summary>
     private const int MaxBellInteractAttempts = 4;
 
+    /// <summary>為了找鈴最多送幾次傳送(含第一次);第一次是指軍團繳交完走去鈴邊那一發。</summary>
+    private const int MaxBellTravelsPerRound = 3;
+
+    /// <summary>兩次傳送之間至少隔這麼久。Lifestream 被遊戲拒絕(狀態 579)要 3 秒才會中止任務鏈,
+    /// 馬上重送等於在同一個狀態裡再被拒一次。</summary>
+    private const long BellResendGapMs = 10000;
+
+    /// <summary>送傳送前等「不在 Occupied／對話／事件中」的上限。逾時就照樣送(行為與以前相同),由次數上限收尾。</summary>
+    private const long BellTravelOccupiedWaitMs = 15000;
+
     /// <summary>取回指令之間的最小間隔。伺服器實測每格約 0.13 秒。</summary>
     private const int RetrieveIntervalMs = 150;
 
@@ -161,6 +171,12 @@ internal static unsafe class GCExpertDeliveryLoop
     private static int RetainerIndex;
     /// <summary>這一輪為了找鈴送過幾次傳送。第一次之後還沒鈴就重送一次,第二次之後才停。</summary>
     private static int BellTravelsThisRound;
+
+    /// <summary>上一次送出找鈴傳送的時刻;只在 <see cref="BellTravelsThisRound"/> 大於 0 時有意義。</summary>
+    private static long LastBellTravelAt;
+
+    /// <summary>開始等「不再 Occupied」的時刻;0＝沒在等。</summary>
+    private static long BellTravelOccupiedSince;
 
     /// <summary>這一趟裡「傳送過去之後真的找到鈴」的鈴目的地(id, sub)。只在 <see cref="Start"/> 清空。
     /// 用來分辨兩種停止:這個目的地這趟已經成功過＝這次是傳送沒到,不是目的地選錯。</summary>
@@ -571,6 +587,8 @@ internal static unsafe class GCExpertDeliveryLoop
         RetainerIndex = 0;
         RetrievedThisRound = 0;
         BellTravelsThisRound = 0;
+        LastBellTravelAt = 0;
+        BellTravelOccupiedSince = 0;
         UnavailableSince = 0;
         NavigationDeadline = 0;
         PendingFinishReason = "";
@@ -1212,6 +1230,7 @@ internal static unsafe class GCExpertDeliveryLoop
                 if(BellTravelsThisRound > 1) PluginLog.Information($"[ExpertDeliveryLoop] 重送傳送後找到傳喚鈴了(鈴目的地 id={dest.Id} sub={dest.Sub}),繼續。");
             }
             BellTravelsThisRound = 0;
+            BellTravelOccupiedSince = 0;
             RetainerIndex = 0;
             RetrievedThisRound = 0;
             RoundEndReason = RoundEnd.NoGearLeft;
@@ -1233,26 +1252,52 @@ internal static unsafe class GCExpertDeliveryLoop
 
         // 使用者指定了目的地:一律走它,而且**只走它**。
         var bell = GetBellDestination(Player.CID);
+        if(BellTravelsThisRound >= MaxBellTravelsPerRound)
+        {
+            // Lifestream 的傳送鏈中途逾時會整條中止、不留訊號給呼叫端,所以「傳送結束卻沒鈴」會重送;
+            // 重送有上限,用完才停。
+            var arrived = LooksArrivedAtBellDestination(bell.Id, bell.Sub, out var diag);
+            var stillBusy = IsOccupied();
+            PluginLog.Information($"[ExpertDeliveryLoop] 送了 {BellTravelsThisRound} 次傳送仍沒有構得到的傳喚鈴,停止:判定={(stillBusy ? "角色仍在忙碌／對話中,傳送一直被拒" : arrived ? "已到目的地、那裡沒有鈴" : "傳送沒到目的地")};{diag}");
+            Stop(stillBusy
+                ? Loc.T("Stopped: the game kept refusing the teleport to the chosen summoning bell destination because the character was still busy (an event, dialog or exchange window is probably still open). Close it and start the loop again.")
+                : arrived
+                    ? Loc.T("Stopped: arrived at the chosen destination but there is no summoning bell within reach. Pick a favourite that is closer to a bell.")
+                    : Loc.T("Stopped: travelling to the chosen summoning bell destination did not get there, even after retrying - Lifestream was probably interrupted on the way. The destination itself does not need changing; start the loop again."));
+            return;
+        }
+
+        var now = Environment.TickCount64;
+        // 重送前先隔一段時間;拒絕原因(Occupied／對話)通常不是幾百毫秒內會消失的。
+        if(BellTravelsThisRound > 0 && now - LastBellTravelAt < BellResendGapMs) return;
+        // 遊戲在 Occupied／對話／事件中會拒絕傳送(狀態 579),所以送之前先等它清掉;逾時照送,不卡死。
+        if(IsOccupied())
+        {
+            if(BellTravelOccupiedSince == 0)
+            {
+                BellTravelOccupiedSince = now;
+                PluginLog.Information($"[ExpertDeliveryLoop] 角色仍在忙碌／對話中(傳送會被遊戲拒絕),先等它結束再送傳送;已送 {BellTravelsThisRound} 次,最多等 {BellTravelOccupiedWaitMs / 1000} 秒。");
+            }
+            if(now - BellTravelOccupiedSince < BellTravelOccupiedWaitMs) return;
+            PluginLog.Information($"[ExpertDeliveryLoop] 等了 {(now - BellTravelOccupiedSince) / 1000} 秒角色仍在忙碌中,照樣送傳送(第 {BellTravelsThisRound + 1}/{MaxBellTravelsPerRound} 次)。");
+        }
+        else if(BellTravelOccupiedSince != 0)
+        {
+            PluginLog.Information($"[ExpertDeliveryLoop] 角色已不在忙碌狀態(等了 {(now - BellTravelOccupiedSince) / 1000} 秒),送傳送(第 {BellTravelsThisRound + 1}/{MaxBellTravelsPerRound} 次)。");
+        }
+        BellTravelOccupiedSince = 0;
+
         if(BellTravelsThisRound > 0)
         {
-            // Lifestream 的傳送鏈中途逾時會整條中止、不留訊號給呼叫端,所以「傳送結束卻沒鈴」先重送一次;
-            // 第二次已經在目的城市裡,走的是比較短的路。
-            var arrived = LooksArrivedAtBellDestination(bell.Id, bell.Sub, out var diag);
-            if(BellTravelsThisRound >= 2)
-            {
-                PluginLog.Information($"[ExpertDeliveryLoop] 送了 {BellTravelsThisRound} 次傳送仍沒有構得到的傳喚鈴,停止:判定={(arrived ? "已到目的地、那裡沒有鈴" : "傳送沒到目的地")};{diag}");
-                Stop(arrived
-                    ? Loc.T("Stopped: arrived at the chosen destination but there is no summoning bell within reach. Pick a favourite that is closer to a bell.")
-                    : Loc.T("Stopped: travelling to the chosen summoning bell destination did not get there, even after a second try - Lifestream was probably interrupted on the way. The destination itself does not need changing; start the loop again."));
-                return;
-            }
-            PluginLog.Information($"[ExpertDeliveryLoop] 傳送結束後附近沒有構得到的傳喚鈴,重送一次傳送;{diag}");
+            LooksArrivedAtBellDestination(bell.Id, bell.Sub, out var resendDiag);
+            PluginLog.Information($"[ExpertDeliveryLoop] 傳送結束後附近沒有構得到的傳喚鈴,重送傳送(第 {BellTravelsThisRound + 1}/{MaxBellTravelsPerRound} 次);{resendDiag}");
         }
         if(!GoToFavorite(bell.Id, bell.Sub, "bell"))
         {
             Stop(Loc.T("Stopped: could not travel to the chosen summoning bell destination - check that it is still starred in Lifestream."));
             return;
         }
+        LastBellTravelAt = now;
         BellTravelsThisRound++;
         SetPhase(Phase.EnsureBellWait);
     }
