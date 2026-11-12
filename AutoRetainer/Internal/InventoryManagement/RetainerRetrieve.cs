@@ -93,6 +93,11 @@ internal static unsafe class RetainerRetrieve
     /// </summary>
     internal static bool RetrieveNextSlot()
     {
+        if(!P.Memory.CanSendRetainerItemCommand)
+        {
+            UnavailableNotice.ReportRetainerItemCommand(nameof(RetrieveNextSlot));
+            return false;
+        }
         if(!InventorySpaceManager.IsRetainerInventoryLoaded())
         {
             // The window closing also covers switching retainers - you cannot swap without closing it -
@@ -199,6 +204,12 @@ internal static unsafe class RetainerRetrieve
     internal static int RetrieveSlotById(uint itemId, bool hqOnly, bool includeCrystals)
     {
         if(itemId == 0) return ResultNotPresent;
+        // 送不出指令＝這次看不了也拿不了，回「讀不到」而不是「不存在」。
+        if(!P.Memory.CanSendRetainerItemCommand)
+        {
+            UnavailableNotice.ReportRetainerItemCommand(nameof(RetrieveSlotById));
+            return ResultRetainerUnavailable;
+        }
         if(!InventorySpaceManager.IsRetainerInventoryLoaded())
         {
             // The window closing also covers switching retainers - you cannot swap without closing it -

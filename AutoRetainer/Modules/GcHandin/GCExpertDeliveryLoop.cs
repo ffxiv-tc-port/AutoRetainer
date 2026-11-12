@@ -428,6 +428,17 @@ internal static unsafe class GCExpertDeliveryLoop
             Fail(Loc.T("AutoRetainer or Lifestream is busy."));
             return;
         }
+        // 取回與繳交是這條循環的兩隻腳；任一項改版後對不上就不開始，免得跑到一半才空轉到逾時。
+        if(!NativeLayout.SupplyListAvailable)
+        {
+            Fail(UnavailableNotice.SupplyListMessage);
+            return;
+        }
+        if(!P.Memory.CanSendRetainerItemCommand)
+        {
+            Fail(UnavailableNotice.RetainerItemCommandMessage);
+            return;
+        }
 
         List<ulong> batch = null;
         if(C.ExpertDeliveryLoopMultiCharacter)

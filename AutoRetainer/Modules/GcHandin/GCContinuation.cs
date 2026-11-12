@@ -1,4 +1,5 @@
-﻿using AutoRetainerAPI.Configuration;
+﻿using AutoRetainer.Internal;
+using AutoRetainerAPI.Configuration;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using ECommons;
 using ECommons.Automation.NeoTaskManager;
@@ -64,6 +65,11 @@ internal static unsafe class GCContinuation
     private static void ReportIfDeliveringDidNotResume()
     {
         if(AutoGCHandin.Operation) return;
+        if(!NativeLayout.SupplyListAvailable)
+        {
+            UnavailableNotice.ReportSupplyList(nameof(ReportIfDeliveringDidNotResume));
+            return;
+        }
         DuoLog.Warning(Loc.T("Could not resume automatic expert delivery after spending seals - reopen the supply list and enable it again if you want to continue."));
     }
 
@@ -264,6 +270,8 @@ internal static unsafe class GCContinuation
 
     internal static bool? EnableDeliveringIfPossible()
     {
+        // 不可用時當作「這一步做完了」往下走，由下一步說明原因；回 false 只會空等到逾時。
+        if(!NativeLayout.SupplyListAvailable) return true;
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon) && IsAddonReady(addon) && EzThrottler.Throttle("GC EnableDeliveringIfPossible"))
         {
             if(AutoGCHandin.Overlay.DrawConditions() && AutoGCHandin.Overlay.Allowed)

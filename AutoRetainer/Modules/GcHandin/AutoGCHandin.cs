@@ -55,6 +55,12 @@ internal static unsafe class AutoGCHandin
 
     internal static void Tick()
     {
+        // 不論是誰打開的（浮層勾選、繳交流程、IPC），清單版面沒驗過就不讓它跑：讀不到清單只會原地空轉。
+        if(Operation && !NativeLayout.SupplyListAvailable)
+        {
+            Operation = false;
+            UnavailableNotice.ReportSupplyList(nameof(AutoGCHandin));
+        }
         if(Svc.Condition[ConditionFlag.OccupiedInQuestEvent] && TryGetAddonByName<AtkUnitBase>("GrandCompanySupplyList", out var addon))
         {
             if(addon->X != 0 || addon->Y != 0)

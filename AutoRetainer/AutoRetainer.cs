@@ -82,13 +82,22 @@ public unsafe class AutoRetainer : IDalamudPlugin
 
     public AutoRetainer(IDalamudPluginInterface pi, Dalamud.Game.ISigScanner sigScanner)
     {
-        // 必須在任何初始化之前、且在建構子同步路徑上：驗不過就擲例外讓插件載入失敗（Load 是下一幀才跑，擲在那裡只會半載入）。
+        // 必須在任何初始化之前、且在建構子同步路徑上：之後所有讀取點都依它的結果決定要不要停用。
         NativeLayout.Initialize(sigScanner.TryScanText);
         //PluginLoader.CheckAndLoad(pi, "https://love.puni.sh/plugins/AutoRetainer/blacklist.txt", delegate
         {
             P = this;
             ECommonsMain.Init(pi, this, Module.DalamudReflector);
-            PluginLog.Information($"[AutoRetainer] 遊戲版面推導通過：稀有品繳交清單陣列 +0x{NativeLayout.SupplyListEntriesOffset:X}、僱員物品指令 {(NativeLayout.RetainerItemCommandOffset < 0 ? "停用（函式對不上）" : $"+0x{NativeLayout.RetainerItemCommandOffset:X}")}");
+            if(NativeLayout.SupplyListAvailable)
+                PluginLog.Information($"[AutoRetainer] 遊戲版面推導通過：稀有品繳交清單陣列 +0x{NativeLayout.SupplyListEntriesOffset:X}");
+            else
+                PluginLog.Warning($"[AutoRetainer] {NativeLayout.SupplyListFailure} 自動籌備稀有品（含稀有品繳交循環）停用，其他功能照常。");
+            if(NativeLayout.RetainerItemCommandAvailable)
+                PluginLog.Information($"[AutoRetainer] 遊戲版面推導通過：僱員物品指令 +0x{NativeLayout.RetainerItemCommandOffset:X}");
+            else if(NativeLayout.RetainerItemCommandFailure != null)
+                PluginLog.Warning($"[AutoRetainer] {NativeLayout.RetainerItemCommandFailure} 存入僱員、從僱員取回、委託僱員出售停用，其他功能照常。");
+            else
+                PluginLog.Information("[AutoRetainer] 僱員物品指令：函式對不上，停用（之後的特徵碼警告會再說一次）");
             // 讓「呼叫了對方沒有的 IPC 方法」不再完全靜默。
             // 訂閱越早越好：事件只在 IPC **呼叫**當下才被查閱，在這裡訂閱就涵蓋往後所有呼叫。
             EzIpcFailureLog.Enable();

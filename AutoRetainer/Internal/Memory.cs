@@ -65,6 +65,13 @@ internal unsafe class Memory : IDisposable
 
     internal bool CanSellToShop => SellItemHook != null;
 
+    /// <summary>false ＝ 存入僱員／從僱員取回／委託僱員出售送不出去：函式或其 this 的子物件偏移對不上。</summary>
+    internal bool CanSendRetainerItemCommand => RetainerItemCommandHook != null && NativeLayout.RetainerItemCommandAvailable;
+
+    /// <summary>送不出去的原因；送得出去時為 null。</summary>
+    internal string RetainerItemCommandFailure => RetainerItemCommandHook == null ? "找不到僱員物品指令函式的遊戲碼。"
+        : NativeLayout.RetainerItemCommandAvailable ? null : NativeLayout.RetainerItemCommandFailure;
+
     internal Memory()
     {
         if(Svc.SigScanner.TryGetStaticAddressFromSig("48 8B 3D ?? ?? ?? ?? 48 85 FF 74 69", out var accountData)) MyAccountData = (nint*)accountData;
@@ -112,6 +119,13 @@ internal unsafe class Memory : IDisposable
         if(RetainerItemCommandHook == null)
         {
             PluginLog.Information($"RetainerItemCommandDetour: 指令函式的特徵碼對不上，略過 {command}（slot={slot}, type={inventoryType}）");
+            UnavailableNotice.ReportRetainerItemCommand(nameof(RetainerItemCommandDetour));
+            return;
+        }
+        if(!NativeLayout.RetainerItemCommandAvailable)
+        {
+            PluginLog.Information($"RetainerItemCommandDetour: 指令子物件的偏移沒通過版面驗證，略過 {command}（slot={slot}, type={inventoryType}）");
+            UnavailableNotice.ReportRetainerItemCommand(nameof(RetainerItemCommandDetour));
             return;
         }
         if(AgentRetainerItemCommandModule < 0x10000)

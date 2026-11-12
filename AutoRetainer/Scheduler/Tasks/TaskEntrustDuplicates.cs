@@ -1,4 +1,5 @@
-﻿using AutoRetainer.Internal.InventoryManagement;
+﻿using AutoRetainer.Internal;
+using AutoRetainer.Internal.InventoryManagement;
 using AutoRetainer.Scheduler.Handlers;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
@@ -194,6 +195,12 @@ internal static unsafe class TaskEntrustDuplicates
     /// <param name="deferredRetainer">只有延後批次給；其他入口（介面按鈕）不給，就不會印空開診斷。</param>
     public static void EnqueueNew(EntrustPlan plan, string deferredRetainer = null, EntrustPrecheckHit deferredHit = default)
     {
+        // 送不出指令時整段不排：否則每一格都要白等逾時、重試三次才跳過。
+        if(!P.Memory.CanSendRetainerItemCommand)
+        {
+            UnavailableNotice.ReportRetainerItemCommand(nameof(EnqueueNew));
+            return;
+        }
         P.TaskManager.Enqueue((Action)(() =>
         {
             WasOpen = false;

@@ -1,4 +1,5 @@
-﻿using ECommons.GameHelpers;
+﻿using AutoRetainer.Internal;
+using ECommons.GameHelpers;
 using ECommons.IPC;
 using ECommons.Singletons;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
@@ -28,6 +29,11 @@ public static unsafe class TaskDeliverItems
         if(Utils.IsBusy)
         {
             Notify.Error("AutoRetainer is busy");
+            return false;
+        }
+        if(!NativeLayout.SupplyListAvailable)
+        {
+            UnavailableNotice.ReportSupplyList(nameof(TaskDeliverItems));
             return false;
         }
         if(Vector3.Distance(gcInfo.Value.Position, Player.Position) > 1f)

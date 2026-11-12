@@ -1,3 +1,4 @@
+using AutoRetainer.Internal;
 using AutoRetainer.Services;
 using AutoRetainerAPI.Configuration;
 using ECommons.GameHelpers;
@@ -20,7 +21,15 @@ internal unsafe class AutoGCHandinOverlay : Window
     {
         if(Allowed)
         {
-            ImGui.Checkbox(Loc.T("Enable Automatic Expert Delivery"), ref AutoGCHandin.Operation);
+            if(NativeLayout.SupplyListAvailable)
+            {
+                ImGui.Checkbox(Loc.T("Enable Automatic Expert Delivery"), ref AutoGCHandin.Operation);
+            }
+            else
+            {
+                ImGuiEx.Text(ImGuiColors.DalamudGrey, Loc.T("Automatic Expert Delivery unavailable"));
+                ImGuiEx.Tooltip(UnavailableNotice.SupplyListMessage);
+            }
         }
         if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var d) && !AutoGCHandin.Operation)
         {

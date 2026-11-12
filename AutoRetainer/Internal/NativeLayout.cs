@@ -8,8 +8,8 @@ namespace AutoRetainer.Internal;
 
 /// <summary>
 /// CS 沒有定義、AR 自己用的原生偏移。只在插件建構子裡從遊戲碼推導一次，之後唯讀。
-/// 推不出來或指紋對不上就擲 InvalidOperationException 讓插件載入失敗：
-/// 寧可不載入，也不帶著沒驗過的偏移去解參考或交給遊戲函式（那是攔不到的崩潰）。
+/// 契約：推不出來或指紋對不上時該項偏移維持 -1、失敗原因留在對應的 *Failure，插件照常載入；
+/// 讀取端一律先看 *Available——絕不帶著沒驗過的偏移去解參考或交給遊戲函式（那是攔不到的崩潰）。
 /// 本檔只依賴 FFXIVClientStructs，離線探針直接編這個檔對執行檔驗（推導見 commit 訊息）。
 /// </summary>
 internal static unsafe class NativeLayout
@@ -33,10 +33,37 @@ internal static unsafe class NativeLayout
     /// <summary>僱員代理人裡物品指令子物件（原生函式的 this）的偏移；-1＝未推導或函式不存在，不可用。</summary>
     internal static int RetainerItemCommandOffset { get; private set; } = -1;
 
+    internal static bool SupplyListAvailable => SupplyListEntriesOffset >= 0;
+
+    internal static bool RetainerItemCommandAvailable => RetainerItemCommandOffset >= 0;
+
+    /// <summary>稀有品繳交清單偏移推不出來的原因；成功或尚未呼叫時為 null。</summary>
+    internal static string SupplyListFailure { get; private set; }
+
+    /// <summary>物品指令子物件偏移推不出來的原因；成功、尚未呼叫、或函式本體就對不上（由 Memory 報）時為 null。</summary>
+    internal static string RetainerItemCommandFailure { get; private set; }
+
+    /// <summary>不擲例外：兩項各自推導，失敗的那一項留 -1 並記下原因，另一項照常。</summary>
     internal static void Initialize(TryScanText scan)
     {
-        SupplyListEntriesOffset = DeriveSupplyListEntriesOffset(scan);
-        RetainerItemCommandOffset = DeriveRetainerItemCommandOffset(scan);
+        SupplyListEntriesOffset = TryDerive(() => DeriveSupplyListEntriesOffset(scan), out var supplyFailure);
+        SupplyListFailure = supplyFailure;
+        RetainerItemCommandOffset = TryDerive(() => DeriveRetainerItemCommandOffset(scan), out var commandFailure);
+        RetainerItemCommandFailure = commandFailure;
+    }
+
+    private static int TryDerive(Func<int> derive, out string failure)
+    {
+        try
+        {
+            failure = null;
+            return derive();
+        }
+        catch(Exception e)
+        {
+            failure = e.Message;
+            return -1;
+        }
     }
 
     internal static int DeriveSupplyListEntriesOffset(TryScanText scan)
@@ -75,5 +102,5 @@ internal static unsafe class NativeLayout
         => SupplyListEntriesOffset < 0 ? null : *(GCExpectEntry**)((byte*)addon + SupplyListEntriesOffset);
 
     private static InvalidOperationException Fail(string what)
-        => new($"[AutoRetainer] 遊戲版面驗證失敗，插件不載入（避免遊戲崩潰）：{what}");
+        => new($"遊戲版面驗證失敗：{what}");
 }
