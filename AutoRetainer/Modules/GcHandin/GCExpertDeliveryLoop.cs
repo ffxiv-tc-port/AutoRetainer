@@ -666,6 +666,13 @@ internal static unsafe class GCExpertDeliveryLoop
         PluginLog.Information($"[ExpertDeliveryLoop] Stopped: {reason} | retrieved={RetrievedTotal} handinRounds={HandinRounds} sealCapPauses={AutoGCHandin.SealCapPauses} success={success} stillBusy={stillBusy} multiCharacter={MultiCharacterRun} charactersDone={CharactersDone}/{BatchCIDs.Count}");
     }
 
+    /// <summary>艦隊急停：停掉循環並取消待執行的「跑完後開回多角色模式」。只停不開；只在框架執行緒呼叫。</summary>
+    internal static void EmergencyStop(string reason)
+    {
+        CancelResumeMultiMode(reason);
+        Stop(reason);
+    }
+
     private static void Fail(string reason)
     {
         StatusText = reason;

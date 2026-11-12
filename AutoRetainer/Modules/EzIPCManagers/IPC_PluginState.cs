@@ -76,6 +76,13 @@ public class IPC_PluginState
         VoyageScheduler.Enabled = false;
         // 刻意不掛在 AbortAllTasks：AutoDuty 平常收工也會呼叫它，那不是急停。
         Artisan.CancelPendingResumeForStop();
+        // 這幾個是每幀讀的靜態狀態，搬到框架執行緒改；都只停不開。
+        IpcFrameworkGate.Run(nameof(DisableAllFunctions), () =>
+        {
+            GCExpertDeliveryLoop.EmergencyStop(Loc.T("Stopped: another plugin requested an emergency stop of all AutoRetainer functions."));
+            MultiModeRoundTrip.Cancel("IPC DisableAllFunctions（艦隊急停）");
+            AutoGCHandin.Operation = false;
+        });
     }
     [EzIPC]
     public bool GetMultiModeStatus()

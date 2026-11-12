@@ -1151,5 +1151,6 @@
   "Days since founding": "成立天數門檻",
   "Automatic expert delivery is unavailable: after a game update AutoRetainer could not verify the layout of the expert delivery list, so it will not read it. Other features are unaffected. Details: {0}": "自動籌備稀有品目前無法使用：遊戲改版後 AutoRetainer 驗證不了籌備稀有品清單的版面，為避免讀錯而不讀取它。其他功能照常。詳細：{0}",
   "Entrusting items to retainers, retrieving them and having retainers sell them are unavailable: after a game update AutoRetainer could not verify the game's retainer item command, so these steps are skipped. Other features are unaffected. Details: {0}": "存入僱員、從僱員取回、委託僱員出售目前無法使用：遊戲改版後 AutoRetainer 驗證不了遊戲的僱員物品指令，這幾步一律略過。其他功能照常。詳細：{0}",
-  "Automatic Expert Delivery unavailable": "自動籌備稀有品無法使用"
+  "Automatic Expert Delivery unavailable": "自動籌備稀有品無法使用",
+  "Stopped: another plugin requested an emergency stop of all AutoRetainer functions.": "已停止：其他插件要求 AutoRetainer 全部功能急停。"
 }
