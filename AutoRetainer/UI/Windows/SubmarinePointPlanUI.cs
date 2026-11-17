@@ -405,7 +405,7 @@ internal unsafe class SubmarinePointPlanUI : Window
         foreach(var id in sectors)
         {
             // 對方的點位 id 來自它捆綁的外部資料檔，本地表不保證有這一列。
-            // 台服的 129~159 是 Map=0 的空白列，沒有目的地名稱的列是地圖標題列 —— 兩種都不是點位。
+            // 台服 7.30 的 136~159 是 Map=0 的空白列，沒有目的地名稱的列是地圖標題列 —— 兩種都不是點位。
             if(!sheet.TryGetRow(id, out var row)) continue;
             if(row.Map.RowId == 0 || row.Destination.GetText() == "") continue;
             rows.Add(row);

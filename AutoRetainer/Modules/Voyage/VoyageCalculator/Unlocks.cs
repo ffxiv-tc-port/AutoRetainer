@@ -125,7 +125,7 @@ public static class Unlocks
     { 111, new UnlockedFrom(106) },                         // Q    Proudkeel                     <-       The Floral Reef
     { 112, new UnlockedFrom(109) },                         // R    East Dodie's Abyss            <-       The Fluttering Bay
     { 113, new UnlockedFrom(108) },                         // S    Lilac Sea 5                   <-       The Floating Standard
-    { 114, new UnlockedFrom(111) },                         // T    West Dodie's Abyss            <-       Proudkeel
+    { 114, new UnlockedFrom(111, Map: true) },              // T    West Dodie's Abyss            <-       Proudkeel
 
     { 116, new UnlockedFrom(114) },                         // A    The Indigo Shallows           <-       West Dodie's Abyss
     { 117, new UnlockedFrom(116) },                         // B    Voyagers' Reprieve            <-       The Indigo Shallows
@@ -141,6 +141,14 @@ public static class Unlocks
     { 126, new UnlockedFrom(123) },                         // K    the Talonspoint Depths        <-       The Talon
     { 127, new UnlockedFrom(124) },                         // L    Saltfarer's Eye               <-       Southern Central Blue
     { 128, new UnlockedFrom(124) },                         // M    Startail Shallows             <-       Southern Central Blue
+    { 129, new UnlockedFrom(128) },                         // N    Moonshadow Isle               <-       Startail Shallows
+    { 130, new UnlockedFrom(127) },                         // O    Emerald Drop                  <-       Saltfarer's Eye
+    { 131, new UnlockedFrom(129) },                         // P    South Indigo Deep 4           <-       Moonshadow Isle
+    { 132, new UnlockedFrom(127) },                         // Q    South Delphinium Seashelf     <-       Saltfarer's Eye
+    { 133, new UnlockedFrom(129) },                         // R    Startail Shelf                <-       Moonshadow Isle
+    { 134, new UnlockedFrom(132) },                         // S    Cradle of the Winds           <-       South Delphinium Seashelf
+    { 135, new UnlockedFrom(133, Map: true) },              // T    Startail Trench               <-       Startail Shelf
+    // 136 起（國際服 7.4 的下一張圖）台服 7.30 表上是 Map=0 的空白列，刻意不收：沒有地圖就沒有可解鎖的點。
 };
 
     public static List<(uint, UnlockedFrom)> FindUnlockPath(uint finalPoint)
