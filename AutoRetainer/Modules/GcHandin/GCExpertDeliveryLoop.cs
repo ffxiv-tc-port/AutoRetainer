@@ -44,6 +44,16 @@ internal static unsafe class GCExpertDeliveryLoop
     /// 誤報成「加成沒生效」,使用者完全看不出真正的原因。</summary>
     private const long SealItemConsumeWaitMs = 2000;
 
+    /// <summary>送出軍票預支單前,角色要連續這麼久都不在 <c>IsOccupied()</c> 狀態。
+    /// 🔴 登入事件會亮、熄、再亮:只看一瞬間的「不忙」會在兩段之間送出,道具被事件打斷而沒被吃掉。</summary>
+    private const long SealFreeQuietMs = 1500;
+
+    /// <summary>等角色不忙的上限;逾時照樣送(與舊行為相同),由重送與既有的「沒吃掉」分支收尾。</summary>
+    private const long SealOccupiedWaitMs = 15000;
+
+    /// <summary>軍票預支單沒被吃掉時最多重送幾次。</summary>
+    private const int MaxSealUseRetries = 1;
+
     /// <summary>送出一個任務鏈之後,至少要等這麼久才准把「不忙」解讀成「做完了」。</summary>
     private const long EnqueueGraceMs = 500;
 
@@ -220,6 +230,14 @@ internal static unsafe class GCExpertDeliveryLoop
 
     /// <summary>用掉軍票預支單那一刻的持有數,用來確認道具真的被消耗掉。</summary>
     private static int SealAllowanceCountAtUse;
+
+    /// <summary>這一次送出前已經等到角色不忙。只由 <see cref="EnterSealBonus"/> 歸零。</summary>
+    private static bool SealCharacterSettled;
+    /// <summary>連續不忙的起始時刻;0＝現在忙或還沒看過。</summary>
+    private static long SealFreeSince;
+    private static bool SealSawOccupied;
+    /// <summary>這個角色已重送幾次;只在角色開始時歸零。</summary>
+    private static int SealUseRetries;
 
     /// <summary>開鈴成功（僱員清單就緒）之後進哪個階段。只由 <see cref="TickEnsureBell"/> 與 <see cref="TickVentureStart"/> 設定。</summary>
     private static Phase AfterBellOpen = Phase.SelectRetainer;
@@ -481,7 +499,8 @@ internal static unsafe class GCExpertDeliveryLoop
 
         if(startHere)
         {
-            SetPhase(Phase.SealBonus);
+            SealUseRetries = 0;
+            EnterSealBonus();
             PluginLog.Information($"[ExpertDeliveryLoop] Started{(MultiCharacterRun ? $" (multi-character: {BatchCIDs.Count} character(s))" : "")}. Retainers to visit: {Retainers.Print()}. Reserved slots: {EffectiveReservedSlots} (config {C.ExpertDeliveryLoopReservedSlots}, MultiMinInventorySlots {C.MultiMinInventorySlots}).");
         }
         else
@@ -942,7 +961,8 @@ internal static unsafe class GCExpertDeliveryLoop
         var bell = GetBellDestination(data.CID);
         var gc = GetGCDestination(data.CID);
         PluginLog.Information($"[ExpertDeliveryLoop] Character {BatchIndex + 1}/{BatchCIDs.Count} {data.Name}@{data.World} (CID {data.CID}) starting. Retainers: {Retainers.Print()}. Bell favourite id={bell.Id} sub={bell.Sub} \"{bell.Name}\", GC favourite id={gc.Id} sub={gc.Sub} \"{gc.Name}\". Reserved slots: {EffectiveReservedSlots}.");
-        SetPhase(Phase.SealBonus);
+        SealUseRetries = 0;
+        EnterSealBonus();
     }
 
     /// <summary>一個角色跑完了。多角色連跑就換下一個,否則整趟收工。
@@ -1019,11 +1039,52 @@ internal static unsafe class GCExpertDeliveryLoop
 
     internal static int GetSealAllowanceCount() => InventoryManager.Instance()->GetInventoryItemCount(SealAllowanceItemId);
 
+    private static string CurrentCharacterLabel => Censor.Character(Player.Name, Player.HomeWorld);
+
+    private static void EnterSealBonus()
+    {
+        SealCharacterSettled = false;
+        SealFreeSince = 0;
+        SealSawOccupied = false;
+        SetPhase(Phase.SealBonus);
+    }
+
+    /// <summary>角色連續 <see cref="SealFreeQuietMs"/> 不忙才回 true;忙到 <see cref="SealOccupiedWaitMs"/> 也回 true(照樣送)。
+    /// 「忙」沿用送傳送前的同一個 <c>IsOccupied()</c>。</summary>
+    private static bool SealCharacterFree()
+    {
+        var now = Environment.TickCount64;
+        if(IsOccupied())
+        {
+            SealFreeSince = 0;
+            if(!SealSawOccupied)
+            {
+                SealSawOccupied = true;
+                PluginLog.Information($"[ExpertDeliveryLoop] 角色仍在忙碌／事件／過場中,先等它結束再用軍票預支單;最多等 {SealOccupiedWaitMs / 1000} 秒。");
+            }
+            if(TimeInPhase < SealOccupiedWaitMs) return false;
+            PluginLog.Information($"[ExpertDeliveryLoop] 等了 {TimeInPhase / 1000} 秒角色仍在忙碌中,照樣送出使用軍票預支單。");
+            return true;
+        }
+        if(SealFreeSince == 0) SealFreeSince = now;
+        if(now - SealFreeSince < SealFreeQuietMs) return false;
+        if(SealSawOccupied) PluginLog.Information($"[ExpertDeliveryLoop] 角色已連續 {SealFreeQuietMs}ms 不在忙碌狀態(這一步共等了 {TimeInPhase}ms),送出使用軍票預支單。");
+        return true;
+    }
+
     private static void TickSealBonus()
     {
         if(!C.ExpertDeliveryLoopUseSealAllowance || HasSealBonus())
         {
             SetPhase(Phase.EnsureBell);
+            return;
+        }
+
+        // 重送前數量已經變少＝上一張其實吃掉了、只是背包數字晚到;不送第二張,回去等加成。
+        if(SealUseRetries > 0 && GetSealAllowanceCount() < SealAllowanceCountAtUse)
+        {
+            PluginLog.Information($"[ExpertDeliveryLoop] Before resending, the Priority Seal Allowance count dropped to {GetSealAllowanceCount()} (was {SealAllowanceCountAtUse}) - the previous use went through late. Waiting for the bonus instead of using another one.");
+            SetPhase(Phase.SealBonusWait);
             return;
         }
 
@@ -1037,6 +1098,14 @@ internal static unsafe class GCExpertDeliveryLoop
             PluginLog.Information($"[ExpertDeliveryLoop] No Priority Seal Allowance in inventory, continuing without the seal bonus.");
             SetPhase(Phase.EnsureBell);
             return;
+        }
+
+        if(!SealCharacterSettled)
+        {
+            if(!SealCharacterFree()) return;
+            SealCharacterSettled = true;
+            // 下面「現在不能用」的等待從角色不忙之後才開始算。
+            SetPhase(Phase.SealBonus);
         }
 
         // 動畫鎖住的時候送出去也是白送。
@@ -1053,14 +1122,13 @@ internal static unsafe class GCExpertDeliveryLoop
             // 但不要無限等 —— 一直不能用就照設定決定要停還是不帶加成繼續。
             if(TimeInPhase <= SealUsableWaitMs) return;
 
-            var blocked = string.Format(Loc.T("Stopped: the game will not allow the Priority Seal Allowance to be used right now (status {0})."), status);
             PluginLog.Information($"[ExpertDeliveryLoop] GetActionStatus(Item, {SealAllowanceItemId}) = {status} for {TimeInPhase}ms, giving up on the seal bonus.");
             if(C.ExpertDeliveryLoopStopWithoutSealBonus)
             {
-                Stop(blocked);
+                Stop(string.Format(Loc.T("Stopped: the game will not allow the Priority Seal Allowance to be used right now (status {0})."), status));
                 return;
             }
-            DuoLog.Warning(blocked);
+            DuoLog.Warning(string.Format(Loc.T("{0}: the game will not allow the Priority Seal Allowance to be used right now (status {1}), so this character gets no seal bonus - continuing the hand-ins."), CurrentCharacterLabel, status));
             SetPhase(Phase.EnsureBell);
             return;
         }
@@ -1086,14 +1154,20 @@ internal static unsafe class GCExpertDeliveryLoop
         if(TimeInPhase > SealItemConsumeWaitMs && GetSealAllowanceCount() == SealAllowanceCountAtUse
             && !Player.IsAnimationLocked && !Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Casting])
         {
-            var reason = Loc.T("Stopped: the Priority Seal Allowance was not consumed - the game refused the use-item.");
-            PluginLog.Information($"[ExpertDeliveryLoop] Use-item did not consume anything (still {GetSealAllowanceCount()} held after {TimeInPhase}ms).");
-            if(C.ExpertDeliveryLoopStopWithoutSealBonus)
+            PluginLog.Information($"[ExpertDeliveryLoop] Use-item did not consume anything (still {GetSealAllowanceCount()} held after {TimeInPhase}ms; occupied={IsOccupied()} retries={SealUseRetries}/{MaxSealUseRetries}).");
+            if(SealUseRetries < MaxSealUseRetries)
             {
-                Stop(reason);
+                SealUseRetries++;
+                PluginLog.Information($"[ExpertDeliveryLoop] Retrying the Priority Seal Allowance ({SealUseRetries}/{MaxSealUseRetries}) after waiting for the character to be free again.");
+                EnterSealBonus();
                 return;
             }
-            DuoLog.Warning(reason);
+            if(C.ExpertDeliveryLoopStopWithoutSealBonus)
+            {
+                Stop(Loc.T("Stopped: the Priority Seal Allowance was not consumed - the game refused the use-item."));
+                return;
+            }
+            DuoLog.Warning(string.Format(Loc.T("{0}: the Priority Seal Allowance was not consumed even after retrying, so this character gets no seal bonus - continuing the hand-ins."), CurrentCharacterLabel));
             SetPhase(Phase.EnsureBell);
             return;
         }
