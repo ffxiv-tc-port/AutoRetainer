@@ -12,7 +12,6 @@ internal static class ApiTest
     {
         P.API.OnRetainerPostprocessStep += API_OnRetainerPostprocessTask;
         P.API.OnRetainerReadyToPostprocess += API_OnRetainerReadyToPostprocess;
-        TaskManager = new();
     }
 
     private static void API_OnRetainerPostprocessTask(string retainerName)
@@ -25,6 +24,8 @@ internal static class ApiTest
     private static void API_OnRetainerReadyToPostprocess(string retainerName)
     {
         PluginLog.Information($"Now postprocessing {retainerName}");
+        // 用到才建：建構即訂閱 Framework.Update，只開過除錯勾選框的人才需要它。
+        TaskManager ??= new();
         TaskManager.Enqueue(() =>
         {
             if(GenericHelpers.IsKeyPressed(Keys.Back))
