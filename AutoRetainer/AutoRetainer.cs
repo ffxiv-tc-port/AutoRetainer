@@ -742,6 +742,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         {
             // 排在最前面：後面任何一步都不該影響「卸載當下多角色模式開著沒」的紀錄。
             Safe(MultiMode.WriteReloadRecord);
+            StopOwnWorkOnUnload();
             Safe(() => FFXIVInstanceMonitor.ReleaseLock());
             Safe(() => quickSellItems.Disable());
             Safe(() => quickSellItems.Dispose());
@@ -771,6 +772,17 @@ public unsafe class AutoRetainer : IDalamudPlugin
             ECommonsMain.Dispose();
         }
         //PluginLoader.Dispose();
+    }
+
+    /// <summary>
+    /// 卸載時收掉自己開的、會在退訂 Tick 之後失控的東西：稀有品繳交循環、我們開的 /automove（玩家自己開的不碰）。
+    /// 只在框架執行緒且非 Dalamud 卸載期動手：卸載期 Dispose 可能就地跑在別的執行緒，那時不送聊天指令、不叫別的插件。
+    /// </summary>
+    private static void StopOwnWorkOnUnload()
+    {
+        if(Svc.Framework.IsFrameworkUnloading || !Svc.Framework.IsInFrameworkUpdateThread) return;
+        Safe(() => GCExpertDeliveryLoop.Stop(Loc.T("Stopped: AutoRetainer was unloaded.")));
+        Safe(() => AutomoveManager.StopIfOurs("plugin unload"));
     }
 
     /// <remarks>

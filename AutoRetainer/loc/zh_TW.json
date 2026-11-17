@@ -924,6 +924,7 @@
   "No retainers are selected.": "沒有選擇任何僱員。",
   "No retainer of this character carries the selected entrust plan.": "這個角色底下沒有僱員掛著選定的存放計畫。",
   "Stopped by the user.": "已由使用者停止。",
+  "Stopped: AutoRetainer was unloaded.": "已停止：AutoRetainer 插件已卸載。",
   "Stopped: the player became unavailable.": "已停止：玩家變成不可用狀態。",
   "Stopped: no Priority Seal Allowance left and the loop is set to stop without the bonus.": "已停止：沒有軍票預支單了，而且設定為沒有加成就停止。",
   "Stopped: the seal bonus did not appear after using a Priority Seal Allowance.": "已停止：用了軍票預支單之後仍然沒有出現軍票加成。",

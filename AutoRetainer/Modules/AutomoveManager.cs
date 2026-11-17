@@ -51,6 +51,17 @@ internal static class AutomoveManager
     }
 
     /// <summary>
+    /// Unload counterpart of <see cref="Tick"/>'s rescue: once Dispose has unsubscribed Tick nothing would ever
+    /// turn our autorun off. Only touches autorun this plugin turned on; the player's own autorun is left alone.
+    /// </summary>
+    internal static void StopIfOurs(string source)
+    {
+        if(!EngagedByUs || !Player.Available || !IsAutoRunning()) return;
+        PluginLog.Information($"[Automove] {source}: autorun was turned on by AutoRetainer and is still engaged - sending /automove off.");
+        Off();
+    }
+
+    /// <summary>
     /// Reads the game's own autorun state. The target is a leaf function that takes no arguments and
     /// dereferences no pointer, so the call itself cannot fault. The try/catch only covers the signature
     /// failing to resolve after a future patch, in which case we assume autorun IS engaged so the rescue
