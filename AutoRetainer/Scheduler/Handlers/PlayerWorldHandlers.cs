@@ -1,4 +1,5 @@
-﻿using ECommons.GameHelpers;
+﻿using AutoRetainer.Internal;
+using ECommons.GameHelpers;
 using ECommons.Throttlers;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
@@ -31,7 +32,10 @@ internal static unsafe class PlayerWorldHandlers
         var x = Svc.Targets.Target;
         if(x != null && (x.ObjectKind == ObjectKind.Housing || x.ObjectKind == ObjectKind.EventObj) && Utils.ObjectNameEqualsAny(x, Lang.BellName) && !IsOccupied())
         {
-            if(Vector3.Distance(x.Position, Svc.Objects.LocalPlayer.Position) < Utils.GetValidInteractionDistance(x) && x.IsTargetable)
+            var distance = Vector3.Distance(x.Position, Svc.Objects.LocalPlayer.Position);
+            var limit = Utils.GetValidInteractionDistance(x);
+            InteractRangeDiag.CompareBell(x, distance, limit);
+            if(distance < limit && x.IsTargetable)
             {
                 if(Player.IsAnimationLocked) return false;
                 if(Utils.GenericThrottle && EzThrottler.Throttle("InteractWithBell", 5000))
