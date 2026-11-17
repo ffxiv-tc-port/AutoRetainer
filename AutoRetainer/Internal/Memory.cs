@@ -16,10 +16,6 @@ internal unsafe class Memory : IDisposable
 {
     internal int LastSearchItem = -1;
 
-    private delegate ulong InteractWithObjectDelegate(TargetSystem* system, GameObject* obj, bool los);
-
-    private Hook<InteractWithObjectDelegate> InteractWithObjectHook;
-
     private delegate byte GetIsGatheringItemGatheredDelegate(ushort item);
     [Signature("48 89 5C 24 ?? 57 48 83 EC 20 8B D9 8B F9", Fallibility = Fallibility.Fallible)]
     private GetIsGatheringItemGatheredDelegate GetIsGatheringItemGathered;
@@ -37,9 +33,6 @@ internal unsafe class Memory : IDisposable
 
     // 一律經 TryGetMyAccountId 讀：這個位址與它指到的值都可能是 0，直接解參是攔不到的 AVE。
     public nint* MyAccountData;
-
-    public delegate nint AddonGrandCompanySupplyList_SetExchangeModeDelegate(nint addon, int mode);
-    public AddonGrandCompanySupplyList_SetExchangeModeDelegate AddonGrandCompanySupplyList_SetExchangeMode;
 
     /// <summary>false ＝ 不知道目前帳號；此時 <paramref name="id"/> 不代表任何帳號，呼叫端不可拿去比對或記錄。</summary>
     internal bool TryGetMyAccountId(out ulong id)
@@ -75,7 +68,6 @@ internal unsafe class Memory : IDisposable
     internal Memory()
     {
         if(Svc.SigScanner.TryGetStaticAddressFromSig("48 8B 3D ?? ?? ?? ?? 48 85 FF 74 69", out var accountData)) MyAccountData = (nint*)accountData;
-        if(Svc.SigScanner.TryScanText("E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? 8B D6 48 8D 4D F7", out var setExchangeMode)) AddonGrandCompanySupplyList_SetExchangeMode = EzDelegate.Get<AddonGrandCompanySupplyList_SetExchangeModeDelegate>(setExchangeMode);
         Svc.Hook.InitializeFromAttributes(this);
         EzSignatureHelper.Initialize(this);
         if(C.MarketCooldownOverlay) OnReceiveMarketPricePacketHook?.Enable();
@@ -98,7 +90,6 @@ internal unsafe class Memory : IDisposable
         Warn(OnReceiveMarketPricePacketHook != null, nameof(OnReceiveMarketPricePacketHook), "市場查價冷卻的提示不會出現。");
         Warn(MyAccountData != null, nameof(MyAccountData), "讀不到目前帳號（目前沒有功能使用）。");
         Warn(OutdoorTerritory_IsEstateResident != null, nameof(OutdoorTerritory_IsEstateResident), "只影響除錯頁的房屋住戶顯示。");
-        Warn(AddonGrandCompanySupplyList_SetExchangeMode != null, nameof(AddonGrandCompanySupplyList_SetExchangeMode), "目前沒有功能使用。");
     }
 
     internal void RetainerItemCommandDetour(nint AgentRetainerItemCommandModule, uint slot, InventoryType inventoryType, uint a4, RetainerItemCommand command)
@@ -162,7 +153,6 @@ internal unsafe class Memory : IDisposable
 
     public void Dispose()
     {
-        InteractWithObjectHook?.Dispose();
         OnReceiveMarketPricePacketHook?.Dispose();
         ReceiveRetainerVentureListUpdateHook?.Dispose();
     }

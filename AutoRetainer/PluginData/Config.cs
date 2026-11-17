@@ -21,11 +21,6 @@ internal unsafe class Config
     public bool AutoGCContinuation = false;
     public HashSet<ulong> WhitelistedAccounts = [];
 
-    public bool ShouldSerializeEnableAutoGCHandin()
-    {
-        return false;
-    }
-
     public bool GCHandinNotify = false;
     /// <summary>Grand Company handin: how long to wait for the item list row count to change after the
     /// refresh event was sent, before giving up on the active refresh and falling back to waiting for the
