@@ -11,9 +11,9 @@ internal class SuperSecret : DebugSectionBase
         ImGuiComponents.HelpMarker(Loc.T("Detect and use the closest Summoning Bell within valid distance of the player."));
         ImGuiEx.TextWrapped(ImGuiColors.DalamudGrey, Loc.T("RetainerSense is enforced to be active during MultiMode operation."));
         ImGui.Separator();
-        ImGui.Checkbox($"Unsafe options protection", ref C.UnsafeProtection);
+        ImGui.Checkbox(Loc.T("Unsafe options protection"), ref C.UnsafeProtection);
         ImGui.SameLine();
-        if(ImGui.Button($"Write to registry"))
+        if(ImGui.Button(Loc.T("Write to registry")))
         {
             Safety.Set(C.UnsafeProtection);
         }

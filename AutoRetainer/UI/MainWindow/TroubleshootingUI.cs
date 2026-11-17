@@ -159,7 +159,7 @@ public static unsafe class TroubleshootingUI
 
         if(!C.EnableEntrustManager && C.AdditionalData.Any(x => x.Value.EntrustPlan != Guid.Empty))
         {
-            Warning($"Entrust manager is globally disabled, while some retainers have their entrust plans assigned. Entrust plans will only be processed manually.");
+            Warning(Loc.T("Entrust manager is globally disabled, while some retainers have their entrust plans assigned. Entrust plans will only be processed manually."));
         }
 
         if(C.ExtraDebug)
@@ -192,21 +192,21 @@ public static unsafe class TroubleshootingUI
             var list = C.OfflineData.Where(x => !x.ExcludeRetainer && !x.Enabled && x.RetainerData.Count > 0);
             if(list.Any())
             {
-                Warning($"Some of your characters are not enabled for Retainer Multi Mode even though they have retainers. Hover to see list.", list.Print("\n"));
+                Warning(Loc.T("Some of your characters are not enabled for Retainer Multi Mode even though they have retainers. Hover to see list."), list.Print("\n"));
             }
         }
         {
             var list = C.OfflineData.Where(x => !x.ExcludeRetainer && x.Enabled && x.RetainerData.Count > 0 && C.SelectedRetainers.TryGetValue(x.CID, out var rd) && !x.RetainerData.All(r => rd.Contains(r.Name)));
             if(list.Any())
             {
-                Warning($"Some of your characters have not all retainers enabled for processing. Hover to see list.", list.Print("\n"));
+                Warning(Loc.T("Some of your characters have not all retainers enabled for processing. Hover to see list."), list.Print("\n"));
             }
         }
         {
             var list = C.OfflineData.Where(x => !x.ExcludeWorkshop && !x.WorkshopEnabled && (x.OfflineSubmarineData.Count + x.OfflineAirshipData.Count) > 0);
             if(list.Any())
             {
-                Warning($"Some of your characters are not enabled for Deployables Multi Mode even though they have deployables registered. Hover to see list.", list.Print("\n"));
+                Warning(Loc.T("Some of your characters are not enabled for Deployables Multi Mode even though they have deployables registered. Hover to see list."), list.Print("\n"));
             }
         }
 
@@ -214,13 +214,15 @@ public static unsafe class TroubleshootingUI
             var list = C.OfflineData.Where(x => !x.ExcludeWorkshop && x.WorkshopEnabled && x.GetEnabledVesselsData(Internal.VoyageType.Airship).Count + x.GetEnabledVesselsData(Internal.VoyageType.Submersible).Count < Math.Min(x.OfflineAirshipData.Count + x.OfflineSubmarineData.Count, 4));
             if(list.Any())
             {
-                Warning($"Some of your characters have not all deployables enabled for processing. Hover to see list.", list.Print("\n"));
+                Warning(Loc.T("Some of your characters have not all deployables enabled for processing. Hover to see list."), list.Print("\n"));
             }
         }
 
         if(C.MultiModeType != AutoRetainerAPI.Configuration.MultiModeType.Everything)
         {
-            Warning($"Your MultiMode type is set to {C.MultiModeType}. This will limit functions that AutoRetainer will perform.");
+            // TryGetValue：設定檔裡可能是列舉外的數值，索引子會在 Draw 裡擲例外。
+            var mmName = Loc.EnumNames<AutoRetainerAPI.Configuration.MultiModeType>().TryGetValue(C.MultiModeType, out var n) ? n : C.MultiModeType.ToString();
+            Warning(string.Format(Loc.T("Your MultiMode type is set to {0}. This will limit functions that AutoRetainer will perform."), mmName));
         }
 
         if(C.OfflineData.Any(x => x.MultiWaitForAllDeployables))
