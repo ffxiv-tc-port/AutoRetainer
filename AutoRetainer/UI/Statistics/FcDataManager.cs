@@ -17,14 +17,22 @@ public sealed class FcDataManager
         }
         ImGui.SameLine();
         ImGui.Checkbox(Loc.T("Show only wallet FC"), ref C.DisplayOnlyWalletFC);
-        if(ImGui.BeginTable("FCData", 7, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
+        // 欄數在 BeginTable 當下定案，開關存成區域變數，逐列與合計列都照同一組畫。
+        var display = C.Display;
+        var showChars = display.FcColCharacters;
+        var showGil = display.FcColGil;
+        var showPoints = display.FcColPoints;
+        var showFounded = display.FcColFounded;
+        var showEstate = display.FcColEstate;
+        var columns = 2 + (showChars ? 1 : 0) + (showGil ? 1 : 0) + (showPoints ? 1 : 0) + (showFounded ? 1 : 0) + (showEstate ? 1 : 0);
+        if(ImGui.BeginTable("FCData", columns, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
         {
             ImGui.TableSetupColumn(Loc.T("Name"), ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn(Loc.T("Characters"));
-            ImGui.TableSetupColumn(Loc.T("Gil"));
-            ImGui.TableSetupColumn(Loc.T("FC points"));
-            ImGui.TableSetupColumn(Loc.T("Founded"));
-            ImGui.TableSetupColumn(Loc.T("FC estate"));
+            if(showChars) ImGui.TableSetupColumn(Loc.T("Characters"));
+            if(showGil) ImGui.TableSetupColumn(Loc.T("Gil"));
+            if(showPoints) ImGui.TableSetupColumn(Loc.T("FC points"));
+            if(showFounded) ImGui.TableSetupColumn(Loc.T("Founded"));
+            if(showEstate) ImGui.TableSetupColumn(Loc.T("FC estate"));
             ImGui.TableSetupColumn($"##control");
             ImGui.TableHeadersRow();
 
@@ -40,56 +48,71 @@ public sealed class FcDataManager
                 ImGui.TableNextColumn();
                 ImGuiEx.TextV(C.NoNames ? string.Format(Loc.T("Free company {0}"), ++i) : x.Value.Name);
 
-                ImGui.TableNextColumn();
-                foreach(var c in C.OfflineData.Where(z => z.FCID == x.Key))
+                if(showChars)
                 {
-                    ImGuiEx.Text(x.Value.HolderChara == c.CID && x.Value.GilCountsTowardsChara ? EColor.GreenBright : null, Censor.Character(c.Name, c.World));
-                    if(ImGuiEx.HoveredAndClicked(Loc.T("Left click - Relog to this character")))
+                    ImGui.TableNextColumn();
+                    foreach(var c in C.OfflineData.Where(z => z.FCID == x.Key))
                     {
-                        Svc.Commands.ProcessCommand($"/ays relog {c.Name}@{c.World}");
-                    }
-                    if(x.Value.GilCountsTowardsChara)
-                    {
-                        if(ImGuiEx.HoveredAndClicked(Loc.T("Right click - set as gil holder"), ImGuiMouseButton.Right))
+                        ImGuiEx.Text(x.Value.HolderChara == c.CID && x.Value.GilCountsTowardsChara ? EColor.GreenBright : null, Censor.Character(c.Name, c.World));
+                        if(ImGuiEx.HoveredAndClicked(Loc.T("Left click - Relog to this character")))
                         {
-                            x.Value.HolderChara = c.CID;
+                            Svc.Commands.ProcessCommand($"/ays relog {c.Name}@{c.World}");
+                        }
+                        if(x.Value.GilCountsTowardsChara)
+                        {
+                            if(ImGuiEx.HoveredAndClicked(Loc.T("Right click - set as gil holder"), ImGuiMouseButton.Right))
+                            {
+                                x.Value.HolderChara = c.CID;
+                            }
                         }
                     }
                 }
 
-                ImGui.TableNextColumn();
-                if(x.Value.LastGilUpdate != -1 && x.Value.LastGilUpdate != 0)
+                if(showGil)
                 {
-                    ImGuiEx.Text($"{x.Value.Gil:N0}");
-                    totalGil += x.Value.Gil;
-                    ImGuiEx.Tooltip(string.Format(Loc.T("Last updated {0}. Ctrl + click to reset"), UpdatedWhen(x.Value.LastGilUpdate)));
-                    if(ImGuiEx.HoveredAndClicked() && ImGuiEx.Ctrl)
+                    ImGui.TableNextColumn();
+                    if(x.Value.LastGilUpdate != -1 && x.Value.LastGilUpdate != 0)
                     {
-                        x.Value.LastGilUpdate = -1;
-                        x.Value.Gil = 0;
+                        ImGuiEx.Text($"{x.Value.Gil:N0}");
+                        totalGil += x.Value.Gil;
+                        ImGuiEx.Tooltip(string.Format(Loc.T("Last updated {0}. Ctrl + click to reset"), UpdatedWhen(x.Value.LastGilUpdate)));
+                        if(ImGuiEx.HoveredAndClicked() && ImGuiEx.Ctrl)
+                        {
+                            x.Value.LastGilUpdate = -1;
+                            x.Value.Gil = 0;
+                        }
+                    }
+                    else
+                    {
+                        ImGuiEx.Text(Loc.T("Unknown"));
                     }
                 }
-                else
+
+                if(showPoints)
                 {
-                    ImGuiEx.Text(Loc.T("Unknown"));
+                    ImGui.TableNextColumn();
+                    if(x.Value.FCPointsLastUpdate != 0)
+                    {
+                        ImGuiEx.Text($"{x.Value.FCPoints:N0}");
+                        totalPoint += x.Value.FCPoints;
+                        ImGuiEx.Tooltip(string.Format(Loc.T("Last updated {0}"), UpdatedWhen(x.Value.FCPointsLastUpdate)));
+                    }
+                    else
+                    {
+                        ImGuiEx.Text(Loc.T("Unknown"));
+                    }
                 }
 
-                ImGui.TableNextColumn();
-                if(x.Value.FCPointsLastUpdate != 0)
+                if(showFounded)
                 {
-                    ImGuiEx.Text($"{x.Value.FCPoints:N0}");
-                    totalPoint += x.Value.FCPoints;
-                    ImGuiEx.Tooltip(string.Format(Loc.T("Last updated {0}"), UpdatedWhen(x.Value.FCPointsLastUpdate)));
+                    ImGui.TableNextColumn();
+                    DrawFounded(x.Value);
                 }
-                else
+                if(showEstate)
                 {
-                    ImGuiEx.Text(Loc.T("Unknown"));
+                    ImGui.TableNextColumn();
+                    DrawEstate(x.Value);
                 }
-
-                ImGui.TableNextColumn();
-                DrawFounded(x.Value);
-                ImGui.TableNextColumn();
-                DrawEstate(x.Value);
 
                 ImGui.TableNextColumn();
                 ImGui.PushFont(UiBuilder.IconFont);
@@ -110,11 +133,17 @@ public sealed class FcDataManager
             ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg1, EColor.GreenDark.ToUint());
             ImGui.TableNextColumn();
             ImGuiEx.Text(Loc.T("TOTAL"));
-            ImGui.TableNextColumn();
-            ImGui.TableNextColumn();
-            ImGuiEx.Text($"{totalGil:N0}");
-            ImGui.TableNextColumn();
-            ImGuiEx.Text($"{totalPoint:N0}");
+            if(showChars) ImGui.TableNextColumn();
+            if(showGil)
+            {
+                ImGui.TableNextColumn();
+                ImGuiEx.Text($"{totalGil:N0}");
+            }
+            if(showPoints)
+            {
+                ImGui.TableNextColumn();
+                ImGuiEx.Text($"{totalPoint:N0}");
+            }
 
             ImGui.EndTable();
         }

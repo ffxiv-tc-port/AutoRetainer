@@ -23,6 +23,7 @@ internal static unsafe class WorkshopUI
     private static readonly List<OverlayTextData> OverlayTexts = [];
     private static readonly List<OfflineCharacterData> SortedData = [];
     private static readonly List<OfflineVesselData> ProgressVessels = [];
+    private static readonly List<OfflineVesselData> NoVessels = [];
     private static readonly Dictionary<ulong, StatusTextsEntry> StatusTexts = [];
 
     private static readonly string IconDoorOpen = FontAwesomeIcon.DoorOpen.ToIconString();
@@ -33,6 +34,9 @@ internal static unsafe class WorkshopUI
     {
         var overlayTexts = OverlayTexts;
         overlayTexts.Clear();
+        // 右側狀態欄的欄數一幀只讀一次（理由同 MultiModeUI.Draw）：同一幀各列欄數不同會讓 DrawOverlayTexts 的欄寬錯位。
+        var display = C.Display;
+        var statusColumns = (display.DepColRepair, display.DepColCeruleum, display.DepColInventory);
         List<OfflineCharacterData> sortedData;
         if(C.NoCurrentCharaOnTop)
         {
@@ -94,7 +98,7 @@ internal static unsafe class WorkshopUI
                 ImGui.EndPopup();
             }
 
-            if(data.NumSubSlots > data.GetVesselData(VoyageType.Submersible).Count)
+            if(display.DepIconNewSlot && data.NumSubSlots > data.GetVesselData(VoyageType.Submersible).Count)
             {
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.TextV(ImGuiColors.DalamudYellow, "\uf6e3");
@@ -103,7 +107,7 @@ internal static unsafe class WorkshopUI
                 ImGui.SameLine(0, 3);
             }
 
-            if(data.IsNotEnoughSubmarinesEnabled())
+            if(display.DepIconNotAllEnabled && data.IsNotEnoughSubmarinesEnabled())
             {
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.TextV(ImGuiColors.DalamudOrange, "\ue4ac");
@@ -112,7 +116,7 @@ internal static unsafe class WorkshopUI
                 ImGui.SameLine(0, 3);
             }
 
-            if(data.IsThereNotAssignedSubmarine())
+            if(display.DepIconNotDeployed && data.IsThereNotAssignedSubmarine())
             {
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.TextV(ImGuiColors.DalamudOrange, "\ue4ab");
@@ -121,7 +125,7 @@ internal static unsafe class WorkshopUI
                 ImGui.SameLine(0, 3);
             }
 
-            if(data.AreAnySuboptimalBuildsFound())
+            if(display.DepIconSuboptimal && data.AreAnySuboptimalBuildsFound())
             {
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.TextV(ImGuiColors.DalamudOrange, "\uf0ad");
@@ -130,7 +134,7 @@ internal static unsafe class WorkshopUI
                 ImGui.SameLine(0, 3);
             }
 
-            if(data.AreAnyInvalidRedeploysActive())
+            if(display.DepIconInvalidRedeploy && data.AreAnyInvalidRedeploysActive())
             {
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGuiEx.TextV(ImGuiColors.DalamudRed, FontAwesomeIcon.ArrowsSpin.ToIconString());
@@ -159,15 +163,15 @@ internal static unsafe class WorkshopUI
                 }
             }
 
-            data.DrawDCV();
-            UIUtils.DrawTeleportIcons(data.CID);
-            SharedUI.DrawLockout(data);
+            if(display.DepCharaDcTravelIcon) data.DrawDCV();
+            if(display.DepCharaHouseIcons) UIUtils.DrawTeleportIcons(data.CID);
+            if(display.DepCharaLockoutIcon) SharedUI.DrawLockout(data);
 
             var initCurpos = ImGui.GetCursorPos();
             var pickLast = (C.MultiModeWorkshopConfiguration.MultiWaitForAll || data.MultiWaitForAllDeployables) && !data.AreAnyEnabledVesselsReturnInNext(C.MultiModeWorkshopConfiguration.MaxMinutesOfWaiting * 60);
             var lst = CollectProgressVessels(data);
             //if (EzThrottler.Throttle("log")) PluginLog.Information($"{lst.Select(x => x.Name).Print()}");
-            var lowestVessel = PickByRemainingSeconds(lst, pickLast);
+            var lowestVessel = display.DepCharaProgressBar ? PickByRemainingSeconds(lst, pickLast) : null;
             if(lowestVessel != default)
             {
                 var prog = 1f - lowestVessel.GetRemainingSeconds() / (60f * 60f * 24f);
@@ -182,7 +186,7 @@ internal static unsafe class WorkshopUI
             var colpref = UIUtils.PushColIfPreferredCurrent(data);
 
             var anyVesselDone = false;
-            foreach(var v in lst)
+            foreach(var v in display.DepCharaDoneIcon ? lst : NoVessels)
             {
                 if(v.ReturnTime != 0 && v.GetRemainingSeconds() <= 0)
                 {
@@ -213,7 +217,7 @@ internal static unsafe class WorkshopUI
             }
 
             ImGui.SameLine(0, 0);
-            var texts = GetStatusTexts(data);
+            var texts = GetStatusTexts(data, statusColumns);
             overlayTexts.Add((new Vector2(ImGui.GetContentRegionMax().X - ImGui.GetStyle().FramePadding.X, rCurPos.Y + ImGui.GetStyle().FramePadding.Y), texts));
             ImGui.NewLine();
 
@@ -365,27 +369,29 @@ internal static unsafe class WorkshopUI
         return best;
     }
 
-    /// <summary>角色列右側 R／C／I 三欄的字串；數值與警示判定都沒變就沿用上一幀那一份。只給繪製執行緒用。</summary>
-    private static (bool Warning, string Text, bool Unknown, string Tooltip)[] GetStatusTexts(OfflineCharacterData data)
+    /// <summary>角色列右側 R／C／I 三欄（各自可關）的字串；數值、警示判定與開關都沒變就沿用上一幀那一份。只給繪製執行緒用。</summary>
+    internal static (bool Warning, string Text, bool Unknown, string Tooltip)[] GetStatusTexts(OfflineCharacterData data, (bool Repair, bool Ceruleum, bool Inventory) show)
     {
         var repairWarning = data.RepairKits < C.UIWarningDepRepairNum;
         var tanksWarning = data.Ceruleum < C.UIWarningDepTanksNum;
         var slotWarning = data.InventorySpace < C.UIWarningDepSlotNum;
         if(StatusTexts.TryGetValue(data.CID, out var e)
             && e.RepairKits == data.RepairKits && e.Ceruleum == data.Ceruleum && e.InventorySpace == data.InventorySpace
-            && e.RepairWarning == repairWarning && e.TanksWarning == tanksWarning && e.SlotWarning == slotWarning)
+            && e.RepairWarning == repairWarning && e.TanksWarning == tanksWarning && e.SlotWarning == slotWarning
+            && e.Show == show)
         {
             return e.Texts;
         }
-        (bool Warning, string Text, bool Unknown, string Tooltip)[] built = [
-            (repairWarning, $"R: {data.RepairKits}", false, null),
-            (tanksWarning, $"C: {data.Ceruleum}", false, null),
-            (slotWarning, $"I: {data.InventorySpace}", false, null)];
-        StatusTexts[data.CID] = new(data.RepairKits, data.Ceruleum, data.InventorySpace, repairWarning, tanksWarning, slotWarning, built);
+        var built = new (bool Warning, string Text, bool Unknown, string Tooltip)[(show.Repair ? 1 : 0) + (show.Ceruleum ? 1 : 0) + (show.Inventory ? 1 : 0)];
+        var k = 0;
+        if(show.Repair) built[k++] = (repairWarning, $"R: {data.RepairKits}", false, null);
+        if(show.Ceruleum) built[k++] = (tanksWarning, $"C: {data.Ceruleum}", false, null);
+        if(show.Inventory) built[k++] = (slotWarning, $"I: {data.InventorySpace}", false, null);
+        StatusTexts[data.CID] = new(data.RepairKits, data.Ceruleum, data.InventorySpace, repairWarning, tanksWarning, slotWarning, show, built);
         return built;
     }
 
-    private readonly record struct StatusTextsEntry(int RepairKits, int Ceruleum, uint InventorySpace, bool RepairWarning, bool TanksWarning, bool SlotWarning, (bool Warning, string Text, bool Unknown, string Tooltip)[] Texts);
+    private readonly record struct StatusTextsEntry(int RepairKits, int Ceruleum, uint InventorySpace, bool RepairWarning, bool TanksWarning, bool SlotWarning, (bool Repair, bool Ceruleum, bool Inventory) Show, (bool Warning, string Text, bool Unknown, string Tooltip)[] Texts);
 
     // 以下快取只給繪製執行緒用。內容都是原本那一行運算式第一次算出來的，輸入不變就沿用同一個字串。
     private sealed class VesselTexts
@@ -536,9 +542,11 @@ internal static unsafe class WorkshopUI
 
     private static void DrawTable(OfflineCharacterData data)
     {
+        var display = C.Display;
         var storePos = ImGui.GetCursorPos();
         foreach(var v in Bars)
         {
+            if(!display.DepRowProgressBar) break; // 關掉時整段不畫，表格本身照常。
             if(v.cid != data.CID) continue;
             ImGui.SetCursorPos(v.start - ImGui.GetStyle().CellPadding with { Y = 0 });
             ImGui.PushStyleColor(ImGuiCol.PlotHistogram, 0xbb500000);
@@ -548,28 +556,32 @@ internal static unsafe class WorkshopUI
             ImGui.PopStyleColor(2);
         }
         ImGui.SetCursorPos(storePos);
-        if(ImGui.BeginTable("##retainertable", 4, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders))
+        // 欄數在 BeginTable 當下定案，逐列沿用同一組開關（列裡的設定彈窗不會讓欄數與 TableNextColumn 次數對不上）。
+        var cols = new VesselColumns(display.DepTableStructure, display.DepTableVoyage, display.DepRoute, display.DepIconBehavior, display.DepIndexOverride);
+        if(ImGui.BeginTable("##retainertable", 2 + (cols.Structure ? 1 : 0) + (cols.Voyage ? 1 : 0), ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders))
         {
             ImGui.TableSetupColumn(Loc.T("Name"), ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn(Loc.T("Structure"));
-            ImGui.TableSetupColumn(Loc.T("Voyage"));
+            if(cols.Structure) ImGui.TableSetupColumn(Loc.T("Structure"));
+            if(cols.Voyage) ImGui.TableSetupColumn(Loc.T("Voyage"));
             ImGui.TableSetupColumn("");
             ImGui.TableHeadersRow();
             for(var i = 0; i < data.OfflineAirshipData.Count; i++)
             {
                 var vessel = data.OfflineAirshipData[i];
-                DrawRow(data, vessel, VoyageType.Airship);
+                DrawRow(data, vessel, VoyageType.Airship, cols);
             }
             for(var i = 0; i < data.OfflineSubmarineData.Count; i++)
             {
                 var vessel = data.OfflineSubmarineData[i];
-                DrawRow(data, vessel, VoyageType.Submersible);
+                DrawRow(data, vessel, VoyageType.Submersible, cols);
             }
             ImGui.EndTable();
         }
     }
 
-    private static void DrawRow(OfflineCharacterData data, OfflineVesselData vessel, VoyageType type)
+    private readonly record struct VesselColumns(bool Structure, bool Voyage, bool Route, bool BehaviorIcon, bool IndexOverride);
+
+    private static void DrawRow(OfflineCharacterData data, OfflineVesselData vessel, VoyageType type, VesselColumns cols)
     {
         if(type == VoyageType.Airship && data.GetEnabledVesselsData(type).Count == 0 && C.HideAirships) return;
         ImGui.PushID($"{data.CID}/{vessel.Name}/{type}");
@@ -597,58 +609,61 @@ internal static unsafe class WorkshopUI
         if(disabled) ImGui.BeginDisabled();
         ImGuiEx.CollectionCheckbox(GetVesselCheckboxLabel(vessel.Name), vessel.Name, enabled);
         if(disabled) ImGui.EndDisabled();
-        ImGui.SameLine();
-        ImGui.PushFont(UiBuilder.IconFont);
-        if(adata.VesselBehavior == VesselBehavior.Finalize)
+        if(cols.BehaviorIcon)
         {
-            ImGuiEx.Text(Lang.IconAnchor);
-        }
-        else if(adata.VesselBehavior == VesselBehavior.Redeploy)
-        {
-            ImGuiEx.Text(Lang.IconResend);
-        }
-        else if(adata.VesselBehavior == VesselBehavior.LevelUp)
-        {
-            ImGuiEx.Text(Lang.IconLevelup);
-        }
-        else if(adata.VesselBehavior == VesselBehavior.Unlock)
-        {
-            ImGuiEx.Text(Lang.IconUnlock);
             ImGui.SameLine();
-            if(adata.UnlockMode == UnlockMode.WhileLevelling)
+            ImGui.PushFont(UiBuilder.IconFont);
+            if(adata.VesselBehavior == VesselBehavior.Finalize)
+            {
+                ImGuiEx.Text(Lang.IconAnchor);
+            }
+            else if(adata.VesselBehavior == VesselBehavior.Redeploy)
+            {
+                ImGuiEx.Text(Lang.IconResend);
+            }
+            else if(adata.VesselBehavior == VesselBehavior.LevelUp)
             {
                 ImGuiEx.Text(Lang.IconLevelup);
             }
-            else if(adata.UnlockMode == UnlockMode.SpamOne)
+            else if(adata.VesselBehavior == VesselBehavior.Unlock)
             {
-                ImGuiEx.Text(Lang.IconRepeat);
+                ImGuiEx.Text(Lang.IconUnlock);
+                ImGui.SameLine();
+                if(adata.UnlockMode == UnlockMode.WhileLevelling)
+                {
+                    ImGuiEx.Text(Lang.IconLevelup);
+                }
+                else if(adata.UnlockMode == UnlockMode.SpamOne)
+                {
+                    ImGuiEx.Text(Lang.IconRepeat);
+                }
+                else if(adata.UnlockMode == UnlockMode.MultiSelect)
+                {
+                    ImGuiEx.Text(Lang.IconPath);
+                }
+                else
+                {
+                    ImGuiEx.Text(Lang.IconWarning);
+                }
             }
-            else if(adata.UnlockMode == UnlockMode.MultiSelect)
+            else if(adata.VesselBehavior == VesselBehavior.Use_plan)
             {
-                ImGuiEx.Text(Lang.IconPath);
+                var plan = VoyageUtils.GetSubmarinePointPlanByGuid(adata.SelectedPointPlan);
+                var valid = plan != null && plan.Points.Count.InRange(1, 5, true);
+                var fast = plan != null && PlanMatchesPoints(plan.Points, adata.Points);
+                ImGuiEx.Text(valid ? (fast ? EColor.GreenBright : null) : EColor.RedBright, Lang.IconPlanner);
+                ImGui.PushFont(UiBuilder.DefaultFont);
+                // ImGuiEx.Tooltip 自己只在懸停時畫；先判懸停只是不要每幀替每個航點查表、解析 SeString。
+                if(valid && ImGui.IsItemHovered()) ImGuiEx.Tooltip(plan.Points.Select(x => $"{VoyageUtils.GetSubmarineExploration(x)?.FancyDestination()}").Print("\n"));
+                ImGui.PopFont();
             }
             else
             {
                 ImGuiEx.Text(Lang.IconWarning);
             }
-        }
-        else if(adata.VesselBehavior == VesselBehavior.Use_plan)
-        {
-            var plan = VoyageUtils.GetSubmarinePointPlanByGuid(adata.SelectedPointPlan);
-            var valid = plan != null && plan.Points.Count.InRange(1, 5, true);
-            var fast = plan != null && PlanMatchesPoints(plan.Points, adata.Points);
-            ImGuiEx.Text(valid ? (fast ? EColor.GreenBright : null) : EColor.RedBright, Lang.IconPlanner);
-            ImGui.PushFont(UiBuilder.DefaultFont);
-            // ImGuiEx.Tooltip 自己只在懸停時畫；先判懸停只是不要每幀替每個航點查表、解析 SeString。
-            if(valid && ImGui.IsItemHovered()) ImGuiEx.Tooltip(plan.Points.Select(x => $"{VoyageUtils.GetSubmarineExploration(x)?.FancyDestination()}").Print("\n"));
             ImGui.PopFont();
         }
-        else
-        {
-            ImGuiEx.Text(Lang.IconWarning);
-        }
-        ImGui.PopFont();
-        if(adata.IndexOverride > 0)
+        if(cols.IndexOverride && adata.IndexOverride > 0)
         {
             ImGui.SameLine();
             ImGuiEx.Text(ImGuiColors.DalamudGrey3, string.Format(Loc.T("Index override: {0}"), adata.IndexOverride));
@@ -656,51 +671,59 @@ internal static unsafe class WorkshopUI
         var end = ImGui.GetCursorPos();
         var p = vessel.GetRemainingSeconds() / (60f * 60f * 24f);
         if(vessel.ReturnTime != 0) Bars.Add((data.CID, Svc.PluginInterface.UiBuilder.FrameCount, start, end, vessel.ReturnTime == 0 ? 0 : p.ValidateRange(0f, 1f)));
-        ImGui.TableNextColumn();
-        ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
-        if(adata.Level > 0)
+        if(cols.Structure)
         {
-            var lvlf = 0;
-            if(adata.CurrentExp > 0 && adata.NextLevelExp > 0)
+            ImGui.TableNextColumn();
+            ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
+            if(adata.Level > 0)
             {
-                lvlf = (int)(adata.CurrentExp * 100f / adata.NextLevelExp);
-            }
-            ImGuiEx.TextV(GetVesselLevelText(adata.Level));
-            ImGui.SameLine(0, 0);
-            ImGuiEx.Text(ImGuiColors.DalamudGrey3, GetVesselExpText(lvlf));
-            ImGui.SameLine(0, 0);
-            var (buildText, moddedCount) = GetBuildDisplay(adata);
-            var buildColor = adata.IsUnoptimalBuild(out var justification) ? ImGuiColors.DalamudOrange
-                : moddedCount == 4 ? ImGuiColors.HealerGreen
-                : moddedCount > 0 ? ImGuiColors.DalamudYellow
-                : (Vector4?)null;
-            ImGuiEx.Text(buildColor, buildText);
-            if(justification != null)
-            {
-                ImGuiEx.Tooltip(justification);
+                var lvlf = 0;
+                if(adata.CurrentExp > 0 && adata.NextLevelExp > 0)
+                {
+                    lvlf = (int)(adata.CurrentExp * 100f / adata.NextLevelExp);
+                }
+                ImGuiEx.TextV(GetVesselLevelText(adata.Level));
+                ImGui.SameLine(0, 0);
+                ImGuiEx.Text(ImGuiColors.DalamudGrey3, GetVesselExpText(lvlf));
+                ImGui.SameLine(0, 0);
+                var (buildText, moddedCount) = GetBuildDisplay(adata);
+                var buildColor = adata.IsUnoptimalBuild(out var justification) ? ImGuiColors.DalamudOrange
+                    : moddedCount == 4 ? ImGuiColors.HealerGreen
+                    : moddedCount > 0 ? ImGuiColors.DalamudYellow
+                    : (Vector4?)null;
+                ImGuiEx.Text(buildColor, buildText);
+                if(justification != null)
+                {
+                    ImGuiEx.Tooltip(justification);
+                }
             }
         }
-        ImGui.TableNextColumn();
-        ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
+        if(cols.Voyage)
+        {
+            ImGui.TableNextColumn();
+            ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
 
-        if(vessel.ReturnTime == 0)
-        {
-            ImGuiEx.Text(Loc.T("No voyage"));
-        }
-        else
-        {
-            ImGuiEx.Text(GetRouteText(adata.Points));
-            ImGui.SameLine();
-            var texts = GetVesselTexts(data.CID, vessel.Name);
-            if(C.TimerAllowNegative)
+            if(vessel.ReturnTime == 0)
             {
-                ImGuiEx.Text(GetTimeText(texts, vessel.GetRemainingSeconds()));
+                ImGuiEx.Text(Loc.T("No voyage"));
             }
             else
             {
-                ImGuiEx.Text(vessel.GetRemainingSeconds() > 0 ? GetTimeText(texts, vessel.GetRemainingSeconds()) : Loc.T("Voyage completed"));
+                if(cols.Route)
+                {
+                    ImGuiEx.Text(GetRouteText(adata.Points));
+                    ImGui.SameLine();
+                }
+                var texts = GetVesselTexts(data.CID, vessel.Name);
+                if(C.TimerAllowNegative)
+                {
+                    ImGuiEx.Text(GetTimeText(texts, vessel.GetRemainingSeconds()));
+                }
+                else
+                {
+                    ImGuiEx.Text(vessel.GetRemainingSeconds() > 0 ? GetTimeText(texts, vessel.GetRemainingSeconds()) : Loc.T("Voyage completed"));
+                }
             }
-
         }
         ImGui.TableNextColumn();
         ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);

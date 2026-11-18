@@ -218,6 +218,10 @@ internal unsafe class Config
     /// <summary>軍票距離上限少於這個數就變色。撞上限會中斷繳交，
     /// 預設留 1000 張的緩衝。</summary>
     public int UIWarningGCSealsMargin = 1000;
+    /// <summary>主視窗各資訊頁的顯示項目；預設全部顯示。讀取一律走 <see cref="Display"/>。</summary>
+    public MainWindowDisplay UIDisplay = new();
+    /// <summary>JSON 裡寫成 null 時補回全部顯示的一份。非 public，不進存檔。</summary>
+    internal MainWindowDisplay Display => UIDisplay ??= new();
     public int TargetMSPTIdle = 0;
     public int TargetMSPTRunning = 0;
     public bool NoFPSLockWhenActive = true;

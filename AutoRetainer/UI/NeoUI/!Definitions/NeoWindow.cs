@@ -14,6 +14,7 @@ public sealed class NeoWindow : Window
     [
         new MainSettings(),
         new UserInterface(),
+        new DisplayItems(),
         new DeployablesTab(),
         new RetainersTab(),
         new Keybinds(),

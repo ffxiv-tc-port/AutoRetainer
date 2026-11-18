@@ -9,12 +9,20 @@ public static unsafe class RetainerTable
 {
     public static void Draw(OfflineCharacterData data, List<OfflineRetainerData> retainerData, Dictionary<(ulong CID, string Name), (Vector2 start, Vector2 end)> bars)
     {
-        if(ImGui.BeginTable("##retainertable", 5, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders))
+        // 欄數在 BeginTable 當下定案：開關存成區域變數，表格中途設定被改也不會讓欄數與 TableNextColumn 次數對不上。
+        var display = C.Display;
+        var showJob = display.RetTableJob;
+        var showVenture = display.RetTableVenture;
+        var showSlots = display.RetTableSlots;
+        var showExtraStats = C.ShowAdditionalInfo && display.RetExtraStats;
+        var showVentureName = C.ShowAdditionalInfo && display.RetExtraVentureName;
+        var columns = 2 + (showJob ? 1 : 0) + (showVenture ? 1 : 0) + (showSlots ? 1 : 0);
+        if(ImGui.BeginTable("##retainertable", columns, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders))
         {
             ImGui.TableSetupColumn(Loc.T("Name"), ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn(Loc.T("Job"));
-            ImGui.TableSetupColumn(Loc.T("Venture"));
-            ImGui.TableSetupColumn(Loc.T("Slots"));
+            if(showJob) ImGui.TableSetupColumn(Loc.T("Job"));
+            if(showVenture) ImGui.TableSetupColumn(Loc.T("Venture"));
+            if(showSlots) ImGui.TableSetupColumn(Loc.T("Slots"));
             ImGui.TableSetupColumn("");
             ImGui.TableHeadersRow();
             var retainers = P.GetSelectedRetainers(data.CID);
@@ -40,6 +48,7 @@ public static unsafe class RetainerTable
                         retainers.Remove(ret.Name.ToString());
                     }
                 }
+                if(display.RetIconEntrust)
                 {
                     var plan = FindEntrustPlan(adata.EntrustPlan);
                     if(plan != null)
@@ -69,7 +78,7 @@ public static unsafe class RetainerTable
                         }
                     }
                 }
-                if(adata.WithdrawGil)
+                if(adata.WithdrawGil && display.RetIconWithdrawGil)
                 {
                     ImGui.SameLine();
                     ImGui.PushFont(UiBuilder.IconFont);
@@ -77,7 +86,7 @@ public static unsafe class RetainerTable
                     ImGui.PopFont();
                 }
                 postVentureTaskDraw?.SendMessage(data.CID, ret.Name);
-                if(adata.IsVenturePlannerActive())
+                if(display.RetIconPlanner && adata.IsVenturePlannerActive())
                 {
                     ImGui.SameLine();
                     ImGui.PushFont(UiBuilder.IconFont);
@@ -92,76 +101,85 @@ public static unsafe class RetainerTable
                 }
                 var end = ImGui.GetCursorPos();
                 bars[(data.CID, ret.Name)] = (start, end);
-                ImGui.TableNextColumn();
-                ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
+                if(showJob)
+                {
+                    ImGui.TableNextColumn();
+                    ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
 
-                if(ThreadLoadImageHandler.TryGetIconTextureWrap(ret.Job == 0 ? 62143 : 062100 + ret.Job, true, out var t))
-                {
-                    ImGui.Image(t.Handle, new(24, 24));
-                }
-                else
-                {
-                    ImGui.Dummy(new(24, 24));
-                }
-                if(ret.Level > 0)
-                {
-                    ImGui.SameLine(0, 2);
-                    var cap = ret.Level < Player.MaxLevel && data.GetJobLevel(ret.Job) == ret.Level;
-                    if(cap) ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.DalamudRed);
-                    ImGuiEx.TextV(GameFontLevel(ret.Level));
-                    if(!cap && ret.Level < Player.MaxLevel)
+                    if(ThreadLoadImageHandler.TryGetIconTextureWrap(ret.Job == 0 ? 62143 : 062100 + ret.Job, true, out var t))
                     {
-                        ImGui.SameLine(0, 0);
-                        ImGuiEx.TextV("/");
-                        ImGui.SameLine(0, 0);
-                        ImGuiEx.TextV(GameFontNumber(data.GetJobLevel(ret.Job)));
-                    }
-                    if(cap) ImGui.PopStyleColor();
-                    // 附加資訊只在開關開著時才畫，字串也只在那時才組。
-                    if(C.ShowAdditionalInfo)
-                    {
-                        var add = "";
-                        if(adata.Ilvl > -1 && !VentureUtils.IsDoL(ret.Job))
-                        {
-                            add += $"{Lang.CharItemLevel}{adata.Ilvl}";
-                        }
-                        if((adata.Gathering > -1 || adata.Perception > -1) && VentureUtils.IsDoL(ret.Job))
-                        {
-                            add += $"{Lang.CharPlant}{adata.Gathering}/{adata.Perception}";
-                        }
-                        if(add != "")
-                        {
-                            ImGui.SameLine();
-                            ImGuiEx.Text(add);
-                        }
-                    }
-                }
-                ImGui.TableNextColumn();
-                ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
-                if(ret.VentureID != 0 && C.ShowAdditionalInfo)
-                {
-                    var venture = VentureUtils.GetVentureById(ret.VentureID);
-                    if(venture == null)
-                    {
-                        // 委託 ID 查不到對應資料列時把 ID 直接顯示出來，不要讓 Draw 擲例外。
-                        ImGuiEx.Text($"?{ret.VentureID}");
-                        ImGui.SameLine();
+                        ImGui.Image(t.Handle, new(24, 24));
                     }
                     else
                     {
-                        var parts = venture.Value.GetFancyVentureNameParts(data, ret, out _);
-                        if(!parts.Name.IsNullOrEmpty())
+                        ImGui.Dummy(new(24, 24));
+                    }
+                    if(ret.Level > 0)
+                    {
+                        ImGui.SameLine(0, 2);
+                        var cap = ret.Level < Player.MaxLevel && data.GetJobLevel(ret.Job) == ret.Level;
+                        if(cap) ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.DalamudRed);
+                        ImGuiEx.TextV(GameFontLevel(ret.Level));
+                        if(!cap && ret.Level < Player.MaxLevel)
                         {
-                            var c = parts.YieldRate == 4 ? ImGuiColors.ParsedGreen : ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
-                            ImGuiEx.Text(c, $"{(parts.Level != 0 ? $"{Lang.CharLevel}{parts.Level} " : "")}{parts.Name}");
-                            ImGui.SameLine();
+                            ImGui.SameLine(0, 0);
+                            ImGuiEx.TextV("/");
+                            ImGui.SameLine(0, 0);
+                            ImGuiEx.TextV(GameFontNumber(data.GetJobLevel(ret.Job)));
+                        }
+                        if(cap) ImGui.PopStyleColor();
+                        // 附加資訊只在開關開著時才畫，字串也只在那時才組。
+                        if(showExtraStats)
+                        {
+                            var add = "";
+                            if(adata.Ilvl > -1 && !VentureUtils.IsDoL(ret.Job))
+                            {
+                                add += $"{Lang.CharItemLevel}{adata.Ilvl}";
+                            }
+                            if((adata.Gathering > -1 || adata.Perception > -1) && VentureUtils.IsDoL(ret.Job))
+                            {
+                                add += $"{Lang.CharPlant}{adata.Gathering}/{adata.Perception}";
+                            }
+                            if(add != "")
+                            {
+                                ImGui.SameLine();
+                                ImGuiEx.Text(add);
+                            }
                         }
                     }
                 }
-                ImGuiEx.Text(!ret.HasVenture ? Loc.T("No Venture") : GetTimeText(texts, ret.GetVentureSecondsRemaining(C.TimerAllowNegative)));
-                ImGui.TableNextColumn();
-                ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
-                DrawInventorySlots(ret);
+                if(showVenture)
+                {
+                    ImGui.TableNextColumn();
+                    ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
+                    if(ret.VentureID != 0 && showVentureName)
+                    {
+                        var venture = VentureUtils.GetVentureById(ret.VentureID);
+                        if(venture == null)
+                        {
+                            // 委託 ID 查不到對應資料列時把 ID 直接顯示出來，不要讓 Draw 擲例外。
+                            ImGuiEx.Text($"?{ret.VentureID}");
+                            ImGui.SameLine();
+                        }
+                        else
+                        {
+                            var parts = venture.Value.GetFancyVentureNameParts(data, ret, out _);
+                            if(!parts.Name.IsNullOrEmpty())
+                            {
+                                var c = parts.YieldRate == 4 ? ImGuiColors.ParsedGreen : ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
+                                ImGuiEx.Text(c, $"{(parts.Level != 0 ? $"{Lang.CharLevel}{parts.Level} " : "")}{parts.Name}");
+                                ImGui.SameLine();
+                            }
+                        }
+                    }
+                    ImGuiEx.Text(!ret.HasVenture ? Loc.T("No Venture") : GetTimeText(texts, ret.GetVentureSecondsRemaining(C.TimerAllowNegative)));
+                }
+                if(showSlots)
+                {
+                    ImGui.TableNextColumn();
+                    ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
+                    DrawInventorySlots(ret);
+                }
                 ImGui.TableNextColumn();
                 ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, 0);
                 var n = texts.SettingsPopup;
