@@ -1,6 +1,7 @@
 ﻿using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Hooking;
+using Dalamud.Plugin.Services;
 using Dalamud.Utility;
 using Dalamud.Utility.Signatures;
 using ECommons.Interop;
@@ -67,6 +68,16 @@ public unsafe class QuickSellItems : IDisposable
     private long lastNotReadyLogAt;
     private int notReadySinceLog;
 
+    /// <summary>被「選單還沒收乾淨」擋下的那一下最多再等多久補送（毫秒）。</summary>
+    private const long RetryWindowMs = 1000;
+
+    /// <summary>
+    /// 被守衛擋下的那一下右鍵。只存 ID 與數值；<see cref="Addon"/> 只做等值比較、不解參。
+    /// 契約：只來自使用者剛按的那一下、最多補送一次；任何一次右鍵（有沒有按快捷鍵都算）都會先把它清掉。
+    /// </summary>
+    private readonly record struct PendingRetry(InventoryType Inventory, ushort Slot, uint ItemId, int Quantity, string ActionText, nint Addon, long QueuedAt);
+    private PendingRetry? pendingRetry;
+
     public QuickSellItems()
     {
         //5480	Have Retainer Sell Items
@@ -80,6 +91,7 @@ public unsafe class QuickSellItems : IDisposable
         Svc.Hook.InitializeFromAttributes(this);
         if(openInventoryContextHook == null) PluginLog.Warning("[AutoRetainer] 特徵碼對不上（openInventoryContextHook）：按住快捷鍵右鍵道具直接出售／存入／取回的功能停用。");
         Toggle();
+        Svc.Framework.Update += RetryTick;
     }
 
     public void Enable()
@@ -162,6 +174,7 @@ public unsafe class QuickSellItems : IDisposable
         InternalLog.Verbose($"Inventory hook: {inventoryType}, {slot}");
         try
         {
+            DropPendingRetry("又右鍵了一次");
             if(CanSellFrom.Contains(inventoryType) && IsReadyToUse() && GetAction(out var text))
             {
                 // 原函式開頭的「封鎖格」檢查成立時直接返回、不重建選單，detour 照樣被呼叫 ⇒ 選單是上一次的，不選。
@@ -227,9 +240,8 @@ public unsafe class QuickSellItems : IDisposable
                                     if(!DialogGuards.TryPressOnce("ContextMenu", (nint)addon, "QuickSell"))
                                     {
                                         DebugLog($"QRA skipped {i}:{contextItemName}: same ContextMenu still closing");
-                                        // 使用者踩到這條時的現象是「按了沒反應」：原函式已經跑完，遊戲自己的右鍵選單
-                                        // 就留在畫面上（上面正好是「到市場出售／委託僱員出售物品」兩項），很容易被讀成
-                                        // 「外掛選錯項目」。要使用者回報的診斷：每 3 秒最多一行、附累計次數。
+                                        // 不丟棄：記下這一格，等守衛放行後由 RetryTick 補送一次（送前重驗）。
+                                        pendingRetry = new(inventoryType, slot, itemId, itemSlot->Quantity, contextItemName, (nint)addon, Environment.TickCount64);
                                         skippedSinceLog++;
                                         var now = Environment.TickCount64;
                                         if(now - lastSkipLogAt >= SkipLogIntervalMs)
@@ -237,29 +249,12 @@ public unsafe class QuickSellItems : IDisposable
                                             lastSkipLogAt = now;
                                             // FramesSincePress 只做位址等值比較、不解參；-1 代表記號剛好在這一瞬間被解除。
                                             var since = DialogGuards.FramesSincePress("ContextMenu", (nint)addon);
-                                            PluginLog.Information($"QuickSellItems:上一扇道具選單還沒收乾淨(距上次送出 {since} 幀),這次右鍵沒有自動選「{contextItemName}」,遊戲自己的選單會留在畫面上。近期累計 {skippedSinceLog} 次;等選單關掉再按即可。");
+                                            PluginLog.Information($"QuickSellItems:上一扇道具選單還沒收乾淨(距上次送出 {since} 幀),「{contextItemName}」先排隊,選單可以再送時補送(最多等 {RetryWindowMs} 毫秒)。近期累計 {skippedSinceLog} 次。");
                                             skippedSinceLog = 0;
                                         }
                                         return retVal;
                                     }
-                                    // 🔑 直接問原生端: FireCallback 的回傳值語意是「我有沒有替你把窗關掉」。
-                                    // 回 true ⇒ 窗已經被原生端關掉 ⇒ 這一輪什麼都不再碰; 回 false ⇒ 原生端沒關 ⇒ 補上 Hide＋Close 那兩發(選單照樣會被收掉)。
-                                    // 🔴 這裡刻意不用「下一輪重新解位址再關」那種形狀(Bank 那條路徑用的是它):這裡在 hook detour 內,沒有下一輪。
-                                    // 值的型別、數量與順序與 Callback.Fire(addon, true, 0, i, 0U, 0, 0) 逐格相同;用 CS 的 FireCallback 純粹是為了拿到回傳值。
-                                    var values = stackalloc AtkValue[]
-                                    {
-                                        new() { Type = ValueType.Int, Int = 0 },
-                                        new() { Type = ValueType.Int, Int = i },
-                                        new() { Type = ValueType.UInt, UInt = 0 },
-                                        new() { Type = ValueType.Int, Int = 0 },
-                                        new() { Type = ValueType.Int, Int = 0 },
-                                    };
-                                    var closedByGame = addon->FireCallback(5, values, true);
-                                    if(!closedByGame)
-                                    {
-                                        agent->AgentInterface.Hide();
-                                        addon->Close(true);
-                                    }
+                                    var closedByGame = SelectContextItem(agent, addon, i);
                                     DebugLog($"QRA Selected {i}:{contextItemName}");
                                     // 「已」是常態，只寫 Debug；「未」＝走上面補關窗的後備路徑，罕見而值得看見，留 Information。
                                     if(closedByGame)
@@ -280,6 +275,110 @@ public unsafe class QuickSellItems : IDisposable
         }
 
         return retVal;
+    }
+
+    /// <summary>送出道具選單第 <paramref name="index"/> 項；回傳原生端有沒有替我們關掉選單。呼叫前必須已過 <see cref="DialogGuards.TryPressOnce"/>。</summary>
+    private static bool SelectContextItem(AgentInventoryContext* agent, AtkUnitBase* addon, int index)
+    {
+        // 🔑 FireCallback 的回傳值語意是「我有沒有替你把窗關掉」：回 false 才補上 Hide＋Close。
+        // 🔴 刻意不用「下一輪重新解位址再關」那種形狀：hook detour 內沒有下一輪。
+        // 值的型別、數量與順序與 Callback.Fire(addon, true, 0, i, 0U, 0, 0) 逐格相同；用 CS 的 FireCallback 純粹是為了拿到回傳值。
+        var values = stackalloc AtkValue[]
+        {
+            new() { Type = ValueType.Int, Int = 0 },
+            new() { Type = ValueType.Int, Int = index },
+            new() { Type = ValueType.UInt, UInt = 0 },
+            new() { Type = ValueType.Int, Int = 0 },
+            new() { Type = ValueType.Int, Int = 0 },
+        };
+        var closedByGame = addon->FireCallback(5, values, true);
+        if(!closedByGame)
+        {
+            agent->AgentInterface.Hide();
+            addon->Close(true);
+        }
+        return closedByGame;
+    }
+
+    private void DropPendingRetry(string reason)
+    {
+        if(pendingRetry is not { } p) return;
+        pendingRetry = null;
+        PluginLog.Information($"QuickSellItems:放棄補送「{p.ActionText}」({reason}),這次右鍵沒有自動選,遊戲自己的選單會留在畫面上;等選單關掉再按即可。");
+    }
+
+    /// <summary>
+    /// 每幀：有排隊中的那一下就重驗並在守衛放行時補送。沒有排隊時只是一個判空。
+    /// 「等一下」與「放棄」分開：選單暫時沒就緒／守衛還沒放行＝等；目標格、道具、數量、選單或選項對不上＝當場放棄。
+    /// </summary>
+    private void RetryTick(IFramework _)
+    {
+        if(pendingRetry is not { } p) return;
+        try
+        {
+            var elapsed = Environment.TickCount64 - p.QueuedAt;
+            if(elapsed > RetryWindowMs)
+            {
+                DropPendingRetry($"等了 {elapsed} 毫秒選單仍不能送");
+                return;
+            }
+            if(!IsReadyToUse()) return;
+            var agent = AgentInventoryContext.Instance();
+            if(agent == null) return;
+            if(agent->TargetInventoryId != p.Inventory || agent->TargetInventorySlotId != p.Slot)
+            {
+                DropPendingRetry($"選單已換成 {agent->TargetInventoryId}#{agent->TargetInventorySlotId}");
+                return;
+            }
+            var im = InventoryManager.Instance();
+            var container = im == null ? null : im->GetInventoryContainer(p.Inventory);
+            var itemSlot = container == null ? null : container->GetInventorySlot(p.Slot);
+            if(itemSlot == null || itemSlot->ItemId != p.ItemId || itemSlot->Quantity != p.Quantity)
+            {
+                DropPendingRetry("那一格的道具或數量變了");
+                return;
+            }
+            var addonId = agent->AgentInterface.GetAddonId();
+            if(addonId == 0) return;
+            var stage = AtkStage.Instance();
+            if(stage == null || stage->RaptureAtkUnitManager == null) return;
+            var addon = stage->RaptureAtkUnitManager->GetAddonById((ushort)addonId);
+            if(addon == null) return;
+            if((nint)addon != p.Addon)
+            {
+                DropPendingRetry("道具選單換了一扇");
+                return;
+            }
+            if(!IsAddonReady(addon)) return;
+            var index = -1;
+            for(var i = 0; i < agent->ContextItemCount; i++)
+            {
+                var param = agent->EventParams[agent->ContexItemStartIndex + i];
+                if(param.Type != ValueType.String) continue;
+                if(param.String.ExtractText() != p.ActionText) continue;
+                if(Bitmask.IsBitSet(agent->ContextItemDisabledMask, i))
+                {
+                    DropPendingRetry("該選項現在是停用的");
+                    return;
+                }
+                index = i;
+                break;
+            }
+            if(index < 0)
+            {
+                DropPendingRetry("選單上已經沒有這一項");
+                return;
+            }
+            if(!DialogGuards.TryPressOnce("ContextMenu", (nint)addon, "QuickSell")) return;
+            pendingRetry = null;
+            var closedByGame = SelectContextItem(agent, addon, index);
+            PluginLog.Information($"QuickSellItems:補送「{p.ActionText}」成功(排隊後 {elapsed} 毫秒;原生端{(closedByGame ? "已" : "未")}替我們關閉選單)");
+        }
+        catch(Exception ex)
+        {
+            pendingRetry = null;
+            ex.Log();
+        }
     }
 
     public void Disable()
@@ -305,6 +404,8 @@ public unsafe class QuickSellItems : IDisposable
 
     public void Dispose()
     {
+        Svc.Framework.Update -= RetryTick;
+        pendingRetry = null;
         openInventoryContextHook?.Dispose();
     }
 }
