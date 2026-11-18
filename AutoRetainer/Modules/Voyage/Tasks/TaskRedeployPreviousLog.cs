@@ -1,4 +1,5 @@
 ﻿using AutoRetainer.Internal;
+using AutoRetainer.Services;
 using AutoRetainerAPI.Configuration;
 using Dalamud.Memory;
 using FFXIVClientStructs.FFXIV.Component.GUI;
@@ -37,6 +38,7 @@ internal static unsafe class TaskRedeployPreviousLog
                     {
                         P.TaskManager.Abort();
                         DuoLog.Warning($"[Voyage] You are out of fuel!");
+                        S.AnomalyWindow?.Add(string.Format(Loc.T("Not enough ceruleum tanks to send the vessel out (need {0}, have {1}). {2}"), req, have, AnomalyWindow.FailActionText(C.FailureNoFuel)));
                         if(C.FailureNoFuel == WorkshopFailAction.ExcludeChar)
                         {
                             Data.WorkshopEnabled = false;

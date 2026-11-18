@@ -254,6 +254,7 @@ internal static unsafe partial class MultiMode
                 {
                     Svc.GameConfig.Set(SystemConfigOption.AutoAfkSwitchingTime, 0u);
                     DuoLog.Warning($"Your Auto Afk Switching Time option was incompatible with current AutoRetainer configuration and was set to (Never). This is not an error.");
+                    S.AnomalyWindow?.Add(Loc.T("The game option \"Switch to AFK status after a set time\" was incompatible with AutoRetainer and has been set to never. This is not an error."));
                 }
             }
         }
@@ -264,6 +265,7 @@ internal static unsafe partial class MultiMode
                 {
                     Svc.GameConfig.Set(SystemConfigOption.IdlingCameraAFK, 0u);
                     DuoLog.Warning($"Your Idling Camera AFK option was incompatible with current AutoRetainer configuration and was set to (Disabled). This is not an error.");
+                    S.AnomalyWindow?.Add(Loc.T("The game option \"Start idle camera when AFK\" was incompatible with AutoRetainer and has been turned off. This is not an error."));
                 }
             }
         }
@@ -322,12 +324,15 @@ internal static unsafe partial class MultiMode
                 {
                     data.Enabled = false;
                     data.WorkshopEnabled = false;
+                    S.AnomalyWindow?.Add(Loc.T("Too many interaction errors within a minute. This character was excluded from retainers and deployables."));
                     DuoLog.Warning("Too many errors, current character is excluded.");
                     Interactions.Clear();
                     return;
                 }
                 else
                 {
+                    // 排在 SetEnabled(false) 之前：異常視窗只在多角色模式開著時才收這一筆。
+                    S.AnomalyWindow?.Add(Loc.T("Too many interaction errors within a minute. Multi Mode was disabled."));
                     SetEnabled(false, "短時間內錯誤過多（Fatal error）", MultiModeChangeCause.AutoRetainer);
                     data.WorkshopEnabled = false;
                     DuoLog.Error("Fatal error. Please report this with logs.");
@@ -346,6 +351,8 @@ internal static unsafe partial class MultiMode
                 {
                     if(C.OfflineData.TryGetFirst(x => x.CID == Svc.PlayerState.ContentId, out var data))
                     {
+                        // 只在「開著→關掉」那一刻記一筆：這段每幀都會走到。
+                        if(data.Enabled) S.AnomalyWindow?.Add(string.Format(Loc.T("Not enough free inventory space ({0} free, at least {1} required), so retainers were disabled for this character."), Utils.GetInventoryFreeSlotCount(), C.MultiMinInventorySlots));
                         data.Enabled = false;
                     }
                 }
@@ -458,6 +465,7 @@ internal static unsafe partial class MultiMode
             TaskNeoHET.TryEnterWorkshop(() =>
             {
                 Data.Enabled = false;
+                S.AnomalyWindow?.Add(Loc.T("No summoning bell nearby and the company workshop could not be found. This character was excluded from retainers."));
                 DuoLog.Error($"Due to absence of retainer bell and failure to find workshop, character is excluded from processing retainers");
                 P.TaskManager.Abort();
             });

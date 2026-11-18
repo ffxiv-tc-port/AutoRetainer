@@ -22,4 +22,5 @@ public static class AutoRetainerServiceManager
     public static AddonWatcher AddonWatcher;
     public static DataMigrator DataMigrator;
     public static FCHousingNotifier FCHousingNotifier;
+    public static AnomalyWindow AnomalyWindow;
 }

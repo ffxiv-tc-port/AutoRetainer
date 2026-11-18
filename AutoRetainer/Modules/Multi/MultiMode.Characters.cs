@@ -354,10 +354,23 @@ internal static unsafe partial class MultiMode
             // 「探險幣不夠」與「背包滿」會同時假成立。讀不到就先不剔除，下一幀讀得到時照樣會執行。
             if(!ro && Utils.IsInventoryStateReadable())
             {
+                if(data.Enabled) ReportValidityFailure(data);
                 data.Enabled = false;
             }
         }
         return false;
+    }
+
+    /// <summary>上面四個條件逐項列給異常視窗；只在失敗分支呼叫，平常的判斷維持短路求值。</summary>
+    private static void ReportValidityFailure(OfflineCharacterData data)
+    {
+        static string YesNo(bool b) => b ? Loc.T("Yes") : Loc.T("No");
+        var ventures = Utils.GetVenturesAmount();
+        var needed = data.GetNeededVentureAmount();
+        var free = Utils.GetInventoryFreeSlotCount();
+        S.AnomalyWindow?.Add(string.Format(Loc.T("Character check failed, so retainers were disabled for this character.\nOn home world: {0}\nEnough ventures: {1} (have {2}, need {3})\nEnough free inventory space: {4} ({5} free, need {6})\nSummoning bell in reach: {7}"),
+            YesNo(Svc.Objects.LocalPlayer.HomeWorld.RowId == Svc.Objects.LocalPlayer.CurrentWorld.RowId), YesNo(ventures >= needed), ventures, needed,
+            YesNo(Utils.IsInventoryFree()), free, C.MultiMinInventorySlots, YesNo(Utils.GetReachableRetainerBell(true) != null)));
     }
 
     internal static int GetNeededVentureAmount(this OfflineCharacterData data)

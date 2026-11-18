@@ -2,6 +2,7 @@
 using AutoRetainer.Modules.Voyage.PartSwapper;
 using AutoRetainer.Modules.Voyage.Tasks;
 using AutoRetainer.Modules.Voyage.VoyageCalculator;
+using AutoRetainer.Services;
 using AutoRetainerAPI.Configuration;
 using Dalamud.Game.Text.SeStringHandling;
 using ECommons.Throttlers;
@@ -30,6 +31,7 @@ internal static unsafe class VoyageMain
             if(txt == Lang.VoyageInventoryError)
             {
                 DuoLog.Warning($"[Voyage] Your inventory is full!");
+                S.AnomalyWindow?.Add(Loc.T("Inventory is full and voyage rewards cannot be received.") + " " + AnomalyWindow.FailActionText(C.FailureNoInventory));
                 VoyageScheduler.Enabled = false;
                 P.TaskManager.Abort();
                 P.TaskManager.Enqueue(VoyageScheduler.SelectQuitVesselSelectorMenu);
@@ -48,6 +50,7 @@ internal static unsafe class VoyageMain
             {
                 TaskRepairAll.Abort = true;
                 DuoLog.Warning($"[Voyage] You are out of repair components!");
+                S.AnomalyWindow?.Add(string.Format(Loc.T("Out of repair materials, could not repair {0}."), TaskRepairAll.Name) + " " + AnomalyWindow.FailActionText(C.FailureNoRepair));
                 if(C.FailureNoRepair == WorkshopFailAction.ExcludeVessel)
                 {
                     Data.GetEnabledVesselsData(TaskRepairAll.Type).Remove(TaskRepairAll.Name);
