@@ -21,7 +21,7 @@ public class EntrustManager : InventoryManagemenrBase
         ImGuiEx.HelpMarker(Loc.T("Minimum spacing between two entrust commands. The plugin already waits for each item to actually leave your inventory before sending the next one, so this is only a lower bound on top of that wait - it never allows two commands to be in flight at once.\n\nLowering it makes entrusting faster, but a value below the round trip to the server buys nothing, and a very low value may get commands dropped by the server. Raise it if you see items being skipped or \"no inventory change\" messages in the log."));
         var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == SelectedGuid);
 
-        ImGuiEx.InputWithRightButtonsArea(() =>
+        ImGuiEx.InputWithRightButtonsArea("AutoRetainerEntrustPlanSelect", () =>
         {
             if(ImGui.BeginCombo($"##select", selectedPlan?.Name ?? Loc.T("Select plan..."), ImGuiComboFlags.HeightLarge))
             {

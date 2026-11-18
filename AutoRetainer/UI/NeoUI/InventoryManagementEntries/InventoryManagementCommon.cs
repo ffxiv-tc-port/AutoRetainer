@@ -149,7 +149,7 @@ public static unsafe class InventoryManagementCommon
                             }
                         });
                     }
-                    var draw = ImGuiEx.Pagination([.. actions], 100, 10);
+                    var draw = ImGuiEx.Pagination("AutoRetainerIMItemPicker", [.. actions], 100, 10);
                     ImGuiEx.EzTableColumns("cols", draw, Math.Max(1, (int)ImGui.GetContentRegionAvail().X / 150));
                 }
                 if(ImGuiEx.IconButtonWithText(FontAwesomeIcon.PlusSquare, Loc.T("Add these items to list"), ImGuiEx.Ctrl))

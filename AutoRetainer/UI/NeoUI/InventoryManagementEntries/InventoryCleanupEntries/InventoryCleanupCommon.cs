@@ -42,7 +42,7 @@ public static unsafe class InventoryCleanupCommon
     public static void DrawPlanSelector()
     {
         var selectedPlan = C.AdditionalIMSettings.FirstOrDefault(x => x.GUID == SelectedPlanGuid);
-        ImGuiEx.InputWithRightButtonsArea(() =>
+        ImGuiEx.InputWithRightButtonsArea("AutoRetainerCleanupPlanSelect", () =>
         {
             if(ImGui.BeginCombo("##selimplan", selectedPlan?.DisplayName ?? Loc.T("Default Plan")))
             {

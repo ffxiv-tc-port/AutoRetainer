@@ -47,7 +47,7 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
             """));
 
         var selectedPlan = C.AdditionalGCExchangePlans.FirstOrDefault(x => x.GUID == SelectedPlanGuid);
-        ImGuiEx.InputWithRightButtonsArea(() =>
+        ImGuiEx.InputWithRightButtonsArea("AutoRetainerGCExchangePlanSelect", () =>
         {
             if(ImGui.BeginCombo("##selplan", selectedPlan?.DisplayName ?? Loc.T("Default Plan")))
             {
@@ -227,7 +227,7 @@ public sealed unsafe class ExchangeLists : InventoryManagemenrBase
         ImGuiEx.SetNextItemFullWidth();
         if(ImGui.BeginCombo("##Add Items", Loc.T("Add Items"), ImGuiComboFlags.HeightLarge))
         {
-            ImGuiEx.InputWithRightButtonsArea(() =>
+            ImGuiEx.InputWithRightButtonsArea("AutoRetainerGCExchangeAddItemsFilter", () =>
             {
                 ImGui.InputTextWithHint("##filter2", Loc.T("Search..."), ref getFilter2(), 100);
             }, () =>
