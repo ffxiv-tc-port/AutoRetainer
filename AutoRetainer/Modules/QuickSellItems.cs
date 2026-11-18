@@ -68,8 +68,8 @@ public unsafe class QuickSellItems : IDisposable
     private long lastNotReadyLogAt;
     private int notReadySinceLog;
 
-    /// <summary>被「選單還沒收乾淨」擋下的那一下最多再等多久補送（毫秒）。</summary>
-    private const long RetryWindowMs = 1000;
+    /// <summary>被「選單還沒收乾淨」擋下的那一下最多再等多久補送（毫秒）；守衛逃生口按幀數算，低幀率時 1 秒常趕不上。與 Marketbuddy 快速上架同值。</summary>
+    private const long RetryWindowMs = 1500;
 
     /// <summary>
     /// 被守衛擋下的那一下右鍵。只存 ID 與數值；<see cref="Addon"/> 只做等值比較、不解參。
