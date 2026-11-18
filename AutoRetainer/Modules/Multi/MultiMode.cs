@@ -334,7 +334,8 @@ internal static unsafe partial class MultiMode
                     // 排在 SetEnabled(false) 之前：異常視窗只在多角色模式開著時才收這一筆。
                     S.AnomalyWindow?.Add(Loc.T("Too many interaction errors within a minute. Multi Mode was disabled."));
                     SetEnabled(false, "短時間內錯誤過多（Fatal error）", MultiModeChangeCause.AutoRetainer);
-                    data.WorkshopEnabled = false;
+                    // 找不到目前角色的資料時 data 是 null（TryGetFirst 失敗）；在 Framework.Update 裡擲 NRE 會連帶跳過同一幀其他處理器。
+                    if(data != null) data.WorkshopEnabled = false;
                     DuoLog.Error("Fatal error. Please report this with logs.");
                     Interactions.Clear();
                     return;
