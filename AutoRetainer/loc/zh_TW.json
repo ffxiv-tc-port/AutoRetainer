@@ -1149,5 +1149,10 @@
   "Index override note": "索引覆寫標示",
   "Progress bar behind each vessel": "每艘航行器後方的進度條",
   "Statistics tab": "統計資訊分頁",
-  "FC Data columns:": "公會資訊欄位："
+  "FC Data columns:": "公會資訊欄位：",
+  "Never enter houses on characters that have neither retainers nor deployables enabled": "僱員與遠航探索都沒啟用的角色不自動進入房屋",
+  "Applies to entering the house on login while Multi Mode is disabled and to entering the house when Multi Mode is turned on.": "適用於「多角色模式停用時登入就進入房屋」與「開啟多角色模式時進入房屋」兩種情況。",
+  "Column G: gil": "G 欄：Gil",
+  "Shows the character's gil (as last seen by AutoRetainer) on the right of each character row in the Retainers and Deployables tabs; it turns into the warning color below the gil warning value. Off by default.": "在僱員管理與遠航探索分頁的每個角色列右側顯示該角色的 Gil（AutoRetainer 最後一次看到的數量）；低於 Gil 警告值時改用警告色。預設關閉。",
+  "Both lists: remaining gil warning": "兩個清單：剩餘 Gil 警告"
 }

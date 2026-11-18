@@ -36,7 +36,7 @@ internal static unsafe class WorkshopUI
         overlayTexts.Clear();
         // 右側狀態欄的欄數一幀只讀一次（理由同 MultiModeUI.Draw）：同一幀各列欄數不同會讓 DrawOverlayTexts 的欄寬錯位。
         var display = C.Display;
-        var statusColumns = (display.DepColRepair, display.DepColCeruleum, display.DepColInventory);
+        var statusColumns = (display.DepColRepair, display.DepColCeruleum, display.DepColInventory, C.UIShowGilColumn);
         List<OfflineCharacterData> sortedData;
         if(C.NoCurrentCharaOnTop)
         {
@@ -369,29 +369,32 @@ internal static unsafe class WorkshopUI
         return best;
     }
 
-    /// <summary>角色列右側 R／C／I 三欄（各自可關）的字串；數值、警示判定與開關都沒變就沿用上一幀那一份。只給繪製執行緒用。</summary>
-    internal static (bool Warning, string Text, bool Unknown, string Tooltip)[] GetStatusTexts(OfflineCharacterData data, (bool Repair, bool Ceruleum, bool Inventory) show)
+    /// <summary>角色列右側 G／R／C／I 欄（各自可關，G 預設關）的字串；數值、警示判定與開關都沒變就沿用上一幀那一份。只給繪製執行緒用。</summary>
+    internal static (bool Warning, string Text, bool Unknown, string Tooltip)[] GetStatusTexts(OfflineCharacterData data, (bool Repair, bool Ceruleum, bool Inventory, bool Gil) show)
     {
         var repairWarning = data.RepairKits < C.UIWarningDepRepairNum;
         var tanksWarning = data.Ceruleum < C.UIWarningDepTanksNum;
         var slotWarning = data.InventorySpace < C.UIWarningDepSlotNum;
+        var gilWarning = data.Gil < C.UIWarningGil;
         if(StatusTexts.TryGetValue(data.CID, out var e)
             && e.RepairKits == data.RepairKits && e.Ceruleum == data.Ceruleum && e.InventorySpace == data.InventorySpace
             && e.RepairWarning == repairWarning && e.TanksWarning == tanksWarning && e.SlotWarning == slotWarning
+            && e.Gil == data.Gil && e.GilWarning == gilWarning
             && e.Show == show)
         {
             return e.Texts;
         }
-        var built = new (bool Warning, string Text, bool Unknown, string Tooltip)[(show.Repair ? 1 : 0) + (show.Ceruleum ? 1 : 0) + (show.Inventory ? 1 : 0)];
+        var built = new (bool Warning, string Text, bool Unknown, string Tooltip)[(show.Gil ? 1 : 0) + (show.Repair ? 1 : 0) + (show.Ceruleum ? 1 : 0) + (show.Inventory ? 1 : 0)];
         var k = 0;
+        if(show.Gil) built[k++] = (gilWarning, $"G: {Utils.FormatGil(data.Gil)}", false, null);
         if(show.Repair) built[k++] = (repairWarning, $"R: {data.RepairKits}", false, null);
         if(show.Ceruleum) built[k++] = (tanksWarning, $"C: {data.Ceruleum}", false, null);
         if(show.Inventory) built[k++] = (slotWarning, $"I: {data.InventorySpace}", false, null);
-        StatusTexts[data.CID] = new(data.RepairKits, data.Ceruleum, data.InventorySpace, repairWarning, tanksWarning, slotWarning, show, built);
+        StatusTexts[data.CID] = new(data.RepairKits, data.Ceruleum, data.InventorySpace, repairWarning, tanksWarning, slotWarning, data.Gil, gilWarning, show, built);
         return built;
     }
 
-    private readonly record struct StatusTextsEntry(int RepairKits, int Ceruleum, uint InventorySpace, bool RepairWarning, bool TanksWarning, bool SlotWarning, (bool Repair, bool Ceruleum, bool Inventory) Show, (bool Warning, string Text, bool Unknown, string Tooltip)[] Texts);
+    private readonly record struct StatusTextsEntry(int RepairKits, int Ceruleum, uint InventorySpace, bool RepairWarning, bool TanksWarning, bool SlotWarning, uint Gil, bool GilWarning, (bool Repair, bool Ceruleum, bool Inventory, bool Gil) Show, (bool Warning, string Text, bool Unknown, string Tooltip)[] Texts);
 
     // 以下快取只給繪製執行緒用。內容都是原本那一行運算式第一次算出來的，輸入不變就沿用同一個字串。
     private sealed class VesselTexts

@@ -26,6 +26,7 @@ public sealed class DisplayItems : NeoUIEntry
         .Checkbox(Loc.T("Column C: Multi Mode login counter"), () => ref C.Display.RetColCharaCount, Loc.T("Only appears while Multi Mode is on and character equalization is enabled."))
         .Checkbox(Loc.T("Column V: ventures"), () => ref C.Display.RetColVentures)
         .Checkbox(Loc.T("Column I: inventory space") + Ret, () => ref C.Display.RetColInventory)
+        .Checkbox(Loc.T("Column G: gil") + " *" + Ret, () => ref C.UIShowGilColumn, Loc.T("Shows the character's gil (as last seen by AutoRetainer) on the right of each character row in the Retainers and Deployables tabs; it turns into the warning color below the gil warning value. Off by default."))
         .Checkbox(Loc.T("Show allowance columns in character list") + " *", () => ref C.UIShowAllowances, Loc.T("Adds four columns to every character row: S = Grand Company seals, L = levequest allowances, D = custom delivery allowances left this week, T = limited tomestones acquired this week. A grey question mark means AutoRetainer has not managed to read that value on that character yet - it is filled in automatically shortly after logging in. A grey dash on the seal column means the character has not joined a Grand Company. Hover a column for the time it was sampled."))
         .If(() => C.UIShowAllowances)
         .Indent()
@@ -66,6 +67,7 @@ public sealed class DisplayItems : NeoUIEntry
         .Checkbox(Loc.T("Column R: repair kits"), () => ref C.Display.DepColRepair)
         .Checkbox(Loc.T("Column C: ceruleum tanks"), () => ref C.Display.DepColCeruleum)
         .Checkbox(Loc.T("Column I: inventory space") + Dep, () => ref C.Display.DepColInventory)
+        .Checkbox(Loc.T("Column G: gil") + " *" + Dep, () => ref C.UIShowGilColumn, Loc.T("Shows the character's gil (as last seen by AutoRetainer) on the right of each character row in the Retainers and Deployables tabs; it turns into the warning color below the gil warning value. Off by default."))
 
         .Section(Loc.T("Deployables tab: vessel list"))
         .Checkbox(Loc.T("Hide Airships from Deployables UI") + " *", () => ref C.HideAirships, Loc.T("Only hides airships on characters that have no airship enabled."))

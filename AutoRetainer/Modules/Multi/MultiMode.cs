@@ -202,7 +202,7 @@ internal static unsafe partial class MultiMode
                 if(!TaskTeleportToProperty.ShouldVoidHET()) TaskNeoHET.Enqueue(null);
             }
             MultiModeUI.JustRelogged = true;
-            if(!MultiMode.Enabled && C.HETWhenDisabled && CanHETRaw)
+            if(!MultiMode.Enabled && C.HETWhenDisabled && CanHETRaw && Data.ShouldHETBySettings())
             {
                 TaskNeoHET.Enqueue(null);
             }
@@ -238,7 +238,7 @@ internal static unsafe partial class MultiMode
         LastLogin = 0;
         if(!TaskTeleportToProperty.ShouldVoidHET())
         {
-            if(C.MultiHETOnEnable && Player.Available && CanHET)
+            if(C.MultiHETOnEnable && Player.Available && CanHET && Data.ShouldHETBySettings())
             {
                 TaskNeoHET.Enqueue(null);
             }

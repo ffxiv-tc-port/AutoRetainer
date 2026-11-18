@@ -36,6 +36,21 @@ namespace AutoRetainer.Helpers;
 public static unsafe partial class Utils
 {
     public static int FrameDelay => 10 + C.ExtraFrameDelay;
+    /// <summary>「沒啟用任何功能的角色不進房」這個選項允不允許這個角色自動進房；角色資料讀不到時一律允許（＝選項存在前的行為）。</summary>
+    public static bool ShouldHETBySettings(this OfflineCharacterData data)
+        => data == null || !C.NoHetWhenNothingEnabled || data.Enabled || data.WorkshopEnabled;
+
+    /// <summary>角色列 G 欄用的短格式（1.23K／45.6M）。</summary>
+    public static string FormatGil(long input)
+    {
+        if(input < 1000) return $"{input:N0}";
+        if(input < 10000) return $"{input / 1000d:N2}K";
+        if(input < 100000) return $"{input / 1000d:N1}K";
+        if(input < 1000000) return $"{input / 1000d:N0}K";
+        if(input < 10000000) return $"{input / 1000000d:N2}M";
+        if(input < 100000000) return $"{input / 1000000d:N1}M";
+        return $"{input / 1000000d:N0}M";
+    }
     /// <summary>
     /// 部隊點數。⚠️ 取不到時回 <c>0</c> —— 0 同時代表「真的沒有點數」與「讀不到」,
     /// 這與呼叫端既有語意一致(<c>OfflineDataManager</c> 本來就用 <c>!= 0</c> 當「有資料才寫入」的閘門)。

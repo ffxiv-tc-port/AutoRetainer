@@ -34,6 +34,7 @@ internal static unsafe class MultiModeUI
         var allowanceColumns = UIUtils.SnapshotAllowanceColumns();
         var showVentures = display.RetColVentures;
         var showInventory = display.RetColInventory;
+        var showGil = C.UIShowGilColumn;
         // 黑名單是空的時候這行本來就什麼都不移除；先判空只是不要每幀替每個角色配一個閉包。
         if(C.Blacklist.Count > 0) C.OfflineData.RemoveAll(x => C.Blacklist.Any(z => z.CID == x.CID));
         List<OfflineCharacterData> sortedData;
@@ -177,7 +178,7 @@ internal static unsafe class MultiModeUI
                 }
             }
             ImGui.SameLine(0, 0);
-            var texts = GetStatusTexts(data, allowanceColumns, showCharaCnt, showVentures, showInventory);
+            var texts = GetStatusTexts(data, allowanceColumns, showCharaCnt, showVentures, showInventory, showGil);
             overlayTexts.Add((new Vector2(ImGui.GetContentRegionMax().X - ImGui.GetStyle().FramePadding.X, rCurPos.Y + ImGui.GetStyle().FramePadding.Y), texts));
             ImGui.NewLine();
             ImGui.PopID();
@@ -254,16 +255,18 @@ internal static unsafe class MultiModeUI
     }
 
     /// <summary>
-    /// 角色列右側的狀態欄字串。只有 V／I／C 三欄時，數值、警示判定與開關都沒變就沿用上一幀那一份；
+    /// 角色列右側的狀態欄字串。只有 C／G／V／I 欄時，數值、警示判定與開關都沒變就沿用上一幀那一份；
     /// 開了額度欄就照舊每幀重組（那幾欄的 tooltip 帶取樣時間）。只給繪製執行緒用。
     /// </summary>
-    internal static (bool Warning, string Text, bool Unknown, string Tooltip)[] GetStatusTexts(OfflineCharacterData data, UIUtils.AllowanceColumns allowanceColumns, bool showCharaCnt, bool showVentures, bool showInventory)
+    internal static (bool Warning, string Text, bool Unknown, string Tooltip)[] GetStatusTexts(OfflineCharacterData data, UIUtils.AllowanceColumns allowanceColumns, bool showCharaCnt, bool showVentures, bool showInventory, bool showGil)
     {
         var ventureWarning = data.Ventures < C.UIWarningRetVentureNum;
         var inventoryWarning = data.InventorySpace < C.UIWarningRetSlotNum;
+        var gilWarning = data.Gil < C.UIWarningGil;
         if(allowanceColumns != default)
         {
             List<(bool Warning, string Text, bool Unknown, string Tooltip)> texts = [];
+            if(showGil) texts.Add((gilWarning, $"G: {Utils.FormatGil(data.Gil)}", false, null));
             if(showVentures) texts.Add((ventureWarning, $"V: {data.Ventures}", false, null));
             if(showInventory) texts.Add((inventoryWarning, $"I: {data.InventorySpace}", false, null));
             UIUtils.AddAllowanceTexts(texts, data, allowanceColumns);
@@ -278,20 +281,22 @@ internal static unsafe class MultiModeUI
             && e.Ventures == data.Ventures && e.InventorySpace == data.InventorySpace
             && e.VentureWarning == ventureWarning && e.InventoryWarning == inventoryWarning
             && e.ShowCharaCnt == showCharaCnt && e.CharaCnt == charaCnt
-            && e.ShowVentures == showVentures && e.ShowInventory == showInventory)
+            && e.ShowVentures == showVentures && e.ShowInventory == showInventory
+            && e.ShowGil == showGil && e.Gil == data.Gil && e.GilWarning == gilWarning)
         {
             return e.Texts;
         }
-        var built = new (bool Warning, string Text, bool Unknown, string Tooltip)[(showCharaCnt ? 1 : 0) + (showVentures ? 1 : 0) + (showInventory ? 1 : 0)];
+        var built = new (bool Warning, string Text, bool Unknown, string Tooltip)[(showCharaCnt ? 1 : 0) + (showGil ? 1 : 0) + (showVentures ? 1 : 0) + (showInventory ? 1 : 0)];
         var k = 0;
         if(showCharaCnt) built[k++] = (false, $"C: {charaCnt}", false, null);
+        if(showGil) built[k++] = (gilWarning, $"G: {Utils.FormatGil(data.Gil)}", false, null);
         if(showVentures) built[k++] = (ventureWarning, $"V: {data.Ventures}", false, null);
         if(showInventory) built[k++] = (inventoryWarning, $"I: {data.InventorySpace}", false, null);
-        StatusTexts[data.CID] = new(data.Ventures, data.InventorySpace, ventureWarning, inventoryWarning, showCharaCnt, charaCnt, showVentures, showInventory, built);
+        StatusTexts[data.CID] = new(data.Ventures, data.InventorySpace, ventureWarning, inventoryWarning, showCharaCnt, charaCnt, showVentures, showInventory, showGil, data.Gil, gilWarning, built);
         return built;
     }
 
-    private readonly record struct StatusTextsEntry(uint Ventures, uint InventorySpace, bool VentureWarning, bool InventoryWarning, bool ShowCharaCnt, int CharaCnt, bool ShowVentures, bool ShowInventory, (bool Warning, string Text, bool Unknown, string Tooltip)[] Texts);
+    private readonly record struct StatusTextsEntry(uint Ventures, uint InventorySpace, bool VentureWarning, bool InventoryWarning, bool ShowCharaCnt, int CharaCnt, bool ShowVentures, bool ShowInventory, bool ShowGil, uint Gil, bool GilWarning, (bool Warning, string Text, bool Unknown, string Tooltip)[] Texts);
 
     internal static void SetAsPreferred(OfflineCharacterData x)
     {

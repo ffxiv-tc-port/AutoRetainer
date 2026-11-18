@@ -11,6 +11,7 @@ public class MultiModeCommon : NeoUIEntry
         .Checkbox(Loc.T("Stop Questionable before switching characters"), () => ref C.MultiStopQuestionableBeforeRelog, Loc.T("When Multi Mode is about to switch to the next character, ask Questionable to stop its automated quest run first. Without this, the quest run is cut off by the logout instead of stopping cleanly. AutoRetainer does not wait for Questionable - the character switch proceeds either way."))
         .Checkbox(Loc.T("Allow entering shared houses"), () => ref C.SharedHET)
         .Checkbox(Loc.T("Attempt to enter house on login even when Multi Mode is disabled"), () => ref C.HETWhenDisabled)
+        .Checkbox(Loc.T("Never enter houses on characters that have neither retainers nor deployables enabled"), () => ref C.NoHetWhenNothingEnabled, Loc.T("Applies to entering the house on login while Multi Mode is disabled and to entering the house when Multi Mode is turned on."))
         .Checkbox(Loc.T("Do not teleport or enter house for retainers when already next to bell"), () => ref C.NoTeleportHetWhenNextToBell)
         .SliderInt(150f, Loc.T("Post-login scene settle delay, seconds"), () => ref C.PostLoginSceneSettleDelay.ValidateRange(0, 30), 0, 15, Loc.T("After logging into a character during Multi Mode character switching, wait this many extra seconds before AutoRetainer starts interacting with the game. This gives the scene, graphics resources and game settings time to finish loading after the login/zone transition, which is when crashes are most likely to occur. Increase this if you experience crashes during character switching."))
 
@@ -33,6 +34,8 @@ public class MultiModeCommon : NeoUIEntry
         .InputInt(100f, Loc.T("Deployables list: remaining inventory slots warning"), () => ref C.UIWarningDepSlotNum.ValidateRange(2, 1000))
         .InputInt(100f, Loc.T("Deployables list: remaining fuel warning"), () => ref C.UIWarningDepTanksNum.ValidateRange(20, 1000))
         .InputInt(100f, Loc.T("Deployables list: remaining repair kit warning"), () => ref C.UIWarningDepRepairNum.ValidateRange(5, 1000))
+        .Checkbox(Loc.T("Column G: gil"), () => ref C.UIShowGilColumn, Loc.T("Shows the character's gil (as last seen by AutoRetainer) on the right of each character row in the Retainers and Deployables tabs; it turns into the warning color below the gil warning value. Off by default."))
+        .InputInt(100f, Loc.T("Both lists: remaining gil warning"), () => ref C.UIWarningGil.ValidateRange(0, int.MaxValue))
 
         // 這裡刻意不用 NuiBuilder 的 collapsible:true（它是可用的）：折疊已經由下面那顆總開關負責，
         // 關掉之後這個區塊只剩一行，而且總開關是設定、會存檔（ImGui 的折疊狀態不會存檔）。

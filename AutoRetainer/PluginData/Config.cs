@@ -191,6 +191,10 @@ internal unsafe class Config
     public int UIWarningDepTanksNum = 300;
     public int UIWarningDepRepairNum = 100;
     public int UIWarningDepSlotNum = 20;
+    /// <summary>角色列 G 欄低於這個值就標成警告色（兩個分頁共用）。</summary>
+    public int UIWarningGil = 5000;
+    /// <summary>僱員／遠航兩個分頁角色列右側是否顯示 G（Gil）欄。預設關＝維持既有畫面。</summary>
+    public bool UIShowGilColumn = false;
 
     /// <summary>
     /// 角色列上是否顯示每日／每週配額欄（理符受理限額 L／籌備委託品 D／限定神典石 T）。
@@ -439,6 +443,8 @@ internal unsafe class Config
     public int EntrustIntervalMS = 150;
 
     public bool HETWhenDisabled = false;
+    /// <summary>僱員與航行器都沒啟用的角色不自動進房（只擋「多角色模式關閉時登入就進房」與「開啟多角色模式時進房」兩處）。預設關＝維持既有行為。</summary>
+    public bool NoHetWhenNothingEnabled = false;
     public bool UseTitleScreenButton = false;
     public bool NoCharaSearch = false;
     public bool NoTeleportHetWhenNextToBell = false;
