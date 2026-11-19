@@ -611,6 +611,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         }
         MiniTA.Tick();
         OfflineDataManager.Tick();
+        EntrustCapacityForecast.SafeTick();
         AutoGCHandin.Tick();
         // ⚠️ 必須在 AutoGCHandin.Tick() 之後:循環會等 AutoGCHandin.Operation 落回 false 來判斷
         // 「這一輪繳完了」,先跑的話看到的是上一幀的舊值。

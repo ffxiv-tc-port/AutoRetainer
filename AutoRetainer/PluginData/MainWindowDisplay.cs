@@ -18,6 +18,7 @@ public sealed class MainWindowDisplay
     public bool RetColCharaCount = true;
     public bool RetColVentures = true;
     public bool RetColInventory = true;
+    public bool RetColEntrustCapacity = true;
 
     // 僱員分頁：僱員表格
     public bool RetTableJob = true;
