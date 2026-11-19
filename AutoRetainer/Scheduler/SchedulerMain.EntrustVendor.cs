@@ -31,7 +31,7 @@ internal static unsafe partial class SchedulerMain
     {
         while(PendingEntrustVendorPostprocess.Count > 0)
         {
-            var (next, duplicatesCandidates, noRoom) = PendingEntrustVendorPostprocess[0];
+            var (next, duplicatesCandidates, room) = PendingEntrustVendorPostprocess[0];
             PendingEntrustVendorPostprocess.RemoveAt(0);
             if(!Utils.TryGetRetainerByName(next, out _)) continue;
 
@@ -42,12 +42,12 @@ internal static unsafe partial class SchedulerMain
             var canRevalidate = Data != null && Utils.IsInventoryStateReadable() && duplicatesCandidates != null;
             TaskEntrustDuplicates.EntrustPrecheckHit precheck = default;
             if(canRevalidate
-                && !TryFindPlayerHeldCandidate(selectedPlan, duplicatesCandidates, noRoom, out precheck)
-                && !TryFindSharedEntrustVendorWork(selectedPlan, noRoom, out precheck))
+                && !TryFindPlayerHeldCandidate(selectedPlan, duplicatesCandidates, room, out precheck)
+                && !TryFindSharedEntrustVendorWork(selectedPlan, room, out precheck))
             {
-                if(noRoom != null && (TryFindPlayerHeldCandidate(selectedPlan, duplicatesCandidates, null, out var dropped) || TryFindSharedEntrustVendorWork(selectedPlan, null, out dropped)))
+                if(room != null && (TryFindPlayerHeldCandidate(selectedPlan, duplicatesCandidates, null, out var dropped) || TryFindSharedEntrustVendorWork(selectedPlan, null, out dropped)))
                 {
-                    PluginLog.Information($"[EntrustVendorPass] Skipping {next}: everything the player still carries for it is something it had no room for when it was open (first: {dropped.Path} item={dropped.ItemId} hq={dropped.Hq}; {noRoom.Count} item/quality pair(s) judged no-room).");
+                    PluginLog.Information($"[EntrustVendorPass] Skipping {next}: everything the player still carries for it is something it had no room for when it was open (first: {dropped.Path} item={dropped.ItemId} hq={dropped.Hq} reason={RoomReason(room, dropped.ItemId, dropped.Hq)}; {room.NoRoom?.Count ?? 0} item/quality pair(s) judged no-room, freeSlots={room.FreeSlots}, fillableStacks={room.FillableStacks.Count}).");
                     continue;
                 }
                 PluginLog.Information($"[EntrustVendorPass] Skipping {next}: no shared inventory work is left (an earlier retainer in this batch already did it, or there was none), and the player no longer carries any of the {duplicatesCandidates.Count} item(s) this retainer could have taken as duplicates.");
@@ -88,8 +88,8 @@ internal static unsafe partial class SchedulerMain
     private static bool HasSharedEntrustVendorWork(EntrustPlan? plan) => TryFindSharedEntrustVendorWork(plan, null, out _);
 
     /// <summary><see cref="HasSharedEntrustVendorWork"/> 本體；<paramref name="hit"/> 是讓它回 true 的第一件（給空開診斷用）。</summary>
-    /// <param name="noRoom">null＝不篩；否則跳過其中的（道具, HQ）——實際存放對這些道具只走「無條件存入」那圈，那圈放不下就不搬。</param>
-    private static unsafe bool TryFindSharedEntrustVendorWork(EntrustPlan? plan, HashSet<(uint ItemId, bool Hq)> noRoom, out TaskEntrustDuplicates.EntrustPrecheckHit hit)
+    /// <param name="room">null＝不篩；否則跳過快照判定放不進的（道具, HQ）——實際存放對這些道具只走「無條件存入」那圈，那圈放不下就不搬。</param>
+    private static unsafe bool TryFindSharedEntrustVendorWork(EntrustPlan? plan, EntrustRoomSnapshot room, out TaskEntrustDuplicates.EntrustPrecheckHit hit)
     {
         hit = default;
         var vs = Data.GetIMSettings();
@@ -152,7 +152,7 @@ internal static unsafe partial class SchedulerMain
 
                 if(toKeep != null && Utils.GetItemCount(allowedPlayerInventories, item->ItemId) > toKeep)
                 {
-                    if(noRoom != null && noRoom.Contains((item->ItemId, item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality)))) continue;
+                    if(room != null && IsKnownNoRoom(room, item->ItemId, item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality))) continue;
                     hit = new(TaskEntrustDuplicates.EntrustPrecheckPath.SharedEntrust, item->ItemId, item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality));
                     return true;
                 }
@@ -224,9 +224,9 @@ internal static unsafe partial class SchedulerMain
     private static bool PlayerHoldsAnyOf(EntrustPlan? plan, HashSet<uint> itemIds) => TryFindPlayerHeldCandidate(plan, itemIds, null, out _);
 
     /// <summary><see cref="PlayerHoldsAnyOf"/> 本體；<paramref name="hit"/> 是讓它回 true 的第一件（給空開診斷用）。</summary>
-    /// <param name="noRoom">null＝不篩。只在多堆疊模式篩：那時重複道具只經「無條件存入」那圈搬（放不下就不搬）；
+    /// <param name="room">null＝不篩。只在多堆疊模式篩：那時重複道具只經「無條件存入」那圈搬（放不下就不搬）；
     /// 補堆疊模式的實際條件是「同品質的堆疊還有空間」，不是同一支判斷，所以不篩。</param>
-    private static unsafe bool TryFindPlayerHeldCandidate(EntrustPlan? plan, HashSet<uint> itemIds, HashSet<(uint ItemId, bool Hq)> noRoom, out TaskEntrustDuplicates.EntrustPrecheckHit hit)
+    private static unsafe bool TryFindPlayerHeldCandidate(EntrustPlan? plan, HashSet<uint> itemIds, EntrustRoomSnapshot room, out TaskEntrustDuplicates.EntrustPrecheckHit hit)
     {
         hit = default;
         if(plan == null || itemIds.Count == 0) return false;
@@ -245,7 +245,7 @@ internal static unsafe partial class SchedulerMain
                 // 排除在這裡現場判、不在收集候選時凍結：設定在入列與開僱員之間改了，也照當下的規則走。
                 vs ??= Data.GetIMSettings();
                 if(TaskEntrustDuplicates.GetEntrustExclusion(item->ItemId, plan, vs) != TaskEntrustDuplicates.EntrustExclusion.None) continue;
-                if(noRoom != null && plan.DuplicatesMultiStack && noRoom.Contains((item->ItemId, item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality)))) continue;
+                if(room != null && plan.DuplicatesMultiStack && IsKnownNoRoom(room, item->ItemId, item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality))) continue;
                 hit = new(TaskEntrustDuplicates.EntrustPrecheckPath.Duplicates, item->ItemId, item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality));
                 return true;
             }
@@ -254,7 +254,7 @@ internal static unsafe partial class SchedulerMain
         return false;
     }
 
-    /// <summary>僱員開著、選單就緒時，把 <see cref="CollectDuplicatesCandidates"/> 與 <see cref="CollectEntrustNoRoom"/> 的結果記到這個僱員的延後批次項目上。只在框架執行緒的任務回呼裡跑。</summary>
+    /// <summary>僱員開著、選單就緒時，把 <see cref="CollectDuplicatesCandidates"/> 與「放不放得進」快照（<see cref="CollectEntrustNoRoom"/>＋<see cref="MeasureRoom"/>）記到這個僱員的延後批次項目上。只在框架執行緒的任務回呼裡跑。</summary>
     /// <remarks>量不到（選單被探險視窗蓋住、最近的僱員不是它、僱員背包讀不到、項目已被清掉）就不記 ⇒ 重驗照舊開，失敗方向是多開一次不是漏存。</remarks>
     /// <param name="queuedOnlyForDuplicates">這次入列只因為「可能有重複道具」：量到之後確定沒有任何工作就撤掉，等同入列當下就知道答案。</param>
     private static bool? CaptureEntrustNoRoom(string retainer, EntrustPlan plan, bool queuedOnlyForDuplicates)
@@ -282,16 +282,67 @@ internal static unsafe partial class SchedulerMain
             PluginLog.Debug($"[EntrustVendorPass] {retainer}: dropped from the batch, the player carries none of its {candidates.Count} duplicate candidate(s) and there is no shared work");
             return true;
         }
-        PendingEntrustVendorPostprocess[index] = PendingEntrustVendorPostprocess[index] with { DuplicatesCandidates = candidates, NoRoom = noRoom };
-        PluginLog.Debug($"[EntrustVendorPass] {retainer}: {candidates.Count} duplicate candidate(s); no room for {noRoom.Count} item/quality pair(s) the player carries");
+        var room = MeasureRoom(noRoom);
+        PendingEntrustVendorPostprocess[index] = PendingEntrustVendorPostprocess[index] with { DuplicatesCandidates = candidates, Room = room };
+        PluginLog.Debug($"[EntrustVendorPass] {retainer}: {candidates.Count} duplicate candidate(s); no room for {noRoom.Count} item/quality pair(s) the player carries; freeSlots={room.FreeSlots}, fillableStacks={room.FillableStacks.Count}, heldReadable={room.HeldItemIds != null}");
         return true;
+    }
+
+    /// <summary>
+    /// 量這個開著的僱員的空格數、可補的堆疊、身上有哪些道具（給獨占道具），讓量完之後玩家才拿到的道具也能判斷。
+    /// 走的容器、格位與旗標判斷和 <see cref="Utils.GetAmountThatCanFit"/> 相同；讀不到的部分記成「不知道」，重驗時照常打開。
+    /// </summary>
+    private static unsafe EntrustRoomSnapshot MeasureRoom(HashSet<(uint ItemId, bool Hq)> noRoom)
+    {
+        var room = new EntrustRoomSnapshot { NoRoom = noRoom, BellSession = EntrustBellSession };
+        var im = InventoryManager.Instance();
+        foreach(var type in Utils.RetainerInventoriesWithCrystals)
+        {
+            if(type.EqualsAny(InventoryType.Crystals, InventoryType.RetainerCrystals)) continue;
+            var inv = im->GetInventoryContainer(type);
+            if(inv == null || inv->Items == null || inv->Size <= 0)
+            {
+                room.PageUnreadable();
+                continue;
+            }
+            for(var i = 0; i < inv->Size; i++)
+            {
+                var item = im->GetInventorySlot(type, i);
+                if(item == null)
+                {
+                    room.PageUnreadable();
+                    break;
+                }
+                int? stackSize = item->ItemId == 0 ? null : (int?)ExcelItemHelper.Get(item->ItemId)?.StackSize;
+                room.AddPageSlot(item->ItemId, item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality), item->Flags.HasFlag(InventoryItem.ItemFlags.Collectable), item->Quantity, stackSize);
+            }
+        }
+        foreach(var type in Utils.RetainerEntireInventory)
+        {
+            var inv = im->GetInventoryContainer(type);
+            if(inv == null || inv->Items == null)
+            {
+                room.HeldUnreadable();
+                break;
+            }
+            for(var i = 0; i < inv->Size; i++) room.AddHeldItem(inv->Items[i].ItemId);
+        }
+        return room;
+    }
+
+    private static bool IsKnownNoRoom(EntrustRoomSnapshot room, uint itemId, bool hq) => RoomReason(room, itemId, hq) != EntrustRoomSnapshot.NoRoomReason.None;
+
+    private static EntrustRoomSnapshot.NoRoomReason RoomReason(EntrustRoomSnapshot room, uint itemId, bool hq)
+    {
+        var data = ExcelItemHelper.Get(itemId);
+        return room.Reason(itemId, hq, data != null, data?.IsUnique == true, data?.ItemUICategory.RowId == 59, EntrustBellSession);
     }
 
     /// <summary>玩家身上（計畫允許的容器）哪些（道具, HQ）這個僱員現在一件都放不進；null＝僱員背包讀不到，不能下結論。</summary>
     /// <remarks>
     /// 🔴 判斷就是實際存放「無條件存入」那圈用的同一支 <see cref="Utils.GetAmountThatCanFit"/>（同樣的容器、同樣的 HQ），回 0 才記。
     /// 讀不到的容器在那支裡也是回 0，所以先擋：分頁讀不到整個不記；市場／裝備欄讀不到時獨佔道具不記（只有它會看那兩格）。
-    /// 量完之後玩家才拿到的道具不在集合裡，一律當放得進。
+    /// 量完之後玩家才拿到的道具不在集合裡，交給 <see cref="MeasureRoom"/> 的空格數判斷。
     /// </remarks>
     internal static unsafe HashSet<(uint ItemId, bool Hq)> CollectEntrustNoRoom(EntrustPlan plan)
     {

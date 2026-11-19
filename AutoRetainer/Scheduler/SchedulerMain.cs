@@ -44,9 +44,12 @@ internal static unsafe partial class SchedulerMain
     /// The retainer's own inventory is only readable while that retainer is open, so it is captured once.
     /// 🔑 Deliberately NOT "the ids that were duplicate work at scan time": the player gains items during this phase, so a set frozen against the player's inventory would miss work that only came into existence afterwards.
     /// </summary>
-    /// <remarks><c>NoRoom</c>：這個僱員真的開著時量到「玩家身上哪些（道具, HQ）它放不進」（<see cref="CaptureEntrustNoRoom"/>）；null＝沒量到，重驗不篩。
+    /// <remarks><c>Room</c>：這個僱員真的開著時量到的「放不放得進」快照（<see cref="CaptureEntrustNoRoom"/>、<see cref="EntrustRoomSnapshot"/>）；null＝沒量到，重驗不篩。
     /// <c>DuplicatesCandidates</c> 同一時機量；null＝沒量到，開僱員前不重驗、照樣開。</remarks>
-    internal static List<(string Retainer, HashSet<uint> DuplicatesCandidates, HashSet<(uint ItemId, bool Hq)> NoRoom)> PendingEntrustVendorPostprocess = [];
+    internal static List<(string Retainer, HashSet<uint> DuplicatesCandidates, EntrustRoomSnapshot Room)> PendingEntrustVendorPostprocess = [];
+
+    /// <summary>傳喚鈴佔用狀態每變一次就加一（框架執行緒）。快照的空格數只在量的那一次開鈴內有效。</summary>
+    internal static int EntrustBellSession;
 
     /// <summary>Drops the deferred entrust/vendor queue. It holds retainer <b>names</b> belonging to one
     /// specific character, and nothing else in the queue identifies which character that was, so a leftover

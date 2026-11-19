@@ -883,6 +883,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         }
         if(flag == ConditionFlag.OccupiedSummoningBell)
         {
+            SchedulerMain.EntrustBellSession++;
             OfflineDataManager.WriteOfflineData(true, true);
             if(!value)
             {
