@@ -179,6 +179,19 @@ internal static unsafe partial class GCExpertDeliveryLoop
 
     private static List<string> Retainers = [];
     private static int RetainerIndex;
+
+    /// <summary>這個角色這一趟已經取完、之後各輪不再打開的僱員。只在 <see cref="TryBeginCharacter"/> 清空。</summary>
+    private static readonly HashSet<string> EmptiedRetainers = [];
+    /// <summary>這次開鈴的僱員清單是循環自己點鈴叫出來的；清單本來就開著、關鈴、換角色時為 false。</summary>
+    private static bool BellOpenedByLoop;
+    /// <summary>這次開鈴已有僱員的清單件數與實際格數相符。</summary>
+    private static bool ListCalibratedThisBell;
+    /// <summary>這一趟出現過清單件數與實際格數不符；之後整趟都不用清單件數跳過。只在 <see cref="Start"/> 歸零。</summary>
+    private static bool ListCountDistrusted;
+    /// <summary>選這位僱員時清單上的件數；-1＝沒讀到。</summary>
+    private static int SelectedListItemCount = -1;
+    private static int VisitsSkippedEmptied;
+    private static int VisitsSkippedListEmpty;
     /// <summary>這一輪為了找鈴送過幾次傳送。第一次之後還沒鈴就重送一次,第二次之後才停。</summary>
     private static int BellTravelsThisRound;
 

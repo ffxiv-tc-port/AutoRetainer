@@ -80,6 +80,44 @@ internal static unsafe partial class GCExpertDeliveryLoop
         return used;
     }
 
+    private static bool AllRetainerPagesReadable()
+    {
+        foreach(var type in Utils.RetainerInventories)
+        {
+            if(RetainerRetrieve.TryGetReadableContainer(type) == null) return false;
+        }
+        return true;
+    }
+
+    /// <summary>打開僱員那一刻比對清單件數與實際格數；不符就整趟不再用清單件數跳過。</summary>
+    private static void CalibrateListItemCount(string name)
+    {
+        var listCount = SelectedListItemCount;
+        SelectedListItemCount = -1;
+        var readable = AllRetainerPagesReadable();
+        var occupied = CountOccupiedRetainerSlots();
+        switch(ExpertDeliveryLoopSkipRules.Calibrate(listCount, occupied, readable))
+        {
+            case ExpertDeliveryLoopSkipRules.Calibration.Match:
+                if(!ListCalibratedThisBell && BellOpenedByLoop)
+                {
+                    PluginLog.Information($"[ExpertDeliveryLoop] {name}: retainer list count {listCount} matches the storage, so retainers the list shows as empty are skipped for the rest of this bell visit.");
+                }
+                ListCalibratedThisBell = true;
+                break;
+            case ExpertDeliveryLoopSkipRules.Calibration.Mismatch:
+                if(!ListCountDistrusted)
+                {
+                    PluginLog.Information($"[ExpertDeliveryLoop] {name}: retainer list says {listCount} item(s) but the storage holds {occupied}. Retainers will not be skipped by list count for the rest of this run.");
+                }
+                ListCountDistrusted = true;
+                break;
+            default:
+                PluginLog.Information($"[ExpertDeliveryLoop] {name}: could not compare the retainer list count ({listCount}) with the storage (readable={readable}); this retainer does not count toward trusting the list.");
+                break;
+        }
+    }
+
     private static bool ReserveReached => Utils.GetInventoryFreeSlotCount() <= EffectiveReservedSlots;
 
     private static void TickSelectRetainer()
@@ -115,7 +153,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
 
         var name = Retainers[RetainerIndex];
         // 只有在上面那道閘門為 true 時,這個 false 才真的代表「這個僱員不存在」。
-        if(!Utils.TryGetRetainerByName(name, out _))
+        if(!Utils.TryGetRetainerByName(name, out var listed))
         {
             DuoLog.Warning(string.Format(Loc.T("Retainer \"{0}\" no longer exists, skipping."), name));
             PluginLog.Information($"[ExpertDeliveryLoop] Retainer {name} is not in the game's retainer list, skipping.");
@@ -123,7 +161,21 @@ internal static unsafe partial class GCExpertDeliveryLoop
             return;
         }
 
-        PluginLog.Information($"[ExpertDeliveryLoop] Opening item storage of {name} ({RetainerIndex + 1}/{Retainers.Count}).");
+        var listItemCount = listed.ItemCount;
+        var listTrusted = ExpertDeliveryLoopSkipRules.IsListTrusted(BellOpenedByLoop, IsRetainerListReady(), ListCalibratedThisBell, ListCountDistrusted);
+        var skip = ExpertDeliveryLoopSkipRules.Decide(EmptiedRetainers.Contains(name), listItemCount, listTrusted);
+        if(skip != ExpertDeliveryLoopSkipRules.RetainerVisitSkip.None)
+        {
+            var emptied = skip == ExpertDeliveryLoopSkipRules.RetainerVisitSkip.AlreadyEmptied;
+            if(emptied) VisitsSkippedEmptied++;
+            else VisitsSkippedListEmpty++;
+            PluginLog.Information($"[ExpertDeliveryLoop] Not opening {name} ({RetainerIndex + 1}/{Retainers.Count}): {(emptied ? "already emptied of deliverable gear earlier for this character, and the loop never puts gear back" : "the retainer list from this loop's own bell visit shows 0 items, and an earlier retainer's list count matched its storage on this visit")}. listItems={listItemCount}");
+            RetainerIndex++;
+            return;
+        }
+
+        SelectedListItemCount = listItemCount;
+        PluginLog.Information($"[ExpertDeliveryLoop] Opening item storage of {name} ({RetainerIndex + 1}/{Retainers.Count}). listItems={listItemCount} listTrusted={listTrusted}");
         P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(name), $"SelectRetainerByName({name})");
         P.TaskManager.Enqueue(() => Utils.TryGetCurrentRetainer(out _), $"WaitCurrentRetainer({name})");
         P.TaskManager.Enqueue(RetainerHandlers.SelectEntrustItems, $"SelectEntrustItems({name})");
@@ -141,6 +193,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
             return;
         }
 
+        CalibrateListItemCount(Retainers[RetainerIndex]);
         RetainerRetrieve.ResetTracking();
         SkippedItems.Clear();
         DeferredItems.Clear();
@@ -179,7 +232,9 @@ internal static unsafe partial class GCExpertDeliveryLoop
                 SetPhase(Phase.RetrieveSettle);
                 return;
             }
-            PluginLog.Information($"[ExpertDeliveryLoop] {Retainers[RetainerIndex]} has no more deliverable gear.");
+            var emptied = ExpertDeliveryLoopSkipRules.IsEmptiedVerdict(true, SkippedItems.Count, DeferredItems.Count, AllRetainerPagesReadable());
+            if(emptied) EmptiedRetainers.Add(Retainers[RetainerIndex]);
+            PluginLog.Information($"[ExpertDeliveryLoop] {Retainers[RetainerIndex]} has no more deliverable gear. emptied={emptied} skipped={SkippedItems.Count} deferred={DeferredItems.Count}");
             SetPhase(Phase.LeaveRetainer);
             return;
         }
@@ -283,6 +338,8 @@ internal static unsafe partial class GCExpertDeliveryLoop
     /// <summary>關掉僱員清單,離開傳喚鈴。</summary>
     private static void TickCloseBell()
     {
+        BellOpenedByLoop = false;
+        ListCalibratedThisBell = false;
         P.TaskManager.Enqueue(RetainerListHandlers.CloseRetainerList, "CloseRetainerList");
         P.TaskManager.Enqueue(() => !IsOccupied(), "WaitUntilNotOccupiedAfterBell");
         SetPhase(Phase.CloseBellWait);

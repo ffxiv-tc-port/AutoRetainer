@@ -250,6 +250,9 @@ internal static unsafe partial class GCExpertDeliveryLoop
         // 已經在僱員清單裡就不用再點鈴一次。
         if(RetainerListLoaded && TryGetAddonByName<AtkUnitBase>("RetainerList", out var list) && IsAddonReady(list))
         {
+            // 清單不是這次點鈴叫出來的，件數可能是更早那次開鈴的快照。
+            BellOpenedByLoop = false;
+            ListCalibratedThisBell = false;
             SetPhase(AfterBellOpen);
             return;
         }
@@ -258,6 +261,8 @@ internal static unsafe partial class GCExpertDeliveryLoop
         if(!Player.Interactable) return;
 
         PluginLog.Information($"[ExpertDeliveryLoop] Interacting with the summoning bell.");
+        BellOpenedByLoop = true;
+        ListCalibratedThisBell = false;
         TaskInteractWithNearestBell.Enqueue();
         BellInteractAttempts = 1;
         LastBellInteractAt = Environment.TickCount64;

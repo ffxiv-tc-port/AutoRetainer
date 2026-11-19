@@ -91,6 +91,9 @@ internal static unsafe partial class GCExpertDeliveryLoop
         AutoGCHandin.SealCapPauses = 0;
         GcArrivalLoggedCID = 0;
         BellDestinationsProvenThisRun.Clear();
+        ListCountDistrusted = false;
+        VisitsSkippedEmptied = 0;
+        VisitsSkippedListEmpty = 0;
         StatusText = "";
 
         if(startHere)
@@ -225,6 +228,10 @@ internal static unsafe partial class GCExpertDeliveryLoop
         PassFired = 0;
         SkippedItems.Clear();
         DeferredItems.Clear();
+        EmptiedRetainers.Clear();
+        BellOpenedByLoop = false;
+        ListCalibratedThisBell = false;
+        SelectedListItemCount = -1;
         return true;
     }
 
@@ -249,6 +256,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
             summary += " " + string.Format(Loc.T("Ventures resent: {0}."), VenturesResentTotal);
             PluginLog.Information($"[ExpertDeliveryLoop] Venture refresh over this run: characters={VentureCharacters} resent={VenturesResentTotal} collectedOnly={VenturesCollectedOnlyTotal} skipped={VentureSkippedTotal}.");
         }
+        PluginLog.Information($"[ExpertDeliveryLoop] Retainer visits skipped over this run: alreadyEmptied={VisitsSkippedEmptied} listShowsEmpty={VisitsSkippedListEmpty} listCountDistrusted={ListCountDistrusted}.");
         if(stillBusy) summary += " " + Loc.T("The loop has stopped, but work already queued in AutoRetainer will finish on its own.");
         if(success)
         {
