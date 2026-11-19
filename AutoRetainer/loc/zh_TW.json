@@ -1172,5 +1172,10 @@
   "The company workshop could not be found. This character was excluded from deployables.": "找不到公會工坊，此角色已排除在遠航探索之外。",
   "Not enough ceruleum tanks to send the vessel out (need {0}, have {1}). {2}": "青磷水不足，無法派出航行器（需要 {0}，有 {1}）。{2}",
   "Inventory is full and voyage rewards cannot be received.": "背包已滿，無法領取遠航探索的報酬。",
-  "Out of repair materials, could not repair {0}.": "修理材料不足，無法修理 {0}。"
+  "Out of repair materials, could not repair {0}.": "修理材料不足，無法修理 {0}。",
+  "(No effect)": "（無作用）",
+  "This option currently has no effect: when an unclassified error occurs, the action selected here is not applied (choosing to halt does not halt anything) and AutoRetainer carries on as usual. Too many interaction errors within one minute always exclude the current character (or turn Multi Mode off), regardless of this option.": "此選項目前沒有作用：發生未分類的錯誤時，不會執行這裡選的處理方式（選了停止也不會停），插件照常繼續。一分鐘內互動錯誤過多時，固定會把目前角色排除（或關閉多角色模式），與此選項無關。",
+  "This option currently has no effect; ticked or not, no alert comes from it. The matching warning is an icon on the character rows of the Deployables tab (submersibles only), switched by \"Icon: some submersibles are not enabled\" in Display Items.": "此選項目前沒有作用，勾不勾都不會由它發出提醒。對應的提醒是遠航探索分頁角色列上的圖示（只看潛水艇），開關在「顯示項目」的「圖示：部分潛水艇尚未啟用」。",
+  "This option currently has no effect; ticked or not, no alert comes from it. The matching warning is an icon on the character rows of the Deployables tab (submersibles only), switched by \"Icon: some submersibles are not on a voyage\" in Display Items.": "此選項目前沒有作用，勾不勾都不會由它發出提醒。對應的提醒是遠航探索分頁角色列上的圖示（只看潛水艇），開關在「顯示項目」的「圖示：部分潛水艇未在航行中」。",
+  "This option currently has no effect: ticked or not, venture plans are not error-checked in advance and are carried out as written.": "此選項目前沒有作用：不論勾選與否，派遣計劃都不會事先檢查錯誤，照計劃內容執行。"
 }

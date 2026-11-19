@@ -25,8 +25,11 @@ public class DeployablesTab : NeoUIEntry
         .Checkbox(Loc.T("Hide Airships from Deployables UI"), () => ref C.HideAirships)
 
         .Section(Loc.T("Alert Settings"))
-        .Checkbox(Loc.T("Less than possible vessels enabled"), () => ref C.AlertNotAllEnabled)
-        .Checkbox(Loc.T("Enabled vessel isn't deployed"), () => ref C.AlertNotDeployed)
+        // 兩個開關沒有讀取端；實際的提醒是角色列圖示，由 Display.DepIconNotAllEnabled／DepIconNotDeployed 控制。
+        .NoEffectCheckbox(Loc.T("Less than possible vessels enabled"), () => ref C.AlertNotAllEnabled,
+            Loc.T("This option currently has no effect; ticked or not, no alert comes from it. The matching warning is an icon on the character rows of the Deployables tab (submersibles only), switched by \"Icon: some submersibles are not enabled\" in Display Items."))
+        .NoEffectCheckbox(Loc.T("Enabled vessel isn't deployed"), () => ref C.AlertNotDeployed,
+            Loc.T("This option currently has no effect; ticked or not, no alert comes from it. The matching warning is an icon on the character rows of the Deployables tab (submersibles only), switched by \"Icon: some submersibles are not on a voyage\" in Display Items."))
         .Widget(Loc.T("Unoptimal submersible configuration alerts:"), (z) =>
         {
             foreach(var x in C.UnoptimalVesselConfigurations)

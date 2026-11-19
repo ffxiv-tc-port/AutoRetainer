@@ -28,7 +28,8 @@ public class ExpertTab : NeoUIEntry
         .Checkbox(Loc.T("Show MultiMode checkbox on plugin UI bar"), () => ref C.MultiModeUIBar)
         .SliderIntAsFloat(100f, Loc.T("Retainer menu delay, seconds"), () => ref C.RetainerMenuDelay.ValidateRange(0, 2000), 0, 2000)
         .Checkbox(Loc.T("Allow venture timer to display negative values"), () => ref C.TimerAllowNegative)
-        .Checkbox(Loc.T("Do not error check venture planner"), () => ref C.NoErrorCheckPlanner2)
+        .NoEffectCheckbox(Loc.T("Do not error check venture planner"), () => ref C.NoErrorCheckPlanner2,
+            Loc.T("This option currently has no effect: ticked or not, venture plans are not error-checked in advance and are carried out as written."))
         .Checkbox(Loc.T("Enable Manual relogs character postprocess"), () => ref C.AllowManualPostprocess, Loc.T("Allow manual command invocation while AutoRetainer locked in postprocess. "))
         .Widget(Loc.T("Market Cooldown Overlay"), (x) =>
         {
