@@ -80,7 +80,7 @@ public class IPC_PluginState
         IpcFrameworkGate.Run(nameof(DisableAllFunctions), () =>
         {
             GCExpertDeliveryLoop.EmergencyStop(Loc.T("Stopped: another plugin requested an emergency stop of all AutoRetainer functions."));
-            MultiModeRoundTrip.Cancel("IPC DisableAllFunctions（艦隊急停）");
+            MultiModeRoundTrip.Cancel("IPC DisableAllFunctions（艦隊急停）", MultiModeRoundTrip.ResultCode.CancelledStop);
             AutoGCHandin.Operation = false;
         });
     }

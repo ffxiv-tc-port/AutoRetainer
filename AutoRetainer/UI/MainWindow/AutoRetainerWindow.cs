@@ -292,7 +292,7 @@ internal unsafe class AutoRetainerWindow : Window
         {
             if(ImGui.Button(MultiModeRoundTrip.ActiveButtonLabel))
             {
-                MultiModeRoundTrip.Cancel("使用者在主視窗按下取消");
+                MultiModeRoundTrip.Cancel("使用者在主視窗按下取消", MultiModeRoundTrip.ResultCode.CancelledUser);
             }
             if(ImGui.IsItemHovered())
             {

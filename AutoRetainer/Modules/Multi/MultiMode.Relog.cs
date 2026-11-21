@@ -74,7 +74,7 @@ internal static unsafe partial class MultiMode
     {
         if(reason.EqualsAny(RelogReason.Overlay, RelogReason.Command, RelogReason.ConfigGUI))
         {
-            if(MultiModeRoundTrip.Active) MultiModeRoundTrip.Cancel($"手動換角（{reason}）");
+            if(MultiModeRoundTrip.Active) MultiModeRoundTrip.Cancel($"手動換角（{reason}）", MultiModeRoundTrip.ResultCode.CancelledRelog);
             if(C.MultiDisableOnRelog)
             {
                 SetEnabled(false, $"手動換角（{reason}）且設定為手動換角時關閉多角色模式", cause);
