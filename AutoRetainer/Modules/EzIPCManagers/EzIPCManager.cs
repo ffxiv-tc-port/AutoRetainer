@@ -4,4 +4,5 @@ public sealed class EzIPCManager
     public IPC_GCContinuation IPC_GCContinuation = new();
     public IPC_PluginState IPC_PluginState = new();
     public IPC_RoundTrip IPC_RoundTrip = new();
+    public IPC_VentureYield IPC_VentureYield = new();
 }

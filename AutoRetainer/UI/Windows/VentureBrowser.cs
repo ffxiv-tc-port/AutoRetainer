@@ -135,6 +135,7 @@ internal class VentureBrowser : Window
                     ImGui.TableSetupColumn(Loc.T("Unlocked"));
                     ImGui.TableHeadersRow();
 
+                    var priceTarget = VenturePriceLookup.Current;
                     foreach(var x in Data.Where(x => x.VentureName.Contains(search, StringComparison.OrdinalIgnoreCase) && x.VentureLevel >= minLevel && x.VentureLevel <= maxLevel))
                     {
                         var n = x.IsDol ? Lang.CharP : Lang.CharItemLevel;
@@ -147,10 +148,14 @@ internal class VentureBrowser : Window
                         {
                             adata.VenturePlan.List.Add(new(x.ID));
                         }
-                        ImGui.SameLine();
-                        if(ImGui.SmallButton($"{Loc.T("Check price")}##{x.ID}"))
+                        if(priceTarget != VenturePriceLookup.Target.None && x.ItemID != 0)
                         {
-                            Svc.Commands.ProcessCommand($"/pmb {x.ItemID}");
+                            ImGui.SameLine();
+                            if(ImGui.SmallButton($"{Loc.T("Check price")}##{x.ID}"))
+                            {
+                                VenturePriceLookup.Open(priceTarget, x.ItemID);
+                            }
+                            ImGuiEx.Tooltip(VenturePriceLookup.Tooltip(priceTarget));
                         }
                         ImGui.TableNextColumn();
                         ImGuiEx.TextCentered(x.AvailableByGear ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed, $"{x.IlvlGathering}");
