@@ -19,7 +19,7 @@ public class MultiModeCommon : NeoUIEntry
         .Checkbox(Loc.T("Enable Multi Mode on Game Boot"), () => ref C.MultiAutoStart)
         .Widget(Loc.T("Auto-login on Game Boot"), (x) =>
         {
-            ImGui.SetNextItemWidth(150f);
+            ImGuiEx.SetNextItemWidthScaled(200f);
             var names = C.OfflineData.Where(s => !s.Name.IsNullOrEmpty()).Select(s => $"{s.Name}@{s.World}");
             var dict = names.ToDictionary(s => s, s => Censor.Character(s));
             dict.Add("", Loc.T("Disabled"));

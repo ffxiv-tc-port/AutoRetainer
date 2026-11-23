@@ -13,7 +13,7 @@ public static unsafe class RetainerConfig
         ImGuiEx.TextV(Loc.T("Entrust Items:"));
         if(!C.EnableEntrustManager) ImGuiEx.HelpMarker(Loc.T("Globally disabled in settings"), EColor.RedBright, FontAwesomeIcon.ExclamationTriangle.ToIconString());
         ImGui.SameLine();
-        ImGui.SetNextItemWidth(150f);
+        ImGuiEx.SetNextItemWidthScaled(150f);
         if(ImGui.BeginCombo($"##select", selectedPlan?.Name ?? Loc.T("Disabled"), ImGuiComboFlags.HeightLarge))
         {
             if(ImGui.Selectable(Loc.T("Disabled"))) adata.EntrustPlan = Guid.Empty;
