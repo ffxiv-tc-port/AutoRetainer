@@ -1,6 +1,7 @@
 ﻿using AutoRetainerAPI.Configuration;
 using ECommons.ExcelServices;
 using ECommons.GameHelpers;
+using ECommons.Throttlers;
 
 namespace AutoRetainer.UI.Windows;
 
@@ -16,6 +17,9 @@ internal class VentureBrowser : Window
     private int minLevel = 1;
     private int maxLevel = Player.MaxLevel;
     private bool GatherBuddyPresent = false;
+
+    /// <summary>台服 feed 的 GatherBuddy Reborn 是 <c>GatherbuddyReborn</c>（大小寫照抄，ordinal 比對）；<c>GatherBuddy</c> 是原版。</summary>
+    private static readonly string[] GatherBuddyInternalNames = ["GatherbuddyReborn", "GatherBuddy"];
     public VentureBrowser() : base("Venture Browser")
     {
         P.WindowSystem.AddWindow(this);
@@ -41,11 +45,19 @@ internal class VentureBrowser : Window
 
     public override void OnOpen()
     {
-        GatherBuddyPresent = Svc.PluginInterface.InstalledPlugins.Any(x => x.InternalName == "GatherBuddy");
+        GatherBuddyPresent = IsGatherBuddyLoaded();
+    }
+
+    /// <summary>只認現在已載入的，裝了但停用不算。</summary>
+    private static bool IsGatherBuddyLoaded()
+    {
+        return Svc.PluginInterface.InstalledPlugins.Any(x => x.IsLoaded && GatherBuddyInternalNames.Contains(x.InternalName, StringComparer.Ordinal));
     }
 
     public override void Draw()
     {
+        if(EzThrottler.Throttle("VentureBrowser.GatherBuddyLoaded", 1000)) GatherBuddyPresent = IsGatherBuddyLoaded();
+
         ImGuiEx.SetNextItemFullWidth();
         if(ImGui.BeginCombo("##selectRet", SelectedCharacter != null ? $"{Censor.Character(SelectedCharacter.Name, SelectedCharacter.World)} - {Censor.Retainer(SelectedRetainer.Name)} - {SelectedRetainer.Level} {ExcelJobHelper.GetJobNameById(SelectedRetainer.Job)}" : Loc.T("Select a retainer..."), ImGuiComboFlags.HeightLarge))
         {
@@ -189,11 +201,13 @@ internal class VentureBrowser : Window
                         if(x.IsDol)
                         {
                             ImGuiEx.Text(x.Gathered ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed, x.Gathered ? Loc.T("Yes") : Loc.T("No"));
-                            if(!x.Gathered && GatherBuddyPresent)
+                            if(!x.Gathered && GatherBuddyPresent && !string.IsNullOrWhiteSpace(x.VentureName))
                             {
                                 if(ImGui.SmallButton($"{Loc.T("Gather")}##{x.ID}"))
                                 {
-                                    Svc.Commands.ProcessCommand($"/gather {x.VentureName}");
+                                    // 漁師探險的物品是魚，GatherBuddy 的 /gather 只找採集物，魚要走 /gatherfish。
+                                    var command = SelectedRetainer?.Job == (uint)Job.FSH ? "/gatherfish" : "/gather";
+                                    Svc.Commands.ProcessCommand($"{command} {x.VentureName}");
                                 }
                             }
                         }
