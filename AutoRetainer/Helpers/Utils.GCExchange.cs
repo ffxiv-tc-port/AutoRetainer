@@ -49,15 +49,14 @@ public static unsafe partial class Utils
         return Data.GetIMSettings().IMProtectList.Contains(item.RowId);
     }
 
+    /// <summary>
+    /// 玩家所屬大國防聯軍的軍需官可換的項目；未加入聯軍＝空表。看玩家狀態不看目前區域，人在哪裡都能查、不擲例外
+    /// （軍需官只賣自家聯軍，站在軍需官面前時兩者必然相同）。是否真的站在軍需官所在主城由呼叫端另判
+    /// （<see cref="AutoGCHandin.IsValidGCTerritory"/>）。
+    /// </summary>
     public static Dictionary<uint, GCExchangeListingMetadata> GetCurrentlyAvailableSharedExchangeListings()
     {
-        var gc = Svc.ClientState.TerritoryType switch
-        {
-            MainCities.New_Gridania => GrandCompany.TwinAdder,
-            MainCities.Uldah_Steps_of_Nald => GrandCompany.ImmortalFlames,
-            MainCities.Limsa_Lominsa_Upper_Decks => GrandCompany.Maelstrom,
-            _ => throw new InvalidOperationException("Could not determite accessed grand company")
-        };
+        var gc = (GrandCompany)AutoGCHandin.GetGC();
         if(!AvailableSharedExchangeListings.TryGetValue(gc, out var listings))
         {
             listings = BuildAvailableSharedExchangeListings(gc);

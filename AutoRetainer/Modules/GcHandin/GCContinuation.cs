@@ -43,22 +43,64 @@ internal static unsafe class GCContinuation
     public static void EnqueueInitiation(bool redeliver)
     {
         // 排進佇列而不是當場清：前一輪若還在佇列裡跑，當場清會吃掉它的紀錄。
-        P.TaskManager.Enqueue(ResetPurchaseLog, "ResetPurchaseLog", ContinuationConf);
+        P.TaskManager.Enqueue(() => { ResetPurchaseLog(); LeftCityLogged = false; }, "ResetPurchaseLog", ContinuationConf);
         P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied, ContinuationConf);
-        P.TaskManager.Enqueue(GCContinuation.InteractWithShop, ContinuationConf);
+        P.TaskManager.Enqueue(UnlessLeftCity(InteractWithShop, nameof(InteractWithShop)), nameof(InteractWithShop), ContinuationConf);
         P.TaskManager.Enqueue(BeginNewPurchase, ContinuationConf);
         P.TaskManager.Enqueue(GCContinuation.WaitUntilNotOccupied, ContinuationConf);
         if(redeliver)
         {
-            P.TaskManager.Enqueue(GCContinuation.InteractWithExchange, ContinuationConf);
-            P.TaskManager.Enqueue(GCContinuation.SelectProvisioningMission, ContinuationConf);
-            P.TaskManager.Enqueue(() => GCContinuation.SelectSupplyListTab(2), "SelectSupplyListTab(2)", ContinuationConf);
-            P.TaskManager.Enqueue(GCContinuation.EnableDeliveringIfPossible, ContinuationConf);
+            P.TaskManager.Enqueue(UnlessLeftCity(InteractWithExchange, nameof(InteractWithExchange)), nameof(InteractWithExchange), ContinuationConf);
+            P.TaskManager.Enqueue(UnlessLeftCity(SelectProvisioningMission, nameof(SelectProvisioningMission)), nameof(SelectProvisioningMission), ContinuationConf);
+            P.TaskManager.Enqueue(UnlessLeftCity(() => GCContinuation.SelectSupplyListTab(2), "SelectSupplyListTab(2)"), "SelectSupplyListTab(2)", ContinuationConf);
+            P.TaskManager.Enqueue(UnlessLeftCity(EnableDeliveringIfPossible, nameof(EnableDeliveringIfPossible)), nameof(EnableDeliveringIfPossible), ContinuationConf);
             // Without this the failure stays invisible: if the chain gets as far as here but the
             // supply list never becomes operable, Operation is left false and automatic delivery
             // just never resumes, with nothing said in chat. Runs as its own step so it reports the
             // outcome of the whole chain rather than of any single addon check.
             P.TaskManager.Enqueue(ReportIfDeliveringDidNotResume, "ReportIfDeliveringDidNotResume", ContinuationConf);
+        }
+    }
+
+    // 同一次離開只記一行；每輪開頭與回到主城時清掉。只在框架執行緒上碰。
+    private static bool LeftCityLogged;
+
+    /// <summary>
+    /// 人已不在所屬聯軍軍需官所在的主城＝這一輪換物品做不下去：回 <see langword="true"/>，呼叫端把這一步當作
+    /// 已結束、不再操作任何視窗。不擲例外（擲了會讓 TaskManager 清掉整條佇列），也不把玩家帶回去。
+    /// </summary>
+    private static bool SkipBecauseLeftCity(string step)
+    {
+        if(AutoGCHandin.IsValidGCTerritory())
+        {
+            LeftCityLogged = false;
+            return false;
+        }
+        if(!LeftCityLogged)
+        {
+            LeftCityLogged = true;
+            LogSkippedBecauseLeftCity(step);
+        }
+        return true;
+    }
+
+    private static Func<bool?> UnlessLeftCity(Func<bool?> step, string name) => () => SkipBecauseLeftCity(name) ? true : step();
+
+    private static void LogSkippedBecauseLeftCity(string step)
+    {
+        try
+        {
+            var remaining = GetPurchaseCandidates().Count(x => x.GetAmountThatCanBePurchased() > 0);
+            var bought = PurchaseLog.Count == 0 ? "什麼都沒換" : string.Join("、", PurchaseLog);
+            PluginLog.Information($"[GCHandin] [SealSpend] 已離開軍需官所在的主城（目前區域 {Svc.ClientState.TerritoryType}，停在「{step}」），這輪用軍票換物品跳過；還有 {remaining} 項沒換。這輪已換：{bought}；共花 {PurchaseLogSealsSpent} 軍票，剩 {AutoGCHandin.GetSeals()}。");
+        }
+        catch(Exception e)
+        {
+            PluginLog.Information($"[GCHandin] [SealSpend] 已離開軍需官所在的主城（停在「{step}」），這輪用軍票換物品跳過；剩餘項目數算不出來：{e.Message}");
+        }
+        finally
+        {
+            ResetPurchaseLog();
         }
     }
 
@@ -461,6 +503,7 @@ internal static unsafe class GCContinuation
 
     public static bool PurchaseItem(this GCExchangeItem item)
     {
+        if(SkipBecauseLeftCity(nameof(PurchaseItem))) return true;
         var meta = Utils.GetCurrentlyAvailableSharedExchangeListings()[item.ItemID];
         var amount = item.GetAmountThatCanBePurchased();
         if(TryGetAddonByName<AtkUnitBase>("GrandCompanyExchange", out var addon) && IsAddonReady(addon) && AutoGCHandin.IsValidGCTerritory())
@@ -542,11 +585,12 @@ internal static unsafe class GCContinuation
         List<TaskManagerTask> tasks = [];
         if(listing.ItemID == VentureItem)
         {
-            tasks.Add(new(() => SetVenturesExchangeAmount((int)itemCount), "GCPurchase.SetVenturesAmount", conf));
-            tasks.Add(new(SelectExchange, conf));
+            // 跳過時回 true＝「這一步結束」，不是「數量已設好」：後面兩步也同樣跳過，不會照預設數量成交。
+            tasks.Add(new(() => SkipBecauseLeftCity("GCPurchase.SetVenturesAmount") || SetVenturesExchangeAmount((int)itemCount), "GCPurchase.SetVenturesAmount", conf));
+            tasks.Add(new(UnlessLeftCity(SelectExchange, nameof(SelectExchange)), nameof(SelectExchange), conf));
         }
-        tasks.Add(new(ConfirmExchange, conf));
-        tasks.Add(new(() => AutoGCHandin.GetSeals() < sealsCount, "GCPurchase.WaitSealsSpent", conf));
+        tasks.Add(new(UnlessLeftCity(ConfirmExchange, nameof(ConfirmExchange)), nameof(ConfirmExchange), conf));
+        tasks.Add(new(() => SkipBecauseLeftCity("GCPurchase.WaitSealsSpent") || AutoGCHandin.GetSeals() < sealsCount, "GCPurchase.WaitSealsSpent", conf));
         tasks.Add(new(() =>
         {
             var newSeals = AutoGCHandin.GetSeals();
@@ -562,6 +606,7 @@ internal static unsafe class GCContinuation
 
     public static void BeginNewPurchase()
     {
+        if(SkipBecauseLeftCity(nameof(BeginNewPurchase))) return;
         var next = GetNextPurchaseListing();
         if(next != null)
         {
@@ -618,6 +663,8 @@ internal static unsafe class GCContinuation
         PurchaseLog.Clear();
         PurchaseLogSealsSpent = 0;
     }
+
+    private static List<GCExchangeItem> GetPurchaseCandidates() => [.. Utils.GetGCExchangePlanWithOverrides().Items, new(VentureItem, 65000)];
 
     public static GCExchangeItem GetNextPurchaseListing()
     {
