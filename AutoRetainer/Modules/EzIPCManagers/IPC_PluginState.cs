@@ -322,6 +322,29 @@ public class IPC_PluginState
         }, false, "the caller is told nothing was enqueued");
     }
 
+    /// <summary>The character-postprocess counterpart of <see cref="EnqueueApproachWorkshopBell"/>, for the plugin
+    /// AutoRetainer is currently waiting on (the main task queue is held by that wait, so the queue-based endpoint
+    /// always refuses there). Walks within reach of a Company Workshop summoning bell that is under 20 m away; only
+    /// moves, never opens the bell. Bounded: gives up after 30 s, after 5 s without progress, or as soon as the
+    /// postprocess hold is released. Returns false (with an Information line saying why) when nothing was started;
+    /// poll <see cref="GetWorkshopBellApproachState"/> afterwards.</summary>
+    [EzIPC]
+    public bool StartWorkshopBellApproach()
+    {
+        return IpcFrameworkGate.Run(nameof(StartWorkshopBellApproach), () =>
+        {
+            if(WorkshopBellApproach.TryStart(out var refused)) return true;
+            PluginLog.Information($"[WorkshopBellApproach] Refused: {refused}.");
+            return false;
+        }, false, "the caller is told nothing was started");
+    }
+
+    /// <summary>State of the last <see cref="StartWorkshopBellApproach"/>: 0 = never started, 1 = walking,
+    /// 2 = arrived (a bell is within reach, autorun stopped), 3 = gave up (reason in an Information line).
+    /// Reads one volatile int, so it deliberately skips the framework gate.</summary>
+    [EzIPC]
+    public int GetWorkshopBellApproachState() => WorkshopBellApproach.StateValue;
+
     /// <summary>Enqueues AutoRetainer's own "walk up to the summoning bell, open it, pick this retainer,
     /// open their item storage" chain. Returns false without enqueuing anything when a precondition does
     /// not hold, so a caller can stop instead of waiting out a timeout on a flow that never started.</summary>

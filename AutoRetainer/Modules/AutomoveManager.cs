@@ -68,7 +68,7 @@ internal static class AutomoveManager
     /// below still fires - failing towards "send a redundant /automove off" rather than towards
     /// "let the character run away".
     /// </summary>
-    private static bool IsAutoRunning()
+    internal static bool IsAutoRunning()
     {
         try
         {

@@ -634,6 +634,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         // Both of these recover from an aborted task queue, so they must be driven from the framework
         // update rather than from the queue they are watching.
         AutomoveManager.Tick();
+        WorkshopBellApproach.Tick();
         RetainerBulkOperation.Tick();
         // 僱員開著時每幀都會進來：只要探險 ID，不建整份僱員清單。查到的那一筆名字就等於 name。
         if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && Utils.TryGetCurrentRetainer(out var name) && GameRetainerManager.TryGetVentureIdByName(name, out var ventureId))
