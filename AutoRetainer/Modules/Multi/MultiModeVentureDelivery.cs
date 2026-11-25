@@ -68,6 +68,8 @@ internal static unsafe class MultiModeVentureDelivery
     private static readonly Dictionary<ulong, string> IneligibleLogged = [];
     private static readonly Dictionary<ulong, long> KeptLoggedAt = [];
     private static ulong LastSeenCID;
+    /// <summary>「背包快滿但背包裡沒東西可交」已為這個角色寫過；換角色或背包不再快滿時清掉。</summary>
+    private static ulong NothingInBagsLoggedCID;
 
     // 「身上有沒有東西可交」要掃整個背包（加上兵裝庫時更多），只在忙過一段之後、換了角色或隔 30 秒才重掃。
     private static bool ChecksDirty = true;
@@ -226,6 +228,7 @@ internal static unsafe class MultiModeVentureDelivery
         freeSlots = Utils.GetInventoryFreeSlotCount();
         var venturesLow = consider.HasFlag(Trigger.Ventures) && C.FullAutoGCDeliveryDeliverOnVentureExhaust && ventures <= (uint)Math.Max(0, C.FullAutoGCDeliveryDeliverOnVentureLessThan);
         var bagsLow = consider.HasFlag(Trigger.Inventory) && C.FullAutoGCDeliveryDeliverOnInventory && freeSlots <= Math.Max(0, C.FullAutoGCDeliveryInventory);
+        if(consider.HasFlag(Trigger.Inventory) && !bagsLow && NothingInBagsLoggedCID == data.CID) NothingInBagsLoggedCID = 0;
         if(!venturesLow && !bagsLow) return Trigger.None;
 
         var retainersInPlay = MultiMode.EnabledRetainers && data.Enabled && data.GetEnabledRetainers().Length > 0;
@@ -252,6 +255,11 @@ internal static unsafe class MultiModeVentureDelivery
         if(wanted.HasFlag(Trigger.Ventures) && CachedHasDeliverable && !IsPaused(data.CID, Trigger.Ventures, ventures)) due |= Trigger.Ventures;
         // 只有背包裡的東西交掉才空得出背包格子，所以這一種只看背包。
         if(wanted.HasFlag(Trigger.Inventory) && CachedDeliverableInBags > 0 && !IsPaused(data.CID, Trigger.Inventory, ventures)) due |= Trigger.Inventory;
+        if(wanted.HasFlag(Trigger.Inventory) && CachedDeliverableInBags == 0 && NothingInBagsLoggedCID != data.CID)
+        {
+            NothingInBagsLoggedCID = data.CID;
+            PluginLog.Information($"[VentureDelivery] {Censor.Character(data.Name, data.World)}: free slots {freeSlots} <= {C.FullAutoGCDeliveryInventory}, but no expert delivery items in the bags (armoury chest not counted); the Inventory trigger is not going this time.");
+        }
         return due;
     }
 
@@ -465,6 +473,7 @@ internal static unsafe class MultiModeVentureDelivery
     {
         if(data.CID == LastSeenCID) return;
         LastSeenCID = data.CID;
+        NothingInBagsLoggedCID = 0;
         if(States.TryGetValue(data.CID, out var seen))
         {
             seen.Ventures.PauseSkipLogged = false;
