@@ -124,6 +124,7 @@ internal static unsafe partial class SchedulerMain
 
         var allowedPlayerInventories = plan.GetAllowedInventories();
         var hub = TradeableGearHub.Resolve(retainer);
+        var armory = LowGearArmoryStow.ResolveExcluded(plan, vs);
 
         //unconditional entrusts: player is carrying more than the configured keep-amount
         foreach(var type in allowedPlayerInventories)
@@ -137,7 +138,7 @@ internal static unsafe partial class SchedulerMain
                 if(item->ItemId == 0 || item->Quantity == 0) continue;
                 // 存入那一側整件排除的道具（保護清單、燃料保留、裝備濾網）不能回報「有工作」——
                 // 否則僱員會被開起來、發現沒東西可搬、再關掉（空開）。判斷與存入那一側是同一支。
-                if(TaskEntrustDuplicates.GetEntrustExclusion(item->ItemId, plan, vs, hub) != TaskEntrustDuplicates.EntrustExclusion.None) continue;
+                if(TaskEntrustDuplicates.GetEntrustExclusion(item->ItemId, plan, vs, hub, armory) != TaskEntrustDuplicates.EntrustExclusion.None) continue;
 
                 int? toKeep = null;
                 if(plan.EntrustItems.Contains(item->ItemId))
@@ -236,6 +237,7 @@ internal static unsafe partial class SchedulerMain
         var hub = TradeableGearHub.Resolve(retainer);
 
         InventoryManagementSettings vs = null;
+        HashSet<uint> armory = null;
         foreach(var type in plan.GetAllowedInventories())
         {
             var inv = InventoryManager.Instance()->GetInventoryContainer(type);
@@ -247,8 +249,12 @@ internal static unsafe partial class SchedulerMain
                 if(item->ItemId == 0 || item->Quantity <= 0) continue;
                 if(!itemIds.Contains(item->ItemId)) continue;
                 // 排除在這裡現場判、不在收集候選時凍結：設定在入列與開僱員之間改了，也照當下的規則走。
-                vs ??= Data.GetIMSettings();
-                if(TaskEntrustDuplicates.GetEntrustExclusion(item->ItemId, plan, vs, hub) != TaskEntrustDuplicates.EntrustExclusion.None) continue;
+                if(vs == null)
+                {
+                    vs = Data.GetIMSettings();
+                    armory = LowGearArmoryStow.ResolveExcluded(plan, vs);
+                }
+                if(TaskEntrustDuplicates.GetEntrustExclusion(item->ItemId, plan, vs, hub, armory) != TaskEntrustDuplicates.EntrustExclusion.None) continue;
                 if(room != null && plan.DuplicatesMultiStack && IsKnownNoRoom(room, item->ItemId, item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality))) continue;
                 hit = new(TaskEntrustDuplicates.EntrustPrecheckPath.Duplicates, item->ItemId, item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality));
                 return true;

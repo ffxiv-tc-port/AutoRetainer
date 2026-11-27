@@ -78,6 +78,13 @@ internal unsafe class Config
     /// One setting shared by every feature that moves gear into the armoury chest.</summary>
     public int ArmoryStowReserveSlots = 2;
 
+    /// <summary>Multi mode: untradable, unique, deliverable gear below <see cref="ArmoryStowLowGearLevelBelow"/> is not
+    /// entrusted; it is moved into the armoury chest when the character's retainers are done. See Internal/InventoryManagement/LowGearArmoryStow.</summary>
+    public bool ArmoryStowLowGearEnabled = false;
+
+    /// <summary>Equip level (LevelEquip) threshold for <see cref="ArmoryStowLowGearEnabled"/>; gear at this level or above is entrusted as before.</summary>
+    public int ArmoryStowLowGearLevelBelow = 80;
+
     /// <summary>Use a Priority Seal Allowance (item 14946) when no seal bonus is active.</summary>
     public bool ExpertDeliveryLoopUseSealAllowance = true;
 

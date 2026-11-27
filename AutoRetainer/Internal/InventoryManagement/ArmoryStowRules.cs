@@ -94,6 +94,38 @@ internal static class ArmoryStowRules
         return room.Value > 0 ? Skip.None : Skip.ArmoryFull;
     }
 
+    /// <summary>「低等不可交易裝備放兵裝庫」的道具條件（逐格判準與容量另判）。</summary>
+    /// <remarks>契約：等級比較是嚴格小於，<paramref name="levelBelow"/> 本身那一等照常存給僱員。</remarks>
+    internal static bool IsLowGearCandidate(bool isGear, bool isDeliverable, bool isUntradable, bool isUnique, int levelEquip, int levelBelow)
+        => isGear && isDeliverable && isUntradable && isUnique && levelEquip < levelBelow;
+
+    /// <summary>背包那一半的規則這次生不生效：任一條不成立就照原本的方式存給僱員。</summary>
+    internal static bool LowGearBagRuleActive(bool enabled, bool multiMode, bool moveAvailable, bool rejectedBefore, int bagFree, int minBagFree)
+        => enabled && multiMode && moveAvailable && !rejectedBefore && bagFree >= minBagFree;
+
+    /// <summary>照背包順序替候選分配兵裝庫空間，回放得下的道具 ID。</summary>
+    /// <remarks>契約：順序與判準和 <c>ArmoryStow.Step</c> 實際搬的一致（先到先得、各分類空間扣完就停）；
+    /// 分配不到的照常存給僱員，所以這裡只可能少排除、不會多排除。<paramref name="skips"/> 可為 null。</remarks>
+    internal static HashSet<uint> AllocateWithinRoom(IEnumerable<ItemFacts> candidates, IReadOnlyDictionary<ArmorySlot, int?> rooms, IDictionary<Skip, int> skips)
+    {
+        var left = new Dictionary<ArmorySlot, int?>();
+        foreach(var kv in rooms) left[kv.Key] = kv.Value;
+        var ret = new HashSet<uint>();
+        foreach(var f in candidates)
+        {
+            var room = left.TryGetValue(f.Target, out var r) ? r : null;
+            var skip = CheckWithRoom(f, room);
+            if(skip != Skip.None)
+            {
+                if(skips != null) skips[skip] = (skips.TryGetValue(skip, out var n) ? n : 0) + 1;
+                continue;
+            }
+            if(!ret.Add(f.ItemId)) continue;
+            left[f.Target] = room.Value - 1;
+        }
+        return ret;
+    }
+
     /// <summary>D1 用的「各規則跳過幾件」，依列舉順序輸出、略過 0。</summary>
     internal static string FormatSkips(IReadOnlyDictionary<Skip, int> skips)
     {

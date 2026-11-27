@@ -56,4 +56,7 @@ internal static class SharedText
 
     /// <summary>集中僱員已不在稀有品繳交循環名單（或找不到）時的提示：兩處共用。</summary>
     public const string TradeableGearHubInvalid = "The tradeable gear hub is no longer visited by the expert delivery loop (or was not found); gear is entrusted the usual way until you pick another one.";
+
+    /// <summary>「低等不可交易裝備放兵裝庫」與存放計畫「允許從兵裝庫存放」同時開著時的提示：稀有品繳交循環設定頁與存放計畫兩處共用。</summary>
+    public const string LowGearVsEntrustFromArmory = "With \"Allow entrusting from Armory Chest\" on in an entrust plan, armoury chest gear that matches the low-level gear conditions is not entrusted by that plan, so the gear moved there stays there.";
 }

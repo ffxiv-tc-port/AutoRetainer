@@ -159,6 +159,15 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         }
     }
 
+    private static bool AnyPlanEntrustsFromArmory()
+    {
+        foreach(var p in C.EntrustPlans)
+        {
+            if(p.AllowEntrustFromArmory) return true;
+        }
+        return false;
+    }
+
     private void DrawSettings()
     {
         ImGui.Checkbox(Loc.T("Select retainers manually"), ref C.ExpertDeliveryLoopManualRetainers);
@@ -186,7 +195,17 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
 
         ImGui.Checkbox(Loc.T("Use the armoury chest as extra room for retrieved gear"), ref C.ExpertDeliveryLoopUseArmoryBuffer);
         ImGuiEx.HelpMarker(Loc.T("Only for characters whose delivery mode is \"Hide Gear Set Items\". When the bags reach the reserve, the deliverable gear this run retrieved from retainers is moved into the armoury chest, and the loop goes back to the same retainer for more. That gear is handed in from the armoury chest along with the rest.\n\nOnly gear retrieved during this run is moved; what was already in your bags is left alone. Gear with materia, a glamour or dye, any spiritbond, or used in a gear set is never moved.\n\nIf the game does not accept the move, the loop turns this off for that character, writes the reason to the log and hands in the usual way."));
-        if(C.ExpertDeliveryLoopUseArmoryBuffer)
+        ImGui.Checkbox(Loc.T("Multi mode: put low-level untradable gear in the armoury chest instead of entrusting it"), ref C.ArmoryStowLowGearEnabled);
+        ImGuiEx.HelpMarker(Loc.T("Only while Multi Mode is running. Gear that is untradable, unique, deliverable (what the expert delivery loop hands in) and below the equip level set here is not entrusted to retainers; when the character's retainers are done, it is moved from your bags into the armoury chest.\n\nEach armoury chest category keeps the free slots set below. Gear at or above that level, gear whose armoury chest category is full, and tradeable gear are entrusted as before. Gear with materia, a glamour or dye, any spiritbond, or used in a gear set is never moved; HQ gear is moved. Items listed one by one in an entrust plan and items on the Inventory Cleanup sell lists are left alone.\n\nWhile your bags have fewer free slots than the multi mode minimum, gear is entrusted the usual way. If the game does not accept a move, this is turned off for that character until the game or the plugin is restarted, and gear is entrusted the usual way.\n\nWith the delivery mode \"Hide Gear Set Items\", gear in the armoury chest that is not in a gear set is handed in as well."));
+        if(C.ArmoryStowLowGearEnabled)
+        {
+            ImGui.Indent();
+            ImGuiEx.SetNextItemWidthScaled(150);
+            ImGui.SliderInt(Loc.T("Equip level below"), ref C.ArmoryStowLowGearLevelBelow, 2, 100);
+            if(AnyPlanEntrustsFromArmory()) ImGuiEx.TextWrapped(ImGuiColors.DalamudYellow, Loc.T(SharedText.LowGearVsEntrustFromArmory));
+            ImGui.Unindent();
+        }
+        if(C.ExpertDeliveryLoopUseArmoryBuffer || C.ArmoryStowLowGearEnabled)
         {
             ImGui.Indent();
             ImGuiEx.SetNextItemWidthScaled(150);

@@ -979,6 +979,7 @@ public unsafe class AutoRetainer : IDalamudPlugin
         // 沒清乾淨的殘留項目會在下一個角色被按名字比對到（同名僱員在不同角色底下是可能的）。
         SchedulerMain.ClearPendingEntrustVendorPass("logout");
         TaskNeoHET.ResetEntranceTimeouts();
+        LowGearArmoryStow.OnLogout();
 
         if(!P.TaskManager.IsBusy)
         {

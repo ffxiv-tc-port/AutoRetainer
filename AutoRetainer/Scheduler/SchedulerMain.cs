@@ -263,6 +263,7 @@ internal static unsafe partial class SchedulerMain
                                         P.TaskManager.Enqueue(DisablePlugin);
                                         if(Data.GetIMSettings().IMEnableCofferAutoOpen) TaskOpenAllCoffers.Enqueue();
                                         if(Data.GetIMSettings().IMEnableItemDesynthesis) TaskDesynthItems.Enqueue();
+                                        if(C.ArmoryStowLowGearEnabled) TaskStowLowGear.Enqueue("multi mode wrap-up");
                                     }
                                     else if(Reason == PluginEnableReason.Artisan)
                                     {
@@ -334,6 +335,8 @@ internal static unsafe partial class SchedulerMain
                                 {
                                     DebugLog($"Scheduling retainer list closing (multi mode)");
                                     P.TaskManager.Enqueue(RetainerListHandlers.CloseRetainerList);
+                                    // 背包滿時正是排除留下的裝備最該搬走的時候；搬了也只是空出背包，不會讓這個角色回頭再收。
+                                    if(C.ArmoryStowLowGearEnabled) TaskStowLowGear.Enqueue("inventory full");
                                 }
                                 else
                                 {

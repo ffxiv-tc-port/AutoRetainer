@@ -80,6 +80,9 @@ internal static unsafe partial class TaskEntrustDuplicates
     private static readonly HashSet<uint> FlowSkippedHub = [];
     private static readonly HashSet<ulong> HubSkipReported = [];
 
+    /// <summary>這一輪流程裡被「放兵裝庫」排除、留在背包等收尾搬移的道具 ID；用集合的理由同 <see cref="FlowSkippedGear"/>。</summary>
+    private static readonly HashSet<uint> FlowSkippedArmory = [];
+
     /// <summary>這一輪流程存給哪位僱員（null＝呼叫端沒給）、是不是延後批次開的。</summary>
     private static string FlowRetainer;
     private static bool FlowFromBatch;
@@ -107,6 +110,7 @@ internal static unsafe partial class TaskEntrustDuplicates
         FlowSkippedStuck = 0;
         FlowSkippedGear.Clear();
         FlowSkippedHub.Clear();
+        FlowSkippedArmory.Clear();
     }
 
     /// <summary>Written at Information so it survives a normal log level - these numbers are the whole
@@ -156,6 +160,20 @@ internal static unsafe partial class TaskEntrustDuplicates
             }
             FlowSkippedHub.Clear();
         }
+        if(FlowSkippedArmory.Count > 0)
+        {
+            var kinds = 0;
+            var pieces = 0;
+            foreach(var id in FlowSkippedArmory)
+            {
+                var n = itemCounts.GetValueOrDefault(id);
+                if(n <= 0) continue;
+                kinds++;
+                pieces += n;
+            }
+            if(pieces > 0) PluginLog.Information($"[TED] 放兵裝庫的排除讓 {kinds} 種（{pieces} 件）裝備沒有存給{(FlowRetainer == null ? "僱員" : "這位僱員")}；留在背包的會在多角色模式收尾時搬進兵裝庫。");
+            FlowSkippedArmory.Clear();
+        }
         if(FlowMoves == 0 && FlowTimeouts == 0 && FlowSkippedStuck == 0) return;
         var total = Environment.TickCount64 - FlowStartedAt;
         var plain = FlowMoves - FlowPartialMoves;
@@ -172,7 +190,7 @@ internal static unsafe partial class TaskEntrustDuplicates
 
     /// <summary>延後批次開了僱員卻一件都沒存（空開）時，印一行：事前判斷命中哪一件，以及實際存放看這一件時的各項條件。
     /// 每次延後拜訪最多一行；只讀狀態，不影響存放。</summary>
-    private static void ReportDeferredEmptyVisit(EntrustPlan plan, InventoryManagementSettings s, Dictionary<uint, int> itemList, Dictionary<uint, int> itemCounts, EntrustHubContext hub)
+    private static void ReportDeferredEmptyVisit(EntrustPlan plan, InventoryManagementSettings s, Dictionary<uint, int> itemList, Dictionary<uint, int> itemCounts, EntrustHubContext hub, HashSet<uint> armory)
     {
         if(DeferredPrecheck is not { } d) return;
         DeferredPrecheck = null;
@@ -208,7 +226,7 @@ internal static unsafe partial class TaskEntrustDuplicates
                 }
             }
             var canFit = Utils.GetAmountThatCanFit(Utils.RetainerInventoriesWithCrystals, id, d.Hit.Hq);
-            PluginLog.Information($"[EntrustVendorPass] Empty visit to {d.Retainer}: precheck={d.Hit.Path} item={id} \"{ExcelItemHelper.GetName(id)}\" hq={d.Hit.Hq} held={itemCounts.GetValueOrDefault(id)} keep={keep} listKeep={listKeep} unique={data?.IsUnique} retainerStacks=[{string.Join(",", stacks)}] canFit={canFit} exclusion={GetEntrustExclusion(id, plan, s, hub)} {flow}");
+            PluginLog.Information($"[EntrustVendorPass] Empty visit to {d.Retainer}: precheck={d.Hit.Path} item={id} \"{ExcelItemHelper.GetName(id)}\" hq={d.Hit.Hq} held={itemCounts.GetValueOrDefault(id)} keep={keep} listKeep={listKeep} unique={data?.IsUnique} retainerStacks=[{string.Join(",", stacks)}] canFit={canFit} exclusion={GetEntrustExclusion(id, plan, s, hub, armory)} {flow}");
         }
         catch(Exception e)
         {
@@ -314,18 +332,20 @@ internal static unsafe partial class TaskEntrustDuplicates
     ///
     /// <para>📌 逐件點名在 EntrustItems 裡的道具不受裝備濾網影響:那份清單的語意就是「不管規則怎麼寫,這幾件我要存」。</para></summary>
     /// <param name="hub">由 <see cref="TradeableGearHub.Resolve"/> 取得；事前判斷與實際存放要拿同一位僱員去取。</param>
-    internal static EntrustExclusion GetEntrustExclusion(uint itemId, EntrustPlan plan, InventoryManagementSettings imSettings, EntrustHubContext hub)
+    /// <param name="armoryBound">由 <see cref="LowGearArmoryStow.ResolveExcluded"/> 取得（null＝規則不生效）；事前判斷與實際存放要用同一支取。</param>
+    internal static EntrustExclusion GetEntrustExclusion(uint itemId, EntrustPlan plan, InventoryManagementSettings imSettings, EntrustHubContext hub, HashSet<uint> armoryBound)
     {
         if(plan.ExcludeProtected && imSettings.IMProtectList.Contains(itemId)) return EntrustExclusion.Protected;
         if(AutoBuyFuelManager.IsFuelReservedForAutoBuy(itemId)) return EntrustExclusion.ReservedFuel;
-        // 兩條裝備規則都不生效時不查表：每一輪對背包每一件都會問這支。
-        if(!plan.EntrustOnlyDeliverableGear && !(hub.Active && !hub.IsHub)) return EntrustExclusion.None;
+        // 裝備規則都不生效時不查表：每一輪對背包每一件都會問這支。
+        var bound = armoryBound != null && armoryBound.Contains(itemId);
+        if(!plan.EntrustOnlyDeliverableGear && !(hub.Active && !hub.IsHub) && !bound) return EntrustExclusion.None;
         if(itemId == 0 || plan.EntrustItems.Contains(itemId)) return EntrustExclusion.None;
         var data = ExcelItemHelper.Get(itemId);
         if(data == null) return EntrustExclusion.None;
         var isGear = data.Value.ItemUICategory.RowId.EqualsAny(Utils.GearUICategories);
         var isDeliverable = !plan.EntrustOnlyDeliverableGear || !IsNonDeliverableGear(itemId, imSettings);
-        return DecideGearExclusion(plan.EntrustOnlyDeliverableGear, false, isGear, isDeliverable, data.Value.IsUntradable, hub);
+        return DecideGearExclusion(plan.EntrustOnlyDeliverableGear, false, isGear, isDeliverable, data.Value.IsUntradable, hub, bound);
     }
 
     /// <summary>延後批次全部跑完時呼叫：集中僱員這批沒開到、又有可交易裝備被其他僱員擋下，就寫一行（不為它多開僱員）。</summary>
@@ -428,6 +448,7 @@ internal static unsafe partial class TaskEntrustDuplicates
                 // interpolated string is built at the call site before InternalLog's capture-level gate can drop it.
                 var log = C.ExtraDebug;
                 var hub = TradeableGearHub.Resolve(FlowRetainer);
+                var armory = LowGearArmoryStow.ResolveExcluded(plan, s);
                 if(hub.IsHub && FlowFromBatch) BatchHubVisited = true;
 
                 // ItemID -> amount to keep, as a Dictionary so the three scan loops below look it up in O(1).
@@ -483,11 +504,12 @@ internal static unsafe partial class TaskEntrustDuplicates
                     List<uint> drop = null;
                     foreach(var id in itemList.Keys)
                     {
-                        var exclusion = GetEntrustExclusion(id, plan, s, hub);
+                        var exclusion = GetEntrustExclusion(id, plan, s, hub, armory);
                         if(exclusion == EntrustExclusion.None) continue;
                         (drop ??= []).Add(id);
                         if(exclusion == EntrustExclusion.NonDeliverableGear) FlowSkippedGear.Add(id);
                         else if(exclusion == EntrustExclusion.TradeableNotHub) FlowSkippedHub.Add(id);
+                        else if(exclusion == EntrustExclusion.ArmoryBound) FlowSkippedArmory.Add(id);
                     }
                     if(drop != null)
                     {
@@ -575,11 +597,12 @@ internal static unsafe partial class TaskEntrustDuplicates
                             // 所以從 itemList 拔掉的排除對它是反效果，必須在這裡明確再擋一次。
                             // ⚠️ 目前裝備的 StackSize 都是 1,底下的 canFit 會算成 0 而自然跳過 ——
                             // 但那是**別的條件**碰巧擋住,不是裝備濾網在生效。不要拿它當保證。
-                            var exclusion = GetEntrustExclusion(item->ItemId, plan, s, hub);
+                            var exclusion = GetEntrustExclusion(item->ItemId, plan, s, hub, armory);
                             if(exclusion != EntrustExclusion.None)
                             {
                                 if(exclusion == EntrustExclusion.NonDeliverableGear && itemCounts.ContainsKey(item->ItemId)) FlowSkippedGear.Add(item->ItemId);
                                 else if(exclusion == EntrustExclusion.TradeableNotHub && itemCounts.ContainsKey(item->ItemId)) FlowSkippedHub.Add(item->ItemId);
+                                else if(exclusion == EntrustExclusion.ArmoryBound && itemCounts.ContainsKey(item->ItemId)) FlowSkippedArmory.Add(item->ItemId);
                                 continue;
                             }
                             if(item->ItemId != 0 && !itemList.ContainsKey(item->ItemId))
@@ -612,7 +635,7 @@ internal static unsafe partial class TaskEntrustDuplicates
                     }
                 }
                 // Nothing left to move - the flow is over, so report where its time actually went.
-                ReportDeferredEmptyVisit(plan, s, itemList, itemCounts, hub);
+                ReportDeferredEmptyVisit(plan, s, itemList, itemCounts, hub, armory);
                 ReportFlow(itemCounts);
                 return true;
             }

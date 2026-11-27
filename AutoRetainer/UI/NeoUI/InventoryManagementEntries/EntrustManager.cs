@@ -87,6 +87,10 @@ public class EntrustManager : InventoryManagemenrBase
             ImGuiEx.HelpMarker(Loc.T("Allows entrust duplicates to create new stacks of items that already exist in the selected retainer."));
             ImGui.Unindent();
             ImGui.Checkbox(Loc.T("Allow entrusting from Armory Chest"), ref selectedPlan.AllowEntrustFromArmory);
+            if(selectedPlan.AllowEntrustFromArmory && C.ArmoryStowLowGearEnabled)
+            {
+                ImGuiEx.HelpMarker(Loc.T(SharedText.LowGearVsEntrustFromArmory), ImGuiColors.DalamudYellow);
+            }
             ImGui.Checkbox(Loc.T("Manual execution only"), ref selectedPlan.ManualPlan);
             ImGuiEx.HelpMarker(Loc.T("Mark this plan for manual execution only. This plan will only be processed upon manual \"Entrust Items\" button click and never automatically."));
             ImGui.Checkbox(Loc.T("Exclude items present in protection list"), ref selectedPlan.ExcludeProtected);
