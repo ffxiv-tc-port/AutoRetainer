@@ -232,6 +232,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
         BellOpenedByLoop = false;
         ListCalibratedThisBell = false;
         SelectedListItemCount = -1;
+        BeginArmoryBuffer();
         return true;
     }
 
@@ -241,6 +242,8 @@ internal static unsafe partial class GCExpertDeliveryLoop
         Running = false;
         CurrentPhase = Phase.Idle;
         RelogSuppressedSince = 0;
+        FinishStowBatch();
+        LogArmoryLeftover();
         StatusText = reason;
         // 🔴 停止只停外層狀態機,已經排進 AutoRetainer/Lifestream 的任務鏈會自己跑完 ——
         //    中途硬中斷互動鏈的風險比讓它跑完高。但那會造成「說停了卻還在繳交」的困惑,

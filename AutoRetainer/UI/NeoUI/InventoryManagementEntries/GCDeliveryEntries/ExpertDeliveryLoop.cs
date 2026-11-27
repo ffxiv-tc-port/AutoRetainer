@@ -182,6 +182,16 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
         }
         ImGuiEx.Text(ImGuiColors.DalamudGrey, reserveText);
 
+        ImGui.Checkbox(Loc.T("Use the armoury chest as extra room for retrieved gear"), ref C.ExpertDeliveryLoopUseArmoryBuffer);
+        ImGuiEx.HelpMarker(Loc.T("Only for characters whose delivery mode is \"Hide Gear Set Items\". When the bags reach the reserve, the deliverable gear this run retrieved from retainers is moved into the armoury chest, and the loop goes back to the same retainer for more. That gear is handed in from the armoury chest along with the rest.\n\nOnly gear retrieved during this run is moved; what was already in your bags is left alone. Gear with materia, a glamour or dye, any spiritbond, or used in a gear set is never moved.\n\nIf the game does not accept the move, the loop turns this off for that character, writes the reason to the log and hands in the usual way."));
+        if(C.ExpertDeliveryLoopUseArmoryBuffer)
+        {
+            ImGui.Indent();
+            ImGuiEx.SetNextItemWidthScaled(150);
+            ImGui.SliderInt(Loc.T("Free slots to keep in each armoury chest category"), ref C.ArmoryStowReserveSlots, 0, 10);
+            ImGui.Unindent();
+        }
+
         ImGui.Checkbox(Loc.T("Use Priority Seal Allowance when no seal bonus is active"), ref C.ExpertDeliveryLoopUseSealAllowance);
         if(C.ExpertDeliveryLoopUseSealAllowance)
         {

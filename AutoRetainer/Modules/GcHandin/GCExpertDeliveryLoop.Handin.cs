@@ -37,7 +37,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
     {
         if(Utils.IsBusy) return;
 
-        if(!HasDeliverableGearInBags())
+        if(!HasDeliverableGear())
         {
             if(RoundEndReason == RoundEnd.ReserveReached)
             {
@@ -49,6 +49,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
         }
 
         PluginLog.Information($"[ExpertDeliveryLoop] Starting handin round {HandinRounds + 1} with {RetrievedThisRound} item(s) retrieved this round.");
+        BeginHandinRoundStats();
         if(HasGCTarget)
         {
             // 使用者指定了繳交點:自己導航過去,然後只接繳交那一段。
@@ -141,6 +142,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
         if(ChainFinished)
         {
             PluginLog.Information($"[ExpertDeliveryLoop] Handin round {HandinRounds} finished. Round end reason: {RoundEndReason}.");
+            if(EndHandinRoundStats()) return;
             if(RoundEndReason == RoundEnd.NoGearLeft)
             {
                 FinishSuccessfully(Loc.T("Finished: everything has been delivered."));

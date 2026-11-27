@@ -70,6 +70,14 @@ internal unsafe class Config
     /// <see cref="MultiMinInventorySlots"/>, so the reserve that actually applies is the larger of the two.</summary>
     public int ExpertDeliveryLoopReservedSlots = 5;
 
+    /// <summary>When the bags reach the reserve, move the deliverable gear this run retrieved into the armoury chest
+    /// and keep retrieving. Only for characters whose delivery mode is Hide_Gear_Set_Items.</summary>
+    public bool ExpertDeliveryLoopUseArmoryBuffer = false;
+
+    /// <summary>Free slots kept in every armoury chest category when AutoRetainer moves gear there.
+    /// One setting shared by every feature that moves gear into the armoury chest.</summary>
+    public int ArmoryStowReserveSlots = 2;
+
     /// <summary>Use a Priority Seal Allowance (item 14946) when no seal bonus is active.</summary>
     public bool ExpertDeliveryLoopUseSealAllowance = true;
 

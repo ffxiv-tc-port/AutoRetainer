@@ -179,6 +179,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
             {
                 var line = string.Format(Loc.T("{0} finished ({1}/{2} characters), switching to the next one."),
                     Censor.Character(Player.Name, Player.HomeWorld), CharactersDone, BatchCIDs.Count);
+                LogArmoryLeftover();
                 DuoLog.Information($"{reason} {line}");
                 PluginLog.Information($"[ExpertDeliveryLoop] Character {CharactersDone}/{BatchCIDs.Count} done: {reason} | retrievedTotal={RetrievedTotal} handinRounds={HandinRounds}. Next CID {BatchCIDs[BatchIndex]}.");
                 SetPhase(Phase.Relog);

@@ -126,7 +126,8 @@ internal static unsafe partial class GCExpertDeliveryLoop
 
         if(ReserveReached)
         {
-            PluginLog.Information($"[ExpertDeliveryLoop] Inventory down to {Utils.GetInventoryFreeSlotCount()} free slots (reserve {EffectiveReservedSlots}), going to hand in.");
+            PluginLog.Information($"[ExpertDeliveryLoop] Inventory down to {Utils.GetInventoryFreeSlotCount()} free slots (reserve {EffectiveReservedSlots}), {(ArmoryBufferActive ? "moving gear into the armoury first" : "going to hand in")}.");
+            if(TryStartStow(StowContext.RetainerList)) return;
             RoundEndReason = RoundEnd.ReserveReached;
             SetPhase(Phase.CloseBell);
             return;
@@ -194,6 +195,11 @@ internal static unsafe partial class GCExpertDeliveryLoop
         }
 
         CalibrateListItemCount(Retainers[RetainerIndex]);
+        if(CheckProgressOnNextOpen)
+        {
+            CheckProgressOnNextOpen = false;
+            OccupiedAtStowResume = CountOccupiedRetainerSlots();
+        }
         RetainerRetrieve.ResetTracking();
         SkippedItems.Clear();
         DeferredItems.Clear();
@@ -206,6 +212,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
         if(ReserveReached)
         {
             PluginLog.Information($"[ExpertDeliveryLoop] Reserve reached while retrieving ({Utils.GetInventoryFreeSlotCount()} free, reserve {EffectiveReservedSlots}).");
+            if(TryStowFromRetainerWindow()) return;
             RoundEndReason = RoundEnd.ReserveReached;
             SetPhase(Phase.LeaveRetainer);
             return;
@@ -232,6 +239,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
                 SetPhase(Phase.RetrieveSettle);
                 return;
             }
+            OccupiedAtStowResume = -1;
             var emptied = ExpertDeliveryLoopSkipRules.IsEmptiedVerdict(true, SkippedItems.Count, DeferredItems.Count, AllRetainerPagesReadable());
             if(emptied) EmptiedRetainers.Add(Retainers[RetainerIndex]);
             PluginLog.Information($"[ExpertDeliveryLoop] {Retainers[RetainerIndex]} has no more deliverable gear. emptied={emptied} skipped={SkippedItems.Count} deferred={DeferredItems.Count}");
@@ -245,6 +253,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
             RetrievedTotal++;
             RetrievedThisRound++;
             PassFired++;
+            RetrievedItemIds.Add(itemId);
             // 送出去了就先不要再看這一件,改去對別的格子送 —— 不必站在這裡等它落地。
             DeferredItems.Add(itemId);
             return;
@@ -258,11 +267,14 @@ internal static unsafe partial class GCExpertDeliveryLoop
                 return;
 
             case RetainerRetrieve.ResultInventoryFull:
+                if(TryStowFromRetainerWindow()) return;
                 RoundEndReason = RoundEnd.ReserveReached;
                 SetPhase(Phase.LeaveRetainer);
                 return;
 
             case RetainerRetrieve.ResultBlockedUnique:
+                RoundBlockedUnique++;
+                goto case RetainerRetrieve.ResultNotPresent;
             case RetainerRetrieve.ResultInCrystals:
             case RetainerRetrieve.ResultNotPresent:
                 SkippedItems.Add(itemId);
@@ -302,6 +314,16 @@ internal static unsafe partial class GCExpertDeliveryLoop
 
         if(now - SettleLastChangeAt < SettleQuietMs && now - PhaseEnteredAt < SettleCapMs) return;
 
+        if(CheckRetrieveProgressAfterStow(count)) return;
+        if(StowAfterSettle)
+        {
+            StowAfterSettle = false;
+            if(TryStartStow(StowContext.RetainerWindow)) return;
+            RoundEndReason = RoundEnd.ReserveReached;
+            SetPhase(Phase.LeaveRetainer);
+            return;
+        }
+
         // 落地了(或等太久)。重新開一趟:上一趟被伺服器拒收的格子這時候會重新被納入。
         RetainerRetrieve.ResetTracking();
         DeferredItems.Clear();
@@ -331,7 +353,8 @@ internal static unsafe partial class GCExpertDeliveryLoop
             return;
         }
 
-        RetainerIndex++;
+        if(KeepRetainerIndex) KeepRetainerIndex = false;
+        else RetainerIndex++;
         SetPhase(RoundEndReason == RoundEnd.ReserveReached ? Phase.CloseBell : Phase.SelectRetainer);
     }
 
@@ -352,6 +375,11 @@ internal static unsafe partial class GCExpertDeliveryLoop
         {
             Stop(Loc.T("Stopped: could not leave the summoning bell."));
             return;
+        }
+        if(ClosedBellStowPending)
+        {
+            ClosedBellStowPending = false;
+            if(TryStartStow(StowContext.BellClosed)) return;
         }
         SetPhase(Phase.Handin);
     }

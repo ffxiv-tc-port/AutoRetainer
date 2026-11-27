@@ -120,6 +120,8 @@ internal static unsafe partial class GCExpertDeliveryLoop
         SelectRetainerWait,
         Retrieve,
         RetrieveSettle,
+        /// <summary>兵裝庫緩衝：把這一趟取回的裝備搬進兵裝庫（只有 <c>ExpertDeliveryLoopUseArmoryBuffer</c> 開著才會進來）。</summary>
+        ArmoryStow,
         LeaveRetainer,
         LeaveRetainerWait,
         CloseBell,
@@ -288,6 +290,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
         Phase.OpenBell or Phase.OpenBellWait => Loc.T("Opening the summoning bell"),
         Phase.SelectRetainer or Phase.SelectRetainerWait => Loc.T("Opening retainer"),
         Phase.Retrieve or Phase.RetrieveSettle => Loc.T("Retrieving gear"),
+        Phase.ArmoryStow => Loc.T("Moving gear into the armoury chest"),
         Phase.LeaveRetainer or Phase.LeaveRetainerWait or Phase.CloseBell or Phase.CloseBellWait => Loc.T("Closing retainer"),
         Phase.Handin or Phase.HandinWait => Loc.T("Handing in at the Grand Company"),
         Phase.FinishReturnToBell or Phase.FinishReturnToBellWait => Loc.T("Returning to the summoning bell"),
@@ -474,6 +477,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
             case Phase.SelectRetainerWait: TickSelectRetainerWait(); break;
             case Phase.Retrieve: TickRetrieve(); break;
             case Phase.RetrieveSettle: TickRetrieveSettle(); break;
+            case Phase.ArmoryStow: TickArmoryStow(); break;
             case Phase.LeaveRetainer: TickLeaveRetainer(); break;
             case Phase.LeaveRetainerWait: TickLeaveRetainerWait(); break;
             case Phase.CloseBell: TickCloseBell(); break;
