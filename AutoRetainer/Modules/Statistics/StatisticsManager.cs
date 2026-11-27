@@ -15,12 +15,14 @@ internal static unsafe class StatisticsManager
     {
         Svc.Chat.ChatMessage += Chat_ChatMessage;
         Svc.ClientState.TerritoryChanged += ClientState_TerritoryChanged;
+        VentureUniqueDiag.Init();
     }
 
     internal static void Shutdown()
     {
         Svc.Chat.ChatMessage -= Chat_ChatMessage;
         Svc.ClientState.TerritoryChanged -= ClientState_TerritoryChanged;
+        VentureUniqueDiag.Shutdown();
         Files.Clear();
     }
 
@@ -34,6 +36,7 @@ internal static unsafe class StatisticsManager
     {
         if(Svc.Condition[ConditionFlag.OccupiedSummoningBell] && ProperOnLogin.PlayerPresent && (ushort)type == 2110 && Svc.Targets.Target.IsRetainerBell() && Utils.TryGetCurrentRetainer(out var retName))
         {
+            VentureUniqueDiag.OnRewardMessage(message);
             var textProcessed = false;
             uint amount = 1;
             foreach(var x in message.Payloads)
