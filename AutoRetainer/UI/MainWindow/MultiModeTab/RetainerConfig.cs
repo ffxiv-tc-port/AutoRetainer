@@ -7,11 +7,22 @@ public static unsafe class RetainerConfig
     /// <summary>角色層級的設定，每位僱員的設定頁都畫同一份。選單只列稀有品繳交循環會拜訪的僱員。</summary>
     private static void DrawTradeableGearHub(OfflineCharacterData data)
     {
+        ImGuiEx.TextV(Loc.T("Tradeable gear hub:"));
+        ImGui.SameLine();
+        DrawTradeableGearHubCombo(data);
+        ImGuiEx.HelpMarker(Loc.T(SharedText.TradeableGearHubHelp));
+        if(IsTradeableGearHubInvalid(data))
+        {
+            ImGuiEx.Text(EColor.RedBright, Loc.T(SharedText.TradeableGearHubInvalid));
+        }
+    }
+
+    /// <summary>集中僱員的下拉選單本體；稀有品繳交循環設定頁每個角色一列也畫這個。ID 唯一靠呼叫端的 PushID 範圍。</summary>
+    internal static void DrawTradeableGearHubCombo(OfflineCharacterData data)
+    {
         C.TradeableGearHub.TryGetValue(data.CID, out var hubId);
         var hub = hubId == 0 ? null : data.RetainerData.FirstOrDefault(x => x.RetainerID == hubId);
         var label = hubId == 0 ? Loc.T("Not selected") : hub == null ? Loc.T("(retainer not found)") : Censor.Retainer(hub.Name);
-        ImGuiEx.TextV(Loc.T("Tradeable gear hub:"));
-        ImGui.SameLine();
         ImGuiEx.SetNextItemWidthScaled(150f);
         if(ImGui.BeginCombo("##tradeableGearHub", label, ImGuiComboFlags.HeightLarge))
         {
@@ -26,12 +37,11 @@ public static unsafe class RetainerConfig
             }
             ImGui.EndCombo();
         }
-        ImGuiEx.HelpMarker(Loc.T("Tradeable gear (gear that is not untradable) is entrusted only to this retainer; the other retainers no longer take tradeable gear. When this retainer has no room, tradeable gear stays in your inventory. While your inventory has fewer free slots than the multi mode minimum, gear is entrusted the usual way. Only retainers visited by the expert delivery loop can be chosen. Untradable gear and items listed one by one in the entrust plan are not affected; with \"entrust only deliverable rare items\" on, gear that cannot be delivered still stays on you. If this retainer is not opened in a round, it is not opened just for this; the gear waits for its next turn."));
-        if(hubId != 0 && !TradeableGearHub.TryGetHubName(data, out _))
-        {
-            ImGuiEx.Text(EColor.RedBright, Loc.T("The tradeable gear hub is no longer visited by the expert delivery loop (or was not found); gear is entrusted the usual way until you pick another one."));
-        }
     }
+
+    /// <summary>設了集中僱員，但他已不在稀有品繳交循環的名單裡（或找不到）。</summary>
+    internal static bool IsTradeableGearHubInvalid(OfflineCharacterData data)
+        => C.TradeableGearHub.TryGetValue(data.CID, out var hubId) && hubId != 0 && !TradeableGearHub.TryGetHubName(data, out _);
 
     public static void Draw(OfflineRetainerData ret, OfflineCharacterData data, AdditionalRetainerData adata)
     {

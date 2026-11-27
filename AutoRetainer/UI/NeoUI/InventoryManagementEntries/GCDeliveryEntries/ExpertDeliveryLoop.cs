@@ -1,5 +1,7 @@
 using AutoRetainer.Modules.GcHandin;
 
+using AutoRetainer.UI.MainWindow.MultiModeTab;
+
 using AutoRetainerAPI.Configuration;
 
 using ECommons.GameHelpers;
@@ -192,6 +194,8 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
             ImGui.Unindent();
         }
 
+        DrawTradeableGearHubs();
+
         ImGui.Checkbox(Loc.T("Use Priority Seal Allowance when no seal bonus is active"), ref C.ExpertDeliveryLoopUseSealAllowance);
         if(C.ExpertDeliveryLoopUseSealAllowance)
         {
@@ -251,6 +255,34 @@ public sealed unsafe class ExpertDeliveryLoop : InventoryManagemenrBase
     }
 
     #region 多角色連跑
+
+    /// <summary>「可交易裝備集中到」每個角色一列；和僱員設定框裡的是同一個設定（<see cref="Config.TradeableGearHub"/>）。</summary>
+    private void DrawTradeableGearHubs()
+    {
+        ImGuiEx.TextV(Loc.T("Tradeable gear hub:"));
+        ImGuiEx.HelpMarker(Loc.T(SharedText.TradeableGearHubHelp));
+        if(!ImGui.BeginTable("##TradeableGearHubs", 2, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg)) return;
+        ImGui.TableSetupColumn(Loc.T("Character"), ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn(Loc.T("Hub retainer"));
+        ImGui.TableHeadersRow();
+        for(var i = 0; i < C.OfflineData.Count; i++)
+        {
+            var data = C.OfflineData[i];
+            if(data.RetainerData.Count == 0) continue;
+            ImGui.PushID(i);
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            ImGuiEx.TextV(GetCharacterName(data));
+            ImGui.TableNextColumn();
+            RetainerConfig.DrawTradeableGearHubCombo(data);
+            if(RetainerConfig.IsTradeableGearHubInvalid(data))
+            {
+                ImGuiEx.HelpMarker(Loc.T(SharedText.TradeableGearHubInvalid), EColor.RedBright, FontAwesomeIcon.ExclamationTriangle.ToIconString());
+            }
+            ImGui.PopID();
+        }
+        ImGui.EndTable();
+    }
 
     private void DrawMultiCharacter()
     {

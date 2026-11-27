@@ -50,4 +50,10 @@ internal static class SharedText
 
     /// <summary>潛水艇目標計畫與解鎖計畫兩個視窗：這份計畫沒有任何潛水艇在用時顯示。</summary>
     public const string PlanNotUsedByAnySubmersibles = "This plan is not used by any submersibles.";
+
+    /// <summary>「可交易裝備集中到」的說明：僱員設定框與稀有品繳交循環設定頁共用。</summary>
+    public const string TradeableGearHubHelp = "Tradeable gear (gear that is not untradable) is entrusted only to this retainer; the other retainers no longer take tradeable gear. When this retainer has no room, tradeable gear stays in your inventory. While your inventory has fewer free slots than the multi mode minimum, gear is entrusted the usual way. Only retainers visited by the expert delivery loop can be chosen. Untradable gear and items listed one by one in the entrust plan are not affected; with \"entrust only deliverable rare items\" on, gear that cannot be delivered still stays on you. If this retainer is not opened in a round, it is not opened just for this; the gear waits for its next turn.";
+
+    /// <summary>集中僱員已不在稀有品繳交循環名單（或找不到）時的提示：兩處共用。</summary>
+    public const string TradeableGearHubInvalid = "The tradeable gear hub is no longer visited by the expert delivery loop (or was not found); gear is entrusted the usual way until you pick another one.";
 }
