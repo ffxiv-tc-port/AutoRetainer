@@ -104,7 +104,7 @@ internal unsafe class RetainerListOverlay : Window
                             if(selectedPlan != null)
                             {
                                 P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(ret.Name.ToString()), "BulkEntrustPlan.SelectRetainer");
-                                TaskEntrustDuplicates.EnqueueNew(selectedPlan);
+                                TaskEntrustDuplicates.EnqueueNew(selectedPlan, retainer: ret.Name.ToString());
                                 if(C.RetainerMenuDelay > 0)
                                 {
                                     TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);

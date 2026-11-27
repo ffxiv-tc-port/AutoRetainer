@@ -203,7 +203,7 @@ internal static unsafe partial class SchedulerMain
                                     // business settled. The retainer is not open yet here (selecting it is only queued), so the
                                     // duplicates half is queued as unknown (null) and measured by CaptureEntrustNoRoom once it is.
                                     var selectedPlan = C.EntrustPlans.FirstOrDefault(x => x.Guid == adata.EntrustPlan && !x.ManualPlan);
-                                    var hasSharedWork = HasSharedEntrustVendorWork(selectedPlan);
+                                    var hasSharedWork = HasSharedEntrustVendorWork(selectedPlan, retainer);
                                     var duplicatesPossible = C.EnableEntrustManager && selectedPlan != null && selectedPlan.Duplicates;
                                     var queuedOnlyForDuplicates = false;
                                     if((hasSharedWork || duplicatesPossible)

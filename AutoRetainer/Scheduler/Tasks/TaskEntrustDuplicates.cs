@@ -10,7 +10,7 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace AutoRetainer.Scheduler.Tasks;
 
-internal static unsafe class TaskEntrustDuplicates
+internal static unsafe partial class TaskEntrustDuplicates
 {
     internal static int RequestEntrustQuantity = 0;
     internal static List<(uint ID, uint Quantity)> CapturedInventoryState = [];
@@ -76,6 +76,18 @@ internal static unsafe class TaskEntrustDuplicates
     /// 不需要鎖;外掛存活期間刻意不清空,清空就會退回每輪一行。</summary>
     private static readonly HashSet<ulong> GearSkipReported = [];
 
+    /// <summary>這一輪流程裡被「可交易裝備集中到一位僱員」擋下的道具 ID；用集合的理由同 <see cref="FlowSkippedGear"/>。</summary>
+    private static readonly HashSet<uint> FlowSkippedHub = [];
+    private static readonly HashSet<ulong> HubSkipReported = [];
+
+    /// <summary>這一輪流程存給哪位僱員（null＝呼叫端沒給）、是不是延後批次開的。</summary>
+    private static string FlowRetainer;
+    private static bool FlowFromBatch;
+
+    /// <summary>延後批次累計：非集中僱員擋下的可交易裝備、集中僱員這批有沒有開到。由 <see cref="ReportHubBatchEnd"/> 結算。</summary>
+    private static readonly HashSet<uint> BatchHubSkipped = [];
+    private static bool BatchHubVisited;
+
     private static void ResetFlowTracking()
     {
         Attempts.Clear();
@@ -94,6 +106,7 @@ internal static unsafe class TaskEntrustDuplicates
         FlowThrottleWaitMs = 0;
         FlowSkippedStuck = 0;
         FlowSkippedGear.Clear();
+        FlowSkippedHub.Clear();
     }
 
     /// <summary>Written at Information so it survives a normal log level - these numbers are the whole
@@ -123,6 +136,26 @@ internal static unsafe class TaskEntrustDuplicates
             }
             FlowSkippedGear.Clear();
         }
+        if(FlowSkippedHub.Count > 0)
+        {
+            var kinds = 0;
+            var pieces = 0;
+            foreach(var id in FlowSkippedHub)
+            {
+                var n = itemCounts.GetValueOrDefault(id);
+                if(n <= 0) continue;
+                kinds++;
+                pieces += n;
+            }
+            if(pieces > 0)
+            {
+                var message = $"[TED] 可交易裝備集中：{pieces} 件可交易裝備（{kinds} 種）沒有存給這位僱員，留在背包等集中僱員。";
+                if(HubSkipReported.Add(Svc.PlayerState.ContentId)) PluginLog.Information(message);
+                else PluginLog.Debug(message);
+                if(FlowFromBatch) BatchHubSkipped.UnionWith(FlowSkippedHub);
+            }
+            FlowSkippedHub.Clear();
+        }
         if(FlowMoves == 0 && FlowTimeouts == 0 && FlowSkippedStuck == 0) return;
         var total = Environment.TickCount64 - FlowStartedAt;
         var plain = FlowMoves - FlowPartialMoves;
@@ -139,7 +172,7 @@ internal static unsafe class TaskEntrustDuplicates
 
     /// <summary>延後批次開了僱員卻一件都沒存（空開）時，印一行：事前判斷命中哪一件，以及實際存放看這一件時的各項條件。
     /// 每次延後拜訪最多一行；只讀狀態，不影響存放。</summary>
-    private static void ReportDeferredEmptyVisit(EntrustPlan plan, InventoryManagementSettings s, Dictionary<uint, int> itemList, Dictionary<uint, int> itemCounts)
+    private static void ReportDeferredEmptyVisit(EntrustPlan plan, InventoryManagementSettings s, Dictionary<uint, int> itemList, Dictionary<uint, int> itemCounts, EntrustHubContext hub)
     {
         if(DeferredPrecheck is not { } d) return;
         DeferredPrecheck = null;
@@ -175,7 +208,7 @@ internal static unsafe class TaskEntrustDuplicates
                 }
             }
             var canFit = Utils.GetAmountThatCanFit(Utils.RetainerInventoriesWithCrystals, id, d.Hit.Hq);
-            PluginLog.Information($"[EntrustVendorPass] Empty visit to {d.Retainer}: precheck={d.Hit.Path} item={id} \"{ExcelItemHelper.GetName(id)}\" hq={d.Hit.Hq} held={itemCounts.GetValueOrDefault(id)} keep={keep} listKeep={listKeep} unique={data?.IsUnique} retainerStacks=[{string.Join(",", stacks)}] canFit={canFit} exclusion={GetEntrustExclusion(id, plan, s)} {flow}");
+            PluginLog.Information($"[EntrustVendorPass] Empty visit to {d.Retainer}: precheck={d.Hit.Path} item={id} \"{ExcelItemHelper.GetName(id)}\" hq={d.Hit.Hq} held={itemCounts.GetValueOrDefault(id)} keep={keep} listKeep={listKeep} unique={data?.IsUnique} retainerStacks=[{string.Join(",", stacks)}] canFit={canFit} exclusion={GetEntrustExclusion(id, plan, s, hub)} {flow}");
         }
         catch(Exception e)
         {
@@ -193,7 +226,8 @@ internal static unsafe class TaskEntrustDuplicates
     private static (string Retainer, EntrustPrecheckHit Hit)? DeferredPrecheck;
 
     /// <param name="deferredRetainer">只有延後批次給；其他入口（介面按鈕）不給，就不會印空開診斷。</param>
-    public static void EnqueueNew(EntrustPlan plan, string deferredRetainer = null, EntrustPrecheckHit deferredHit = default)
+    /// <param name="retainer">要存給的僱員名字（判斷是不是集中僱員用）；不給時用 <paramref name="deferredRetainer"/>。</param>
+    public static void EnqueueNew(EntrustPlan plan, string deferredRetainer = null, EntrustPrecheckHit deferredHit = default, string retainer = null)
     {
         // 送不出指令時整段不排：否則每一格都要白等逾時、重試三次才跳過。
         if(!P.Memory.CanSendRetainerItemCommand)
@@ -206,6 +240,8 @@ internal static unsafe class TaskEntrustDuplicates
             WasOpen = false;
             ResetFlowTracking();
             DeferredPrecheck = deferredRetainer == null ? null : (deferredRetainer, deferredHit);
+            FlowRetainer = retainer ?? deferredRetainer;
+            FlowFromBatch = deferredRetainer != null;
         }), "EntrustDuplicates.ResetFlowTracking");
         P.TaskManager.Enqueue(() => TryGetAddonByName<AtkUnitBase>("SelectString", out var addon) && IsAddonReady(addon), "EntrustDuplicates.WaitSelectString");
         P.TaskManager.Enqueue(() => RecursivelyEntrustItems(plan), "EntrustDuplicates.EntrustItems", new(timeLimitMS: 60 * 60 * 1000));
@@ -271,22 +307,57 @@ internal static unsafe class TaskEntrustDuplicates
         return !GCExpertDeliveryLoop.IsDeliverableGear(itemId, imSettings);
     }
 
-    internal enum EntrustExclusion { None, Protected, ReservedFuel, NonDeliverableGear }
-
     /// <summary>這件道具在 <paramref name="plan"/> 下是否被存放規則整件排除(不看數量、不看僱員放不放得下)。
     ///
     /// <para>🔴 存放流程與排程的「這個僱員有沒有存放工作」(SchedulerMain)都只問這一支:事前判斷只要比這裡
     /// 多擋一件,那一輪就漏存;少擋一件只是多開一次僱員。</para>
     ///
     /// <para>📌 逐件點名在 EntrustItems 裡的道具不受裝備濾網影響:那份清單的語意就是「不管規則怎麼寫,這幾件我要存」。</para></summary>
-    internal static EntrustExclusion GetEntrustExclusion(uint itemId, EntrustPlan plan, InventoryManagementSettings imSettings)
+    /// <param name="hub">由 <see cref="TradeableGearHub.Resolve"/> 取得；事前判斷與實際存放要拿同一位僱員去取。</param>
+    internal static EntrustExclusion GetEntrustExclusion(uint itemId, EntrustPlan plan, InventoryManagementSettings imSettings, EntrustHubContext hub)
     {
         if(plan.ExcludeProtected && imSettings.IMProtectList.Contains(itemId)) return EntrustExclusion.Protected;
         if(AutoBuyFuelManager.IsFuelReservedForAutoBuy(itemId)) return EntrustExclusion.ReservedFuel;
-        if(plan.EntrustOnlyDeliverableGear
-            && !plan.EntrustItems.Contains(itemId)
-            && IsNonDeliverableGear(itemId, imSettings)) return EntrustExclusion.NonDeliverableGear;
-        return EntrustExclusion.None;
+        // 兩條裝備規則都不生效時不查表：每一輪對背包每一件都會問這支。
+        if(!plan.EntrustOnlyDeliverableGear && !(hub.Active && !hub.IsHub)) return EntrustExclusion.None;
+        if(itemId == 0 || plan.EntrustItems.Contains(itemId)) return EntrustExclusion.None;
+        var data = ExcelItemHelper.Get(itemId);
+        if(data == null) return EntrustExclusion.None;
+        var isGear = data.Value.ItemUICategory.RowId.EqualsAny(Utils.GearUICategories);
+        var isDeliverable = !plan.EntrustOnlyDeliverableGear || !IsNonDeliverableGear(itemId, imSettings);
+        return DecideGearExclusion(plan.EntrustOnlyDeliverableGear, false, isGear, isDeliverable, data.Value.IsUntradable, hub);
+    }
+
+    /// <summary>延後批次全部跑完時呼叫：集中僱員這批沒開到、又有可交易裝備被其他僱員擋下，就寫一行（不為它多開僱員）。</summary>
+    internal static void ReportHubBatchEnd()
+    {
+        if(BatchHubSkipped.Count == 0)
+        {
+            BatchHubVisited = false;
+            return;
+        }
+        try
+        {
+            if(!BatchHubVisited)
+            {
+                var kinds = 0;
+                var pieces = 0;
+                foreach(var id in BatchHubSkipped)
+                {
+                    var n = Utils.GetItemCount(Utils.PlayerInvetories, id);
+                    if(n <= 0) continue;
+                    kinds++;
+                    pieces += n;
+                }
+                if(pieces > 0) PluginLog.Information($"[TED] 可交易裝備集中：這一輪沒有開到集中僱員，{pieces} 件可交易裝備（{kinds} 種）留在背包，等它下次輪到再存。");
+            }
+        }
+        catch(Exception e)
+        {
+            e.Log();
+        }
+        BatchHubSkipped.Clear();
+        BatchHubVisited = false;
     }
 
     // 🔴 這支是任務回呼、每幀跑，而數量輸入框被送出之後有「正在關閉中」的幾幀：GetAddonByName 仍拿得到實例、
@@ -356,6 +427,8 @@ internal static unsafe class TaskEntrustDuplicates
                 // not free: each line does an Excel row lookup plus a SeString to string conversion, and the
                 // interpolated string is built at the call site before InternalLog's capture-level gate can drop it.
                 var log = C.ExtraDebug;
+                var hub = TradeableGearHub.Resolve(FlowRetainer);
+                if(hub.IsHub && FlowFromBatch) BatchHubVisited = true;
 
                 // ItemID -> amount to keep, as a Dictionary so the three scan loops below look it up in O(1).
                 // First entry wins.
@@ -410,10 +483,11 @@ internal static unsafe class TaskEntrustDuplicates
                     List<uint> drop = null;
                     foreach(var id in itemList.Keys)
                     {
-                        var exclusion = GetEntrustExclusion(id, plan, s);
+                        var exclusion = GetEntrustExclusion(id, plan, s, hub);
                         if(exclusion == EntrustExclusion.None) continue;
                         (drop ??= []).Add(id);
                         if(exclusion == EntrustExclusion.NonDeliverableGear) FlowSkippedGear.Add(id);
+                        else if(exclusion == EntrustExclusion.TradeableNotHub) FlowSkippedHub.Add(id);
                     }
                     if(drop != null)
                     {
@@ -501,10 +575,11 @@ internal static unsafe class TaskEntrustDuplicates
                             // 所以從 itemList 拔掉的排除對它是反效果，必須在這裡明確再擋一次。
                             // ⚠️ 目前裝備的 StackSize 都是 1,底下的 canFit 會算成 0 而自然跳過 ——
                             // 但那是**別的條件**碰巧擋住,不是裝備濾網在生效。不要拿它當保證。
-                            var exclusion = GetEntrustExclusion(item->ItemId, plan, s);
+                            var exclusion = GetEntrustExclusion(item->ItemId, plan, s, hub);
                             if(exclusion != EntrustExclusion.None)
                             {
                                 if(exclusion == EntrustExclusion.NonDeliverableGear && itemCounts.ContainsKey(item->ItemId)) FlowSkippedGear.Add(item->ItemId);
+                                else if(exclusion == EntrustExclusion.TradeableNotHub && itemCounts.ContainsKey(item->ItemId)) FlowSkippedHub.Add(item->ItemId);
                                 continue;
                             }
                             if(item->ItemId != 0 && !itemList.ContainsKey(item->ItemId))
@@ -537,7 +612,7 @@ internal static unsafe class TaskEntrustDuplicates
                     }
                 }
                 // Nothing left to move - the flow is over, so report where its time actually went.
-                ReportDeferredEmptyVisit(plan, s, itemList, itemCounts);
+                ReportDeferredEmptyVisit(plan, s, itemList, itemCounts, hub);
                 ReportFlow(itemCounts);
                 return true;
             }

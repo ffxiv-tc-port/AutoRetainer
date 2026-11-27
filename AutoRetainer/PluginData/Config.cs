@@ -441,6 +441,8 @@ internal unsafe class Config
     /// the next one, so lowering this does not allow two commands to be in flight at once. See
     /// TaskEntrustDuplicates for the measurements the default is derived from.</summary>
     public int EntrustIntervalMS = 150;
+    /// <summary>角色 CID → 可交易裝備集中僱員的 RetainerID。沒有這個角色的鍵＝不集中（預設）。見 Modules/TradeableGearHub。</summary>
+    public Dictionary<ulong, ulong> TradeableGearHub = [];
 
     public bool HETWhenDisabled = false;
     /// <summary>僱員與航行器都沒啟用的角色不自動進房（只擋「多角色模式關閉時登入就進房」與「開啟多角色模式時進房」兩處）。預設關＝維持既有行為。</summary>

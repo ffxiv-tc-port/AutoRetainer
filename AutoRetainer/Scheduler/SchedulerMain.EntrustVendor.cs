@@ -42,10 +42,10 @@ internal static unsafe partial class SchedulerMain
             var canRevalidate = Data != null && Utils.IsInventoryStateReadable() && duplicatesCandidates != null;
             TaskEntrustDuplicates.EntrustPrecheckHit precheck = default;
             if(canRevalidate
-                && !TryFindPlayerHeldCandidate(selectedPlan, duplicatesCandidates, room, out precheck)
-                && !TryFindSharedEntrustVendorWork(selectedPlan, room, out precheck))
+                && !TryFindPlayerHeldCandidate(selectedPlan, duplicatesCandidates, room, next, out precheck)
+                && !TryFindSharedEntrustVendorWork(selectedPlan, room, next, out precheck))
             {
-                if(room != null && (TryFindPlayerHeldCandidate(selectedPlan, duplicatesCandidates, null, out var dropped) || TryFindSharedEntrustVendorWork(selectedPlan, null, out dropped)))
+                if(room != null && (TryFindPlayerHeldCandidate(selectedPlan, duplicatesCandidates, null, next, out var dropped) || TryFindSharedEntrustVendorWork(selectedPlan, null, next, out dropped)))
                 {
                     PluginLog.Information($"[EntrustVendorPass] Skipping {next}: everything the player still carries for it is something it had no room for when it was open (first: {dropped.Path} item={dropped.ItemId} hq={dropped.Hq} reason={RoomReason(room, dropped.ItemId, dropped.Hq)}; {room.NoRoom?.Count ?? 0} item/quality pair(s) judged no-room, freeSlots={room.FreeSlots}, fillableStacks={room.FillableStacks.Count}).");
                     continue;
@@ -58,7 +58,7 @@ internal static unsafe partial class SchedulerMain
 
             if(C.EnableEntrustManager && selectedPlan != null)
             {
-                TaskEntrustDuplicates.EnqueueNew(selectedPlan, next, precheck);
+                TaskEntrustDuplicates.EnqueueNew(selectedPlan, next, precheck, next);
             }
 
             if(Data.GetIMSettings().IMEnableAutoVendor)
@@ -74,6 +74,7 @@ internal static unsafe partial class SchedulerMain
             P.TaskManager.Enqueue(RetainerHandlers.ConfirmCantBuyback);
             return true;
         }
+        TaskEntrustDuplicates.ReportHubBatchEnd();
         return false;
     }
 
@@ -85,11 +86,12 @@ internal static unsafe partial class SchedulerMain
     /// 讀不到的容器／格位一律 <c>continue</c>，也就是**只可能少報工作、不可能多報**。
     /// ⚠️ 解參考 null 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，只能靠事前檢查。
     /// </remarks>
-    private static bool HasSharedEntrustVendorWork(EntrustPlan? plan) => TryFindSharedEntrustVendorWork(plan, null, out _);
+    private static bool HasSharedEntrustVendorWork(EntrustPlan? plan, string retainer) => TryFindSharedEntrustVendorWork(plan, null, retainer, out _);
 
     /// <summary><see cref="HasSharedEntrustVendorWork"/> 本體；<paramref name="hit"/> 是讓它回 true 的第一件（給空開診斷用）。</summary>
     /// <param name="room">null＝不篩；否則跳過快照判定放不進的（道具, HQ）——實際存放對這些道具只走「無條件存入」那圈，那圈放不下就不搬。</param>
-    private static unsafe bool TryFindSharedEntrustVendorWork(EntrustPlan? plan, EntrustRoomSnapshot room, out TaskEntrustDuplicates.EntrustPrecheckHit hit)
+    /// <param name="retainer">要開的僱員；集中僱員規則要和實際存放取同一位。</param>
+    private static unsafe bool TryFindSharedEntrustVendorWork(EntrustPlan? plan, EntrustRoomSnapshot room, string retainer, out TaskEntrustDuplicates.EntrustPrecheckHit hit)
     {
         hit = default;
         var vs = Data.GetIMSettings();
@@ -121,6 +123,7 @@ internal static unsafe partial class SchedulerMain
         }
 
         var allowedPlayerInventories = plan.GetAllowedInventories();
+        var hub = TradeableGearHub.Resolve(retainer);
 
         //unconditional entrusts: player is carrying more than the configured keep-amount
         foreach(var type in allowedPlayerInventories)
@@ -134,7 +137,7 @@ internal static unsafe partial class SchedulerMain
                 if(item->ItemId == 0 || item->Quantity == 0) continue;
                 // 存入那一側整件排除的道具（保護清單、燃料保留、裝備濾網）不能回報「有工作」——
                 // 否則僱員會被開起來、發現沒東西可搬、再關掉（空開）。判斷與存入那一側是同一支。
-                if(TaskEntrustDuplicates.GetEntrustExclusion(item->ItemId, plan, vs) != TaskEntrustDuplicates.EntrustExclusion.None) continue;
+                if(TaskEntrustDuplicates.GetEntrustExclusion(item->ItemId, plan, vs, hub) != TaskEntrustDuplicates.EntrustExclusion.None) continue;
 
                 int? toKeep = null;
                 if(plan.EntrustItems.Contains(item->ItemId))
@@ -221,15 +224,16 @@ internal static unsafe partial class SchedulerMain
     /// 這是「有沒有可能有工作」的必要條件而非充分條件，回 <c>true</c> 只代表「還得開起來看」。
     /// 寬 ⇒ 失敗方向是多開一次僱員，不是漏搬。
     /// </remarks>
-    private static bool PlayerHoldsAnyOf(EntrustPlan? plan, HashSet<uint> itemIds) => TryFindPlayerHeldCandidate(plan, itemIds, null, out _);
+    private static bool PlayerHoldsAnyOf(EntrustPlan? plan, HashSet<uint> itemIds, string retainer) => TryFindPlayerHeldCandidate(plan, itemIds, null, retainer, out _);
 
     /// <summary><see cref="PlayerHoldsAnyOf"/> 本體；<paramref name="hit"/> 是讓它回 true 的第一件（給空開診斷用）。</summary>
     /// <param name="room">null＝不篩。只在多堆疊模式篩：那時重複道具只經「無條件存入」那圈搬（放不下就不搬）；
     /// 補堆疊模式的實際條件是「同品質的堆疊還有空間」，不是同一支判斷，所以不篩。</param>
-    private static unsafe bool TryFindPlayerHeldCandidate(EntrustPlan? plan, HashSet<uint> itemIds, EntrustRoomSnapshot room, out TaskEntrustDuplicates.EntrustPrecheckHit hit)
+    private static unsafe bool TryFindPlayerHeldCandidate(EntrustPlan? plan, HashSet<uint> itemIds, EntrustRoomSnapshot room, string retainer, out TaskEntrustDuplicates.EntrustPrecheckHit hit)
     {
         hit = default;
         if(plan == null || itemIds.Count == 0) return false;
+        var hub = TradeableGearHub.Resolve(retainer);
 
         InventoryManagementSettings vs = null;
         foreach(var type in plan.GetAllowedInventories())
@@ -244,7 +248,7 @@ internal static unsafe partial class SchedulerMain
                 if(!itemIds.Contains(item->ItemId)) continue;
                 // 排除在這裡現場判、不在收集候選時凍結：設定在入列與開僱員之間改了，也照當下的規則走。
                 vs ??= Data.GetIMSettings();
-                if(TaskEntrustDuplicates.GetEntrustExclusion(item->ItemId, plan, vs) != TaskEntrustDuplicates.EntrustExclusion.None) continue;
+                if(TaskEntrustDuplicates.GetEntrustExclusion(item->ItemId, plan, vs, hub) != TaskEntrustDuplicates.EntrustExclusion.None) continue;
                 if(room != null && plan.DuplicatesMultiStack && IsKnownNoRoom(room, item->ItemId, item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality))) continue;
                 hit = new(TaskEntrustDuplicates.EntrustPrecheckPath.Duplicates, item->ItemId, item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality));
                 return true;
@@ -276,7 +280,7 @@ internal static unsafe partial class SchedulerMain
             return true;
         }
         var candidates = CollectDuplicatesCandidates(plan);
-        if(queuedOnlyForDuplicates && !PlayerHoldsAnyOf(plan, candidates) && !HasSharedEntrustVendorWork(plan))
+        if(queuedOnlyForDuplicates && !PlayerHoldsAnyOf(plan, candidates, retainer) && !HasSharedEntrustVendorWork(plan, retainer))
         {
             PendingEntrustVendorPostprocess.RemoveAt(index);
             PluginLog.Debug($"[EntrustVendorPass] {retainer}: dropped from the batch, the player carries none of its {candidates.Count} duplicate candidate(s) and there is no shared work");

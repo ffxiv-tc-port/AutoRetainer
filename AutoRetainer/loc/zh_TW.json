@@ -1,4 +1,8 @@
 {
+  "Tradeable gear hub:": "可交易裝備集中到：",
+  "(retainer not found)": "（找不到這位僱員）",
+  "Tradeable gear (gear that is not untradable) is entrusted only to this retainer; the other retainers no longer take tradeable gear. When this retainer has no room, tradeable gear stays in your inventory. While your inventory has fewer free slots than the multi mode minimum, gear is entrusted the usual way. Only retainers visited by the expert delivery loop can be chosen. Untradable gear and items listed one by one in the entrust plan are not affected; with \"entrust only deliverable rare items\" on, gear that cannot be delivered still stays on you. If this retainer is not opened in a round, it is not opened just for this; the gear waits for its next turn.": "可交易的裝備只存給這位僱員，其他僱員不再收可交易的裝備；這位僱員放不下時，可交易裝備會留在背包。背包空格少於「繼續作業所需的最小背包欄位數」時，暫時照原本的方式存放。只能選稀有品繳交循環會拜訪的僱員。不可交易的裝備、存放計畫裡逐件指定的道具不受影響；開著「裝備類別只存放可繳交的稀有品」時，不可繳交的裝備照樣留在身上。這一輪沒有開到這位僱員時，不會為了它多開，可交易裝備留在背包等它下次輪到。",
+  "The tradeable gear hub is no longer visited by the expert delivery loop (or was not found); gear is entrusted the usual way until you pick another one.": "這位集中僱員已不在稀有品繳交循環的名單裡（或找不到），重新選一位之前照原本的方式存放。",
   "\nClick to Entrust.": "\n點擊以存放。",
   "\nItems that are protected are unaffected by these actions": "\n受保護的物品不受此操作影響",
   "\nThis is manual processing plan": "\n這是手動處理計畫",

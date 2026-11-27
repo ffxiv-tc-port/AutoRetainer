@@ -69,7 +69,7 @@ public static unsafe class RetainerTable
                                 TaskInteractWithNearestBell.Enqueue();
 
                             P.TaskManager.Enqueue(() => RetainerListHandlers.SelectRetainerByName(clicked.Name.ToString()));
-                            TaskEntrustDuplicates.EnqueueNew(plan);
+                            TaskEntrustDuplicates.EnqueueNew(plan, retainer: clicked.Name.ToString());
                             if(C.RetainerMenuDelay > 0)
                             {
                                 TaskWaitSelectString.Enqueue(C.RetainerMenuDelay);
