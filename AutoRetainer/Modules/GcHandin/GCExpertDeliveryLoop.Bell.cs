@@ -151,6 +151,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
             BellTravelOccupiedSince = 0;
             RetainerIndex = 0;
             RetrievedThisRound = 0;
+            RoundBlockedUnique = 0;
             RoundEndReason = RoundEnd.NoGearLeft;
             AfterBellOpen = Phase.SelectRetainer;
             SetPhase(Phase.OpenBell);

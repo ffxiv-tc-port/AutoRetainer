@@ -142,9 +142,18 @@ internal static unsafe partial class GCExpertDeliveryLoop
         if(ChainFinished)
         {
             PluginLog.Information($"[ExpertDeliveryLoop] Handin round {HandinRounds} finished. Round end reason: {RoundEndReason}.");
+            // EndHandinRoundStats 會把這個計數歸零，先抄下來。
+            var blockedUnique = RoundBlockedUnique;
             if(EndHandinRoundStats()) return;
             if(RoundEndReason == RoundEnd.NoGearLeft)
             {
+                // 身上已有同一件珍稀品而取不出來的，那一件剛交掉就取得出來了；有界：下一輪取不到東西時繳交閘門會收工。
+                if(blockedUnique > 0 && RetrievedThisRound > 0)
+                {
+                    PluginLog.Information($"[ExpertDeliveryLoop] {blockedUnique} item(s) could not be retrieved this round because a copy of the same unique item was held; this handin may have freed them, so starting another round.");
+                    SetPhase(Phase.EnsureBell);
+                    return;
+                }
                 FinishSuccessfully(Loc.T("Finished: everything has been delivered."));
                 return;
             }
