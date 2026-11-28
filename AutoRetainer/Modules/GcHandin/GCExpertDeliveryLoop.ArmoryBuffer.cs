@@ -69,7 +69,7 @@ internal static unsafe partial class GCExpertDeliveryLoop
 
         var mode = Utils.GetCurrentCharacterData()?.GCDeliveryType;
         string why = null;
-        if(mode != GCDeliveryType.Hide_Gear_Set_Items) why = "this character's delivery mode is not Hide_Gear_Set_Items";
+        if(!ArmoryStow.DeliveryModeUsesArmory(mode)) why = ArmoryStow.DeliveryModeNotUsingArmory;
         else if(!ArmoryStow.MoveAvailable) why = "MoveItemSlot is not resolved on this client";
         else if(!SnapshotBags()) why = "the bags could not be read";
         ArmoryBufferEnabledForCharacter = why == null;

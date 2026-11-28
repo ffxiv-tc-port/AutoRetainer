@@ -34,7 +34,9 @@ internal static unsafe class TaskStowLowGear
             var why = LowGearArmoryStow.WhyNotStow();
             if(why != null)
             {
-                if(C.ArmoryStowLowGearEnabled) PluginLog.Information($"[ArmoryStow] {LowGearArmoryStow.Owner} ({Context}): not moving this time ({why}).");
+                // 繳交模式不符的 Information 已由 LowGearArmoryStow 每個角色寫過一次。
+                if(why == ArmoryStow.DeliveryModeNotUsingArmory) PluginLog.Debug($"[ArmoryStow] {LowGearArmoryStow.Owner} ({Context}): not moving this time ({why}).");
+                else if(C.ArmoryStowLowGearEnabled) PluginLog.Information($"[ArmoryStow] {LowGearArmoryStow.Owner} ({Context}): not moving this time ({why}).");
                 return true;
             }
             if(!Player.Available || IsOccupied() || !Utils.IsInventoryStateReadable())

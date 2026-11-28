@@ -1,3 +1,4 @@
+using AutoRetainerAPI.Configuration;
 using ECommons.ExcelServices;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game;
@@ -42,6 +43,12 @@ internal static unsafe class ArmoryStow
         ArmorySlot.SoulCrystal => InventoryType.ArmorySoulCrystal,
         _ => InventoryType.Invalid,
     };
+
+    /// <summary>兵裝庫緩衝與低等裝備放兵裝庫共用的繳交模式判準：只對繳交模式為 Hide_Gear_Set_Items 的角色生效。</summary>
+    /// <remarks>其他模式的稀有品繳交不保證會交兵裝庫裡的裝備（Hide_Armoury_Chest_Items 完全看不到），放進去就卡住。</remarks>
+    internal static bool DeliveryModeUsesArmory(GCDeliveryType? mode) => mode == GCDeliveryType.Hide_Gear_Set_Items;
+
+    internal const string DeliveryModeNotUsingArmory = "this character's delivery mode is not Hide_Gear_Set_Items";
 
     /// <summary>🔴 出貨閘門：函式指標是 null 還照呼叫＝AVE，try/catch 攔不到。</summary>
     internal static bool MoveAvailable => InventoryManager.MemberFunctionPointers.MoveItemSlot != null;

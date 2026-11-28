@@ -79,7 +79,8 @@ internal unsafe class Config
     public int ArmoryStowReserveSlots = 2;
 
     /// <summary>Multi mode: untradable, unique, deliverable gear below <see cref="ArmoryStowLowGearLevelBelow"/> is not
-    /// entrusted; it is moved into the armoury chest when the character's retainers are done. See Internal/InventoryManagement/LowGearArmoryStow.</summary>
+    /// entrusted; it is moved into the armoury chest when the character's retainers are done. Only for characters whose delivery
+    /// mode is Hide_Gear_Set_Items. See Internal/InventoryManagement/LowGearArmoryStow.</summary>
     public bool ArmoryStowLowGearEnabled = false;
 
     /// <summary>Equip level (LevelEquip) threshold for <see cref="ArmoryStowLowGearEnabled"/>; gear at this level or above is entrusted as before.</summary>

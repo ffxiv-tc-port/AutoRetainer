@@ -8,6 +8,7 @@ namespace AutoRetainer.Internal.InventoryManagement;
 
 /// <summary>
 /// 多角色模式：不可交易、珍稀、裝備等級低於門檻、可繳交的裝備不存給僱員，收尾時搬進兵裝庫（<see cref="Config.ArmoryStowLowGearEnabled"/>）。
+/// 只對繳交模式符合 <see cref="ArmoryStow.DeliveryModeUsesArmory"/> 的角色生效；存放排除與收尾搬移兩邊都判。
 /// 契約：只在框架執行緒呼叫。存放排除（<see cref="ResolveExcluded"/>）與收尾搬移（<see cref="TaskStowLowGear"/>）
 /// 用同一支 <see cref="IsLowGearItem"/> 判道具、同一套 <see cref="ArmoryStowRules"/> 判逐格與容量；
 /// 任何讀不到或搬移被拒的情況，方向都是「照原本的方式存給僱員」。
@@ -54,6 +55,7 @@ internal static unsafe class LowGearArmoryStow
     internal static HashSet<uint> ResolveExcluded(EntrustPlan plan, InventoryManagementSettings ims)
     {
         if(plan == null || !C.ArmoryStowLowGearEnabled || !MultiMode.Active) return null;
+        if(!DeliveryModeAllows()) return null;
         HashSet<uint> ret = null;
         var cid = Player.CID;
         var bagFree = Utils.GetInventoryFreeSlotCount();
@@ -113,6 +115,15 @@ internal static unsafe class LowGearArmoryStow
         return ret;
     }
 
+    /// <summary>目前角色的繳交模式准不准用兵裝庫；不准時每個角色寫一次 Information。</summary>
+    private static bool DeliveryModeAllows()
+    {
+        var mode = Data?.GCDeliveryType;
+        if(ArmoryStow.DeliveryModeUsesArmory(mode)) return true;
+        ReportInactive(Player.CID, $"{ArmoryStow.DeliveryModeNotUsingArmory}, it is {mode?.ToString() ?? "?"}");
+        return false;
+    }
+
     private static void ReportInactive(ulong cid, string why)
     {
         if(!InactiveReported.Add((cid, why))) return;
@@ -123,6 +134,7 @@ internal static unsafe class LowGearArmoryStow
     internal static string WhyNotStow()
     {
         if(!C.ArmoryStowLowGearEnabled) return "turned off";
+        if(!DeliveryModeAllows()) return ArmoryStow.DeliveryModeNotUsingArmory;
         if(!ArmoryStow.MoveAvailable) return "MoveItemSlot is not resolved on this client";
         if(Rejected.Contains(Player.CID)) return "a move was rejected earlier (until the game or plugin restarts)";
         return null;
