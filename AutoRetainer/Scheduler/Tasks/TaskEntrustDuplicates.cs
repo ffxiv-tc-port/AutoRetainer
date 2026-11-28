@@ -80,6 +80,10 @@ internal static unsafe partial class TaskEntrustDuplicates
     private static readonly HashSet<uint> FlowSkippedHub = [];
     private static readonly HashSet<ulong> HubSkipReported = [];
 
+    /// <summary>這一輪流程裡集中僱員不收的不可交易裝備 ID；用集合的理由同 <see cref="FlowSkippedGear"/>。</summary>
+    private static readonly HashSet<uint> FlowSkippedHubUntradable = [];
+    private static readonly HashSet<ulong> HubUntradableReported = [];
+
     /// <summary>這一輪流程裡被「放兵裝庫」排除、留在背包等收尾搬移的道具 ID；用集合的理由同 <see cref="FlowSkippedGear"/>。</summary>
     private static readonly HashSet<uint> FlowSkippedArmory = [];
 
@@ -90,6 +94,8 @@ internal static unsafe partial class TaskEntrustDuplicates
     /// <summary>延後批次累計：非集中僱員擋下的可交易裝備、集中僱員這批有沒有開到。由 <see cref="ReportHubBatchEnd"/> 結算。</summary>
     private static readonly HashSet<uint> BatchHubSkipped = [];
     private static bool BatchHubVisited;
+    /// <summary>延後批次累計：集中僱員擋下的不可交易裝備。由 <see cref="ReportHubBatchEnd"/> 結算。</summary>
+    private static readonly HashSet<uint> BatchHubUntradableSkipped = [];
 
     private static void ResetFlowTracking()
     {
@@ -110,7 +116,22 @@ internal static unsafe partial class TaskEntrustDuplicates
         FlowSkippedStuck = 0;
         FlowSkippedGear.Clear();
         FlowSkippedHub.Clear();
+        FlowSkippedHubUntradable.Clear();
         FlowSkippedArmory.Clear();
+    }
+
+    private static (int Kinds, int Pieces) CountHeld(IEnumerable<uint> ids, Func<uint, int> count)
+    {
+        var kinds = 0;
+        var pieces = 0;
+        foreach(var id in ids)
+        {
+            var n = count(id);
+            if(n <= 0) continue;
+            kinds++;
+            pieces += n;
+        }
+        return (kinds, pieces);
     }
 
     /// <summary>Written at Information so it survives a normal log level - these numbers are the whole
@@ -159,6 +180,18 @@ internal static unsafe partial class TaskEntrustDuplicates
                 if(FlowFromBatch) BatchHubSkipped.UnionWith(FlowSkippedHub);
             }
             FlowSkippedHub.Clear();
+        }
+        if(FlowSkippedHubUntradable.Count > 0)
+        {
+            var (kinds, pieces) = CountHeld(FlowSkippedHubUntradable, id => itemCounts.GetValueOrDefault(id));
+            if(pieces > 0)
+            {
+                var message = $"[TED] 可交易裝備集中：{pieces} 件不可交易裝備（{kinds} 種）沒有存給集中僱員，留在背包給其他僱員。";
+                if(HubUntradableReported.Add(Svc.PlayerState.ContentId)) PluginLog.Information(message);
+                else PluginLog.Debug(message);
+                if(FlowFromBatch) BatchHubUntradableSkipped.UnionWith(FlowSkippedHubUntradable);
+            }
+            FlowSkippedHubUntradable.Clear();
         }
         if(FlowSkippedArmory.Count > 0)
         {
@@ -339,7 +372,7 @@ internal static unsafe partial class TaskEntrustDuplicates
         if(AutoBuyFuelManager.IsFuelReservedForAutoBuy(itemId)) return EntrustExclusion.ReservedFuel;
         // 裝備規則都不生效時不查表：每一輪對背包每一件都會問這支。
         var bound = armoryBound != null && armoryBound.Contains(itemId);
-        if(!plan.EntrustOnlyDeliverableGear && !(hub.Active && !hub.IsHub) && !bound) return EntrustExclusion.None;
+        if(!plan.EntrustOnlyDeliverableGear && !hub.Active && !bound) return EntrustExclusion.None;
         if(itemId == 0 || plan.EntrustItems.Contains(itemId)) return EntrustExclusion.None;
         var data = ExcelItemHelper.Get(itemId);
         if(data == null) return EntrustExclusion.None;
@@ -348,16 +381,22 @@ internal static unsafe partial class TaskEntrustDuplicates
         return DecideGearExclusion(plan.EntrustOnlyDeliverableGear, false, isGear, isDeliverable, data.Value.IsUntradable, hub, bound);
     }
 
-    /// <summary>延後批次全部跑完時呼叫：集中僱員這批沒開到、又有可交易裝備被其他僱員擋下，就寫一行（不為它多開僱員）。</summary>
+    /// <summary>延後批次全部跑完時呼叫：集中僱員這批沒開到、又有可交易裝備被其他僱員擋下，就寫一行；
+    /// 集中僱員擋下的不可交易裝備在它之後沒人收下（例：它是這批最後一位）也寫一行。兩種都不為它多開僱員。</summary>
     internal static void ReportHubBatchEnd()
     {
-        if(BatchHubSkipped.Count == 0)
+        if(BatchHubSkipped.Count == 0 && BatchHubUntradableSkipped.Count == 0)
         {
             BatchHubVisited = false;
             return;
         }
         try
         {
+            if(BatchHubUntradableSkipped.Count > 0)
+            {
+                var (kinds, pieces) = CountHeld(BatchHubUntradableSkipped, id => Utils.GetItemCount(Utils.PlayerInvetories, id));
+                if(pieces > 0) PluginLog.Information($"[TED] 可交易裝備集中：集中僱員沒有收的不可交易裝備還有 {pieces} 件（{kinds} 種）留在背包，這一輪在它之後沒有別的僱員收下，等下一輪再存。");
+            }
             if(!BatchHubVisited)
             {
                 var kinds = 0;
@@ -377,6 +416,7 @@ internal static unsafe partial class TaskEntrustDuplicates
             e.Log();
         }
         BatchHubSkipped.Clear();
+        BatchHubUntradableSkipped.Clear();
         BatchHubVisited = false;
     }
 
@@ -509,6 +549,7 @@ internal static unsafe partial class TaskEntrustDuplicates
                         (drop ??= []).Add(id);
                         if(exclusion == EntrustExclusion.NonDeliverableGear) FlowSkippedGear.Add(id);
                         else if(exclusion == EntrustExclusion.TradeableNotHub) FlowSkippedHub.Add(id);
+                        else if(exclusion == EntrustExclusion.UntradableAtHub) FlowSkippedHubUntradable.Add(id);
                         else if(exclusion == EntrustExclusion.ArmoryBound) FlowSkippedArmory.Add(id);
                     }
                     if(drop != null)
@@ -602,6 +643,7 @@ internal static unsafe partial class TaskEntrustDuplicates
                             {
                                 if(exclusion == EntrustExclusion.NonDeliverableGear && itemCounts.ContainsKey(item->ItemId)) FlowSkippedGear.Add(item->ItemId);
                                 else if(exclusion == EntrustExclusion.TradeableNotHub && itemCounts.ContainsKey(item->ItemId)) FlowSkippedHub.Add(item->ItemId);
+                                else if(exclusion == EntrustExclusion.UntradableAtHub && itemCounts.ContainsKey(item->ItemId)) FlowSkippedHubUntradable.Add(item->ItemId);
                                 else if(exclusion == EntrustExclusion.ArmoryBound && itemCounts.ContainsKey(item->ItemId)) FlowSkippedArmory.Add(item->ItemId);
                                 continue;
                             }

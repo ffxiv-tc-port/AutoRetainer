@@ -3,7 +3,7 @@ using AutoRetainerAPI.Configuration;
 
 namespace AutoRetainer.Modules;
 
-/// <summary>「可交易裝備集中到一位僱員」：每個角色可指定一位僱員（<see cref="Config.TradeableGearHub"/>），其他僱員不收可交易的裝備。</summary>
+/// <summary>「可交易裝備集中到一位僱員」：每個角色可指定一位僱員（<see cref="Config.TradeableGearHub"/>），其他僱員不收可交易的裝備、這位僱員不收不可交易的裝備。</summary>
 /// <remarks>
 /// 契約：只在框架執行緒呼叫。規則只有在「設了、角色資料裡找得到那位僱員、而且他是稀有品繳交循環會拜訪的僱員、背包沒有快滿」時生效；
 /// 任一條不成立就回 <c>default</c>＝照原本的方式存放。
