@@ -7,7 +7,7 @@ using static AutoRetainer.Internal.InventoryManagement.ArmoryStowRules;
 namespace AutoRetainer.Internal.InventoryManagement;
 
 /// <summary>
-/// 多角色模式：不可交易、珍稀、裝備等級低於門檻、可繳交的裝備不存給僱員，收尾時搬進兵裝庫（<see cref="Config.ArmoryStowLowGearEnabled"/>）。
+/// 多角色模式：不可交易、裝備等級低於門檻、可繳交的裝備不存給僱員，收尾時搬進兵裝庫（<see cref="Config.ArmoryStowLowGearEnabled"/>）。
 /// 只對繳交模式符合 <see cref="ArmoryStow.DeliveryModeUsesArmory"/> 的角色生效；存放排除與收尾搬移兩邊都判。
 /// 契約：只在框架執行緒呼叫。存放排除（<see cref="ResolveExcluded"/>）與收尾搬移（<see cref="TaskStowLowGear"/>）
 /// 用同一支 <see cref="IsLowGearItem"/> 判道具、同一套 <see cref="ArmoryStowRules"/> 判逐格與容量；
@@ -44,7 +44,7 @@ internal static unsafe class LowGearArmoryStow
         if(named != null && named.Contains(itemId)) return false;
         // 自動賣出清單也是分解清單：交給那兩條處理，不搶。
         if(ims.IMAutoVendorHard.Contains(itemId) || ims.IMAutoVendorSoft.Contains(itemId)) return false;
-        return IsLowGearCandidate(isGear, GCExpertDeliveryLoop.IsDeliverableGear(itemId, ims), data.Value.IsUntradable, data.Value.IsUnique, data.Value.LevelEquip, C.ArmoryStowLowGearLevelBelow);
+        return IsLowGearCandidate(isGear, GCExpertDeliveryLoop.IsDeliverableGear(itemId, ims), data.Value.IsUntradable, data.Value.LevelEquip, C.ArmoryStowLowGearLevelBelow);
     }
 
     /// <summary>存放排除用：在 <paramref name="plan"/> 下不存給僱員的道具 ID；null＝規則不生效。</summary>

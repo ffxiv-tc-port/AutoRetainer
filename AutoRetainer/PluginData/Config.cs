@@ -78,7 +78,7 @@ internal unsafe class Config
     /// One setting shared by every feature that moves gear into the armoury chest.</summary>
     public int ArmoryStowReserveSlots = 2;
 
-    /// <summary>Multi mode: untradable, unique, deliverable gear below <see cref="ArmoryStowLowGearLevelBelow"/> is not
+    /// <summary>Multi mode: untradable, deliverable gear below <see cref="ArmoryStowLowGearLevelBelow"/> is not
     /// entrusted; it is moved into the armoury chest when the character's retainers are done. Only for characters whose delivery
     /// mode is Hide_Gear_Set_Items. See Internal/InventoryManagement/LowGearArmoryStow.</summary>
     public bool ArmoryStowLowGearEnabled = false;
